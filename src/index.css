@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Thermal print styles */
+@media print {
+  body * { visibility: hidden; }
+  .thermal-print, .thermal-print * { visibility: visible; }
+  .thermal-print { position: absolute; left: 0; top: 0; width: 80mm; }
+}
