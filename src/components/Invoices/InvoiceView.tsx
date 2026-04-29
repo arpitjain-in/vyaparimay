@@ -22,19 +22,48 @@ export default function InvoiceView() {
   const customerCopyText = buildCustomerCopyText(invoice, businessProfile);
 
   const handlePrint = (text: string, title: string) => {
-    const w = window.open('', '_blank');
+    const w = window.open('', '_blank', 'width=302,height=600');
     if (!w) return;
+    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     w.document.write(`<!DOCTYPE html><html><head>
+      <meta charset="utf-8" />
       <title>${title}</title>
       <style>
-        @page { size: 80mm auto; margin: 2mm; }
-        body { font-family: 'Courier New', Courier, monospace; font-size: 11px; margin: 0; padding: 4px; }
-        pre { white-space: pre; margin: 0; }
+        @page {
+          size: 80mm auto;
+          margin: 0;
+        }
+        * {
+          box-sizing: border-box;
+        }
+        html, body {
+          width: 80mm;
+          max-width: 80mm;
+          margin: 0;
+          padding: 3mm 3mm;
+          font-family: 'Courier New', Courier, monospace;
+          font-size: 9px;
+          line-height: 1.35;
+          color: #000;
+          background: #fff;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        pre {
+          white-space: pre;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          margin: 0;
+          width: 100%;
+        }
       </style>
-    </head><body><pre>${text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre></body></html>`);
+    </head><body><pre>${escaped}</pre></body></html>`);
     w.document.close();
     w.focus();
-    w.print();
+    w.onload = () => {
+      w.print();
+      w.onafterprint = () => w.close();
+    };
   };
 
   const handleCopy = () => {
