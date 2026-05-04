@@ -31,7 +31,7 @@ export default function InvoiceView() {
       <style>
         @page {
           size: 80mm auto;
-          margin: 0;
+          margin: 3mm 3mm;
         }
         * {
           box-sizing: border-box;
@@ -40,9 +40,9 @@ export default function InvoiceView() {
           width: 80mm;
           max-width: 80mm;
           margin: 0;
-          padding: 3mm 3mm;
+          padding: 0;
           font-family: 'Courier New', Courier, monospace;
-          font-size: 9px;
+          font-size: 12px;
           line-height: 1.35;
           color: #000;
           background: #fff;

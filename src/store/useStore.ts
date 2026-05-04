@@ -4,15 +4,22 @@ import {
   AppPage, BusinessProfile, CartItem, CurrentOrder,
   Customer, Invoice, OrderItem, StockTransaction,
   PackagingEntry, ProductionLog, PaymentReceipt,
+  ReadyStockTransaction, StockStatus,
 } from '../types';
-import { PACKAGING_MATERIALS, PRODUCTS, DEFAULT_PRICES, getRawMaterialId, RAW_MATERIALS } from '../data/products';
+import { PACKAGING_MATERIALS, PRODUCTS, DEFAULT_PRICES } from '../data/products';
 import { isInterState, calcGST } from '../utils/gst';
 import { numberToWords } from '../utils/numberToWords';
 import { formatDate, formatTime, getCurrentFY } from '../utils/format';
+import * as db from '../lib/db';
 
 // ─── State shape ─────────────────────────────────────────────────────────────
 
 interface AppState {
+  // Auth / tenant
+  orgId: string | null;
+  isInitialized: boolean;
+  initError: string | null;
+
   // Navigation
   currentPage: AppPage;
   selectedCustomerId: string | null;
@@ -38,14 +45,17 @@ interface AppState {
   receiptSeq: number;
 
   // Inventory
-  rawMaterialStock: Record<string, number>;     // RM-WF -> kg (bulk flour)
+  rawMaterialStock: Record<string, number>;     // RM-WF -> kg (kept for legacy compatibility)
   packagingStock: Record<string, number>;        // PKG-* -> current unit balance
   packagingEntries: PackagingEntry[];           // full purchase/used/damaged ledger
   productionLogs: ProductionLog[];              // standalone daily production records
-  stockTransactions: StockTransaction[];         // bulk flour adjustments
+  stockTransactions: StockTransaction[];         // legacy bulk flour adjustments
+  readyStock: Record<string, number>;           // skuId -> count of packed/ready units
+  readyStockTransactions: ReadyStockTransaction[]; // history of ready stock changes
   reorderLevels: {
     raw: Record<string, number>;
     packaging: Record<string, number>;
+    ready: Record<string, number>;
   };
 
   // Pricing
@@ -53,6 +63,8 @@ interface AppState {
 
   // ─── Actions ───────────────────────────────────────────────────────
 
+  // Init
+  initializeApp(): Promise<void>;
   // Navigation
   navigate(page: AppPage, params?: { customerId?: string; invoiceId?: string; editCustomerId?: string }): void;
 
@@ -85,6 +97,10 @@ interface AppState {
   addProductionLog(log: Omit<ProductionLog, 'id' | 'time'>): void;
   adjustStock(type: 'raw' | 'packaging', id: string, qty: number, reason: string): void;
   setReorderLevel(type: 'raw' | 'packaging', id: string, level: number): void;
+  addReadyStockEntry(skuId: string, qty: number, reason: string, date: string): void;
+  adjustReadyStock(skuId: string, qty: number, reason: string, date?: string): void;
+  setReadyStockReorderLevel(skuId: string, level: number): void;
+  getReadyStockStatus(skuId: string): StockStatus;
 
   // Pricing
   updatePrice(skuId: string, rate: number): void;
@@ -100,9 +116,13 @@ const initRaw: Record<string, number> = { 'RM-WF': 0, 'RM-BS': 0, 'RM-DL': 0, 'R
 const initPkg: Record<string, number> = Object.fromEntries(
   PACKAGING_MATERIALS.map(p => [p.id, 0])
 );
+const initReady: Record<string, number> = Object.fromEntries(
+  PRODUCTS.map(p => [p.id, 0])
+);
 const initReorder = {
   raw:       { 'RM-WF': 0, 'RM-BS': 0, 'RM-DL': 0 },
   packaging: Object.fromEntries(PACKAGING_MATERIALS.map(p => [p.id, 0])),
+  ready:     Object.fromEntries(PRODUCTS.map(p => [p.id, 0])),
 };
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -110,6 +130,11 @@ const initReorder = {
 export const useStore = create<AppState>()(
   persist(
     (set, get) => ({
+      // Auth / tenant
+      orgId: null,
+      isInitialized: false,
+      initError: null,
+
       // Navigation
       currentPage: 'setup',
       selectedCustomerId: null,
@@ -140,10 +165,90 @@ export const useStore = create<AppState>()(
       packagingEntries: [],
       productionLogs: [],
       stockTransactions: [],
+      readyStock: initReady,
+      readyStockTransactions: [],
       reorderLevels: initReorder,
 
       // Pricing
       priceList: { ...DEFAULT_PRICES },
+
+      // ─── Init ────────────────────────────────────────────────────────
+
+      async initializeApp() {
+        try {
+          const userId = await db.initAuth();
+          const orgId = await db.getOrCreateOrg(userId);
+
+          const [
+            businessProfile,
+            { customers, seq: customerSeq },
+            invoices,
+            { receipts: paymentReceipts, seq: receiptSeq },
+            packagingEntries,
+            productionLogs,
+            stockData,
+            dbPriceList,
+            dbReorderLevels,
+          ] = await Promise.all([
+            db.loadBusinessProfile(orgId),
+            db.loadCustomers(orgId),
+            db.loadInvoices(orgId),
+            db.loadPaymentReceipts(orgId),
+            db.loadPackagingEntries(orgId),
+            db.loadProductionLogs(orgId),
+            db.loadStockData(orgId),
+            db.loadPriceList(orgId),
+            db.loadReorderLevels(orgId),
+          ]);
+
+          // Derive invoice counters from loaded invoices
+          const invoiceCounters: Record<string, number> = {};
+          for (const inv of invoices) {
+            const match = inv.invoiceNo.match(/INV-(\d{4})-(\d+)/);
+            if (match) {
+              const fy = match[1];
+              const seq = parseInt(match[2], 10);
+              invoiceCounters[fy] = Math.max(invoiceCounters[fy] ?? 0, seq);
+            }
+          }
+
+          const s = get();
+          set({
+            orgId,
+            isInitialized: true,
+            businessProfile,
+            customers,
+            customerSeq,
+            invoices,
+            invoiceCounters,
+            paymentReceipts,
+            receiptSeq,
+            packagingEntries,
+            productionLogs,
+            ...stockData,
+            priceList:
+              Object.keys(dbPriceList).length > 0 ? dbPriceList : s.priceList,
+            reorderLevels: {
+              raw: { ...s.reorderLevels.raw, ...dbReorderLevels.raw },
+              packaging: {
+                ...s.reorderLevels.packaging,
+                ...dbReorderLevels.packaging,
+              },
+              ready: { ...s.reorderLevels.ready, ...dbReorderLevels.ready },
+            },
+            currentPage: businessProfile
+              ? s.currentPage === 'setup'
+                ? 'dashboard'
+                : s.currentPage
+              : 'setup',
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn('[initializeApp] Supabase unavailable, running offline:', msg);
+          // App continues with localStorage data — Supabase writes will be skipped
+          set({ isInitialized: true, initError: null });
+        }
+      },
 
       // ─── Navigation ──────────────────────────────────────────────────
 
@@ -160,6 +265,8 @@ export const useStore = create<AppState>()(
 
       setBusinessProfile(profile) {
         set({ businessProfile: profile, currentPage: 'dashboard' });
+        const { orgId } = get();
+        if (orgId) db.saveBusinessProfile(orgId, profile).catch(console.error);
       },
 
       // ─── Customers ───────────────────────────────────────────────────
@@ -174,6 +281,8 @@ export const useStore = create<AppState>()(
           active: true,
         };
         set(s => ({ customers: [...s.customers, customer], customerSeq: seq }));
+        const { orgId } = get();
+        if (orgId) db.saveCustomer(orgId, customer, seq).catch(console.error);
         return id;
       },
 
@@ -181,12 +290,17 @@ export const useStore = create<AppState>()(
         set(s => ({
           customers: s.customers.map(c => (c.id === id ? { ...c, ...data } : c)),
         }));
+        const { orgId } = get();
+        if (orgId) db.updateCustomerInDb(orgId, id, data).catch(console.error);
       },
 
       deactivateCustomer(id) {
         set(s => ({
           customers: s.customers.map(c => (c.id === id ? { ...c, active: false } : c)),
         }));
+        const { orgId } = get();
+        if (orgId)
+          db.updateCustomerInDb(orgId, id, { active: false }).catch(console.error);
       },
 
       // ─── Order ───────────────────────────────────────────────────────
@@ -293,7 +407,7 @@ export const useStore = create<AppState>()(
         const roundOff    = parseFloat((grandTotal - beforeRound).toFixed(2));
 
         const invoice: Invoice = {
-          id: `INV-${Date.now()}`,
+          id: crypto.randomUUID(),
           invoiceNo,
           invoiceDate: formatDate(now),
           invoiceTime: formatTime(now),
@@ -314,62 +428,45 @@ export const useStore = create<AppState>()(
           cancelled: false,
         };
 
-        // Deduct stock
-        const newRaw = { ...s.rawMaterialStock };
-        const newPkg = { ...s.packagingStock };
-        const newTxns: StockTransaction[] = [...s.stockTransactions];
-        const newPkgEntries: PackagingEntry[] = [...s.packagingEntries];
+        // Deduct from ready stock per SKU
+        const newReady = { ...s.readyStock };
+        const newReadyTxns: ReadyStockTransaction[] = [];
         const dateStr = formatDate(now);
         const timeStr = formatTime(now);
 
         for (const item of items) {
           const sku = PRODUCTS.find(p => p.id === item.skuId)!;
-          const rawId = getRawMaterialId(sku.productId);
-          const rawQty = item.weight * item.quantity;
-          const prevRaw = newRaw[rawId] ?? 0;
-          newRaw[rawId] = Math.max(0, prevRaw - rawQty);
-          newTxns.push({
-            id: `TXN-${Date.now()}-R-${rawId}`,
-            type: 'DEDUCT', itemType: 'raw', itemId: rawId,
-            itemName: `${sku.product} (Bulk)`,
-            quantity: rawQty, previousStock: prevRaw, newStock: newRaw[rawId],
-            reason: `Sale – ${invoiceNo}`, invoiceNo, date: dateStr, time: timeStr,
-          });
-
-          const pkgId = sku.packagingId;
-          const prevPkg = newPkg[pkgId] ?? 0;
-          newPkg[pkgId] = Math.max(0, prevPkg - item.quantity);
-          const pkgName = PACKAGING_MATERIALS.find(p => p.id === pkgId)?.name ?? pkgId;
-          newTxns.push({
-            id: `TXN-${Date.now()}-P-${pkgId}`,
-            type: 'DEDUCT', itemType: 'packaging', itemId: pkgId,
-            itemName: pkgName,
-            quantity: item.quantity, previousStock: prevPkg, newStock: newPkg[pkgId],
-            reason: `Sale – ${invoiceNo}`, invoiceNo, date: dateStr, time: timeStr,
-          });
-
-          // Auto-log packaging usage in the packaging ledger
-          newPkgEntries.push({
-            id: `PKG-E-${Date.now()}-${pkgId}`,
+          const skuName = `${sku.product} – ${sku.variant}`;
+          const prevReady = newReady[item.skuId] ?? 0;
+          newReady[item.skuId] = Math.max(0, prevReady - item.quantity);
+          newReadyTxns.push({
+            id: crypto.randomUUID(),
             date: dateStr, time: timeStr,
-            materialId: pkgId, materialName: pkgName,
-            entryType: 'used',
+            skuId: item.skuId, skuName,
+            type: 'DEDUCT',
             quantity: item.quantity,
-            notes: `Auto – ${invoiceNo}`,
+            previousStock: prevReady,
+            newStock: newReady[item.skuId],
+            reason: `Sale – ${invoiceNo}`,
+            invoiceNo,
           });
         }
 
         set({
           invoices: [...s.invoices, invoice],
           invoiceCounters: { ...s.invoiceCounters, [fy]: seq },
-          rawMaterialStock: newRaw,
-          packagingStock: newPkg,
-          packagingEntries: newPkgEntries,
-          stockTransactions: newTxns,
+          readyStock: newReady,
+          readyStockTransactions: [...s.readyStockTransactions, ...newReadyTxns],
           currentOrder: null,
           currentPage: 'invoice-view',
           selectedInvoiceId: invoice.id,
         });
+
+        const { orgId } = get();
+        if (orgId) {
+          db.saveInvoice(orgId, invoice, items, newReadyTxns, newReady)
+            .catch(console.error);
+        }
 
         return invoice;
       },
@@ -378,6 +475,8 @@ export const useStore = create<AppState>()(
         set(s => ({
           invoices: s.invoices.map(inv => inv.id === id ? { ...inv, cancelled: true } : inv),
         }));
+        const { orgId } = get();
+        if (orgId) db.cancelInvoiceInDb(orgId, id).catch(console.error);
       },
 
       // ─── Payment Receipts ────────────────────────────────────────────
@@ -390,66 +489,78 @@ export const useStore = create<AppState>()(
           paymentReceipts: [...s.paymentReceipts, rec],
           receiptSeq: seq,
         }));
+        const { orgId } = get();
+        if (orgId) db.savePaymentReceipt(orgId, rec).catch(console.error);
       },
 
       // ─── Stock ───────────────────────────────────────────────────────
 
       addPackagingEntry(entry) {
         const now = new Date();
-        const id = `PKG-E-${Date.now()}`;
+        const id = crypto.randomUUID();
         const rec: PackagingEntry = { ...entry, id, time: formatTime(now) };
+        let newStock = 0;
         set(s => {
           const prev = s.packagingStock[entry.materialId] ?? 0;
-          let newStock = prev;
-          if (entry.entryType === 'purchase') newStock = prev + entry.quantity;
-          else newStock = Math.max(0, prev - entry.quantity);
+          newStock = entry.entryType === 'purchase'
+            ? prev + entry.quantity
+            : Math.max(0, prev - entry.quantity);
           return {
             packagingEntries: [...s.packagingEntries, rec],
             packagingStock: { ...s.packagingStock, [entry.materialId]: newStock },
           };
         });
+        const { orgId } = get();
+        if (orgId) db.savePackagingEntry(orgId, rec, newStock).catch(console.error);
       },
 
       addProductionLog(log) {
         const now = new Date();
-        const rec: ProductionLog = { ...log, id: `PLOG-${Date.now()}`, time: formatTime(now) };
+        const rec: ProductionLog = { ...log, id: crypto.randomUUID(), time: formatTime(now) };
         set(s => ({ productionLogs: [...s.productionLogs, rec] }));
+        const { orgId } = get();
+        if (orgId) db.saveProductionLog(orgId, rec).catch(console.error);
       },
 
       adjustStock(type, id, qty, reason) {
         const now = new Date();
+        let txn!: StockTransaction;
+        let newStockQty = 0;
         set(s => {
+          const txId = crypto.randomUUID();
           if (type === 'raw') {
             const prev = s.rawMaterialStock[id] ?? 0;
-            const newStock = Math.max(0, prev + qty);
-            const txn: StockTransaction = {
-              id: `TXN-${Date.now()}`,
+            newStockQty = Math.max(0, prev + qty);
+            txn = {
+              id: txId,
               type: qty >= 0 ? 'ADD' : 'ADJUST', itemType: 'raw', itemId: id,
               itemName: id,
-              quantity: Math.abs(qty), previousStock: prev, newStock,
+              quantity: Math.abs(qty), previousStock: prev, newStock: newStockQty,
               reason, date: formatDate(now), time: formatTime(now),
             };
             return {
-              rawMaterialStock: { ...s.rawMaterialStock, [id]: newStock },
+              rawMaterialStock: { ...s.rawMaterialStock, [id]: newStockQty },
               stockTransactions: [...s.stockTransactions, txn],
             };
           } else {
             const prev = s.packagingStock[id] ?? 0;
-            const newStock = Math.max(0, prev + qty);
+            newStockQty = Math.max(0, prev + qty);
             const pkgName = PACKAGING_MATERIALS.find(p => p.id === id)?.name ?? id;
-            const txn: StockTransaction = {
-              id: `TXN-${Date.now()}`,
+            txn = {
+              id: txId,
               type: qty >= 0 ? 'ADD' : 'ADJUST', itemType: 'packaging', itemId: id,
               itemName: pkgName,
-              quantity: Math.abs(qty), previousStock: prev, newStock,
+              quantity: Math.abs(qty), previousStock: prev, newStock: newStockQty,
               reason, date: formatDate(now), time: formatTime(now),
             };
             return {
-              packagingStock: { ...s.packagingStock, [id]: newStock },
+              packagingStock: { ...s.packagingStock, [id]: newStockQty },
               stockTransactions: [...s.stockTransactions, txn],
             };
           }
         });
+        const { orgId } = get();
+        if (orgId) db.saveStockTransaction(orgId, txn, newStockQty).catch(console.error);
       },
 
       setReorderLevel(type, id, level) {
@@ -459,12 +570,81 @@ export const useStore = create<AppState>()(
             [type]: { ...(s.reorderLevels as Record<string, Record<string, number>>)[type], [id]: level },
           },
         }));
+        const { orgId } = get();
+        if (orgId) db.saveReorderLevel(orgId, type, id, level).catch(console.error);
+      },
+
+      addReadyStockEntry(skuId, qty, reason, date) {
+        const now = new Date();
+        const sku = PRODUCTS.find(p => p.id === skuId);
+        const skuName = sku ? `${sku.product} – ${sku.variant}` : skuId;
+        let txn!: ReadyStockTransaction;
+        set(s => {
+          const prev = s.readyStock[skuId] ?? 0;
+          const newStock = prev + qty;
+          txn = {
+            id: crypto.randomUUID(),
+            date, time: formatTime(now),
+            skuId, skuName,
+            type: 'ADD',
+            quantity: qty,
+            previousStock: prev,
+            newStock,
+            reason,
+          };
+          return {
+            readyStock: { ...s.readyStock, [skuId]: newStock },
+            readyStockTransactions: [...s.readyStockTransactions, txn],
+          };
+        });
+        const { orgId } = get();
+        if (orgId) db.saveReadyStockTransaction(orgId, txn).catch(console.error);
+      },
+
+      adjustReadyStock(skuId, qty, reason, date?) {
+        const now = new Date();
+        const sku = PRODUCTS.find(p => p.id === skuId);
+        const skuName = sku ? `${sku.product} – ${sku.variant}` : skuId;
+        let txn!: ReadyStockTransaction;
+        set(s => {
+          const prev = s.readyStock[skuId] ?? 0;
+          const newStock = Math.max(0, prev + qty);
+          txn = {
+            id: crypto.randomUUID(),
+            date: date ?? formatDate(now), time: formatTime(now),
+            skuId, skuName,
+            type: qty > 0 ? 'ADD' : 'DEDUCT',
+            quantity: Math.abs(qty),
+            previousStock: prev,
+            newStock,
+            reason,
+          };
+          return {
+            readyStock: { ...s.readyStock, [skuId]: newStock },
+            readyStockTransactions: [...s.readyStockTransactions, txn],
+          };
+        });
+        const { orgId } = get();
+        if (orgId) db.saveReadyStockTransaction(orgId, txn).catch(console.error);
+      },
+
+      setReadyStockReorderLevel(skuId, level) {
+        set(s => ({
+          reorderLevels: {
+            ...s.reorderLevels,
+            ready: { ...s.reorderLevels.ready, [skuId]: level },
+          },
+        }));
+        const { orgId } = get();
+        if (orgId) db.saveReorderLevel(orgId, 'ready', skuId, level).catch(console.error);
       },
 
       // ─── Pricing ─────────────────────────────────────────────────────
 
       updatePrice(skuId, rate) {
         set(s => ({ priceList: { ...s.priceList, [skuId]: rate } }));
+        const { orgId } = get();
+        if (orgId) db.savePrice(orgId, skuId, rate).catch(console.error);
       },
 
       // ─── Computed helpers ────────────────────────────────────────────
@@ -484,8 +664,29 @@ export const useStore = create<AppState>()(
         if (reorder > 0 && stock <= reorder) return 'low';
         return 'adequate';
       },
+
+      getReadyStockStatus(skuId) {
+        const stock = get().readyStock[skuId] ?? 0;
+        const reorder = get().reorderLevels.ready[skuId] ?? 0;
+        if (stock === 0) return 'out';
+        if (reorder > 0 && stock <= reorder) return 'low';
+        return 'adequate';
+      },
     }),
-    { name: 'vyaparimay-v1' },
+    {
+      name: 'vyaparimay-v1',
+      merge: (persisted: any, current) => ({
+        ...current,
+        ...persisted,
+        readyStock: persisted.readyStock ?? current.readyStock,
+        readyStockTransactions: persisted.readyStockTransactions ?? current.readyStockTransactions,
+        reorderLevels: {
+          ...current.reorderLevels,
+          ...(persisted.reorderLevels ?? {}),
+          ready: persisted.reorderLevels?.ready ?? current.reorderLevels.ready,
+        },
+      }),
+    },
   ),
 );
 

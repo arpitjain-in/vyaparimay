@@ -57,7 +57,7 @@ function getStockAlerts(
   for (const [id, needed] of Object.entries(rawNeeded)) {
     const avail = rawStock[id] ?? 0;
     if (avail < needed) {
-      const names: Record<string, string> = { 'RM-WF': 'Wheat Flour', 'RM-BS': 'Besan', 'RM-DL': 'Daliya' };
+      const names: Record<string, string> = { 'RM-WF': 'Shikharji Atta', 'RM-BS': 'Shikharji Besan', 'RM-DL': 'Shikharji Dalia' };
       alerts.push({ label: `${names[id] ?? id} (Bulk kg)`, required: needed, available: avail });
     }
   }
@@ -85,6 +85,7 @@ export default function NewOrder() {
   const [selectedSKU, setSelectedSKU] = useState<ProductSKU | null>(null);
   const [qty, setQty] = useState(1);
   const [rate, setRate] = useState(0);
+  const [perKgRate, setPerKgRate] = useState(0);
   const [addedSku, setAddedSku] = useState<string | null>(null);
 
   const activeCustomers = customers.filter(c => c.active);
@@ -105,7 +106,9 @@ export default function NewOrder() {
   const handleSelectSKU = (sku: ProductSKU) => {
     setSelectedSKU(sku);
     setQty(1);
-    setRate(priceList[sku.id] ?? 0);
+    const bagRate = priceList[sku.id] ?? 0;
+    setRate(bagRate);
+    setPerKgRate(sku.weight > 0 ? parseFloat((bagRate / sku.weight).toFixed(2)) : 0);
   };
 
   const handleAddToCart = () => {
@@ -115,6 +118,7 @@ export default function NewOrder() {
     setTimeout(() => setAddedSku(null), 1500);
     setSelectedSKU(null);
     setQty(1);
+    setPerKgRate(0);
   };
 
   // Step 3 calculations
@@ -273,7 +277,7 @@ export default function NewOrder() {
                 <div className="text-sm font-semibold text-indigo-800 mb-3">
                   {selectedSKU.product} – {selectedSKU.variant}
                 </div>
-                <div className="grid grid-cols-3 gap-3 items-end">
+                <div className="grid grid-cols-4 gap-3 items-end">
                   <div>
                     <label className="text-xs text-gray-600 font-medium">Quantity</label>
                     <input
@@ -284,11 +288,30 @@ export default function NewOrder() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-600 font-medium">Rate (₹ / {selectedSKU.unit})</label>
+                    <label className="text-xs text-gray-600 font-medium">₹ per kg</label>
                     <input
-                      type="number" min="0"
-                      value={rate}
-                      onChange={e => setRate(Number(e.target.value))}
+                      type="number" min="0" step="0.01"
+                      value={perKgRate || ''}
+                      placeholder="0.00"
+                      onChange={e => {
+                        const v = parseFloat(e.target.value) || 0;
+                        setPerKgRate(v);
+                        setRate(parseFloat((v * (selectedSKU?.weight ?? 1)).toFixed(2)));
+                      }}
+                      className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600 font-medium">₹ per {selectedSKU.unit.toLowerCase()}</label>
+                    <input
+                      type="number" min="0" step="0.01"
+                      value={rate || ''}
+                      placeholder="0.00"
+                      onChange={e => {
+                        const v = parseFloat(e.target.value) || 0;
+                        setRate(v);
+                        setPerKgRate(selectedSKU.weight > 0 ? parseFloat((v / selectedSKU.weight).toFixed(2)) : 0);
+                      }}
                       className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
                     />
                   </div>

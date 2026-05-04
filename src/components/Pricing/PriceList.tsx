@@ -22,7 +22,7 @@ export default function PriceList() {
     setLocalPrices({ ...priceList });
   };
 
-  const categories = ['Wheat Flour', 'Besan', 'Daliya'];
+  const categories = ['Shikharji Atta', 'Shikharji Besan', 'Shikharji Dalia'];
 
   return (
     <Layout
@@ -46,7 +46,7 @@ export default function PriceList() {
       }
     >
       <div className="max-w-2xl space-y-6">
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800">
           <strong>Note:</strong> These are default prices. You can override the rate when creating an order.
           All prices are per unit (per bag / pouch / packet).
         </div>
@@ -54,32 +54,32 @@ export default function PriceList() {
         {categories.map(cat => {
           const catSkus = PRODUCTS.filter(p => p.product === cat);
           return (
-            <div key={cat} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="px-5 py-4 border-b bg-gray-50">
-                <h2 className="font-semibold text-gray-700">{cat}</h2>
+            <div key={cat} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50">
+                <h2 className="font-semibold text-slate-700">{cat}</h2>
               </div>
               <table className="w-full text-sm">
-                <thead className="border-b">
+                <thead className="border-b border-slate-100">
                   <tr>
                     {['SKU ID', 'Variant', 'Weight', 'HSN', 'GST%', 'Price (₹ / unit)', 'Effective Price incl. GST'].map(h => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
+                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody className="divide-y divide-slate-50">
                   {catSkus.map(sku => {
                     const price = localPrices[sku.id] ?? 0;
                     const inclGST = price * (1 + sku.gstRate / 100);
                     return (
-                      <tr key={sku.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-mono text-xs text-indigo-600">{sku.id}</td>
-                        <td className="px-4 py-3 font-medium text-gray-800">{sku.variant}</td>
-                        <td className="px-4 py-3 text-gray-500">{sku.weight >= 1 ? `${sku.weight} kg` : `${sku.weight * 1000} gm`}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-gray-500">{sku.hsnCode}</td>
-                        <td className="px-4 py-3 text-gray-500">{sku.gstRate}%</td>
+                      <tr key={sku.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3 font-mono text-xs text-indigo-500 font-semibold">{sku.id}</td>
+                        <td className="px-4 py-3 font-medium text-slate-800">{sku.variant}</td>
+                        <td className="px-4 py-3 text-slate-500">{sku.weight >= 1 ? `${sku.weight} kg` : `${sku.weight * 1000} gm`}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-400">{sku.hsnCode}</td>
+                        <td className="px-4 py-3 text-slate-500">{sku.gstRate}%</td>
                         <td className="px-4 py-3 w-36">
                           <div className="flex items-center gap-1">
-                            <span className="text-gray-500">₹</span>
+                            <span className="text-slate-400">₹</span>
                             <input
                               type="number"
                               min="0"
@@ -87,11 +87,11 @@ export default function PriceList() {
                               value={price || ''}
                               onChange={e => setLocalPrices(p => ({ ...p, [sku.id]: Number(e.target.value) }))}
                               placeholder="0"
-                              className="w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 font-medium"
+                              className="w-24 border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 font-medium"
                             />
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-gray-600 font-medium">
+                        <td className="px-4 py-3 text-slate-600 font-medium">
                           {price > 0 ? fmtINR(inclGST, true) : '—'}
                         </td>
                       </tr>
@@ -103,13 +103,13 @@ export default function PriceList() {
           );
         })}
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <h3 className="font-semibold text-gray-700 mb-3">GST Rate Reference</h3>
-          <div className="text-sm text-gray-600 space-y-1">
-            <div>• <strong>Wheat Flour (HSN 1101):</strong> 5% GST (for branded/packaged)</div>
-            <div>• <strong>Besan (HSN 1106):</strong> 5% GST (for branded/packaged)</div>
-            <div>• <strong>Daliya / Broken Wheat (HSN 1104):</strong> 5% GST (for branded/packaged)</div>
-            <div className="mt-2 text-gray-400 text-xs">Intra-state: CGST 2.5% + SGST 2.5% | Inter-state: IGST 5%</div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <h3 className="font-semibold text-slate-700 mb-3">GST Rate Reference</h3>
+          <div className="text-sm text-slate-600 space-y-1">
+            <div>• <strong>Shikharji Atta (HSN 1101):</strong> 5% GST (for branded/packaged)</div>
+            <div>• <strong>Shikharji Besan (HSN 1106):</strong> 5% GST (for branded/packaged)</div>
+            <div>• <strong>Shikharji Dalia / Broken Wheat (HSN 1104):</strong> 5% GST (for branded/packaged)</div>
+            <div className="mt-2 text-slate-400 text-xs">Intra-state: CGST 2.5% + SGST 2.5% | Inter-state: IGST 5%</div>
           </div>
         </div>
       </div>

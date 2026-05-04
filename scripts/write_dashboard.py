@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import os
+
+content = r"""import React, { useState } from 'react';
 import {
   Plus, Edit2, History, CheckCircle, AlertTriangle,
   XCircle, FlaskConical, ChevronDown, ChevronUp, Package,
@@ -572,3 +574,9 @@ export default function StockDashboard() {
     </Layout>
   );
 }
+"""
+
+path = os.path.join(os.path.dirname(__file__), '..', 'src', 'components', 'Inventory', 'StockDashboard.tsx')
+with open(path, 'w') as f:
+    f.write(content)
+print("Done. Lines:", content.count('\n'))

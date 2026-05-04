@@ -1,7 +1,7 @@
 import { Invoice } from '../types';
 import { BusinessProfile } from '../types';
 
-const W = 48;
+const W = 38;
 const LINE  = '-'.repeat(W);
 const DLINE = '='.repeat(W);
 
@@ -21,15 +21,31 @@ function trunc(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + '.' : s;
 }
 
+const STATE_ABBR: Record<string, string> = {
+  'andhra pradesh': 'AP', 'arunachal pradesh': 'AR', 'assam': 'AS', 'bihar': 'BR',
+  'chhattisgarh': 'CG', 'goa': 'GA', 'gujarat': 'GJ', 'haryana': 'HR',
+  'himachal pradesh': 'HP', 'jharkhand': 'JH', 'karnataka': 'KA', 'kerala': 'KL',
+  'madhya pradesh': 'MP', 'maharashtra': 'MH', 'manipur': 'MN', 'meghalaya': 'ML',
+  'mizoram': 'MZ', 'nagaland': 'NL', 'odisha': 'OD', 'punjab': 'PB',
+  'rajasthan': 'RJ', 'sikkim': 'SK', 'tamil nadu': 'TN', 'telangana': 'TG',
+  'tripura': 'TR', 'uttar pradesh': 'UP', 'uttarakhand': 'UK', 'west bengal': 'WB',
+  'delhi': 'DL', 'jammu & kashmir': 'JK', 'jammu and kashmir': 'JK',
+  'ladakh': 'LA', 'chandigarh': 'CH', 'puducherry': 'PY', 'pondicherry': 'PY',
+};
+
+function abbrevState(state: string): string {
+  return STATE_ABBR[state.toLowerCase()] ?? state;
+}
+
 export function buildThermalText(invoice: Invoice, bp: BusinessProfile): string {
   const lines: string[] = [];
   const c = invoice.customerSnapshot;
 
   lines.push(DLINE);
   lines.push(centre(bp.name.toUpperCase()));
-  lines.push(centre(trunc(`${bp.address1}, ${bp.city} - ${bp.pinCode}`, W - 2)));
+  lines.push(centre(trunc(bp.address1, W - 2)));
+  lines.push(centre(`${bp.city} - ${bp.pinCode}`));
   lines.push(centre(`GSTIN: ${bp.gstin}`));
-  lines.push(centre(`FSSAI: ${bp.fssai}`));
   lines.push(centre(`Ph: ${bp.mobile}`));
   lines.push(DLINE);
 
@@ -38,23 +54,23 @@ export function buildThermalText(invoice: Invoice, bp: BusinessProfile): string 
   lines.push(DLINE);
 
   lines.push(lr('CUSTOMER   :', trunc(c.name, 24)));
-  lines.push(lr('ADDRESS    :', trunc(`${c.city}, ${c.state}`, 24)));
+  if (c.firmName) lines.push(lr('FIRM       :', trunc(c.firmName, 24)));
+  lines.push(lr('ADDRESS    :', trunc(`${c.city}, ${abbrevState(c.state)}`, 24)));
   lines.push(lr('MOBILE     :', c.mobile));
   if (c.gstin) lines.push(lr('GSTIN      :', c.gstin));
   lines.push(DLINE);
 
   // Items header: ITEM(16) QTY(4) UNIT(5) RATE(6) AMT(7) = 16+1+4+1+5+1+6+1+7 = 42 ≠ 48
-  // Adjusted: ITEM(14) QTY(5) UNIT(5) RATE(7) AMT(8) + spaces
-  lines.push('ITEM           QTY   UNIT   RATE     AMT');
+  lines.push('ITEM           QTY    RATE      AMT');
   lines.push(LINE);
 
   for (const item of invoice.items) {
-    const name  = trunc(`${item.product} ${item.variant.split(' ')[0]}`, 13).padEnd(13);
+    const name  = trunc(item.product, 14).padEnd(14);
     const qty   = String(item.quantity).padStart(4);
-    const unit  = item.unit.slice(0, 5).padEnd(5);
     const rate  = `${item.rate.toFixed(0)}`.padStart(6);
     const amt   = `${item.lineTotal.toFixed(0)}`.padStart(7);
-    lines.push(`${name}  ${qty}  ${unit}  ${rate}  ${amt}`);
+    lines.push(`${name} ${qty}  ${rate}  ${amt}`);
+    lines.push(`(${item.variant})`);
   }
 
   lines.push(LINE);
@@ -76,7 +92,19 @@ export function buildThermalText(invoice: Invoice, bp: BusinessProfile): string 
   lines.push(centre(`** TOTAL  Rs.${invoice.grandTotal.toFixed(0)} **`));
   lines.push(DLINE);
 
-  lines.push(`AMT: ${invoice.amountInWords}`);
+  // Word-wrap amountInWords to fit within W chars (prefix "AMT: " = 5 chars)
+  const amtPrefix = 'AMT: ';
+  const amtWords = invoice.amountInWords.split(' ');
+  let amtLine = amtPrefix;
+  for (const word of amtWords) {
+    if (amtLine.length + word.length + 1 > W) {
+      lines.push(amtLine.trimEnd());
+      amtLine = '     ' + word + ' ';
+    } else {
+      amtLine += word + ' ';
+    }
+  }
+  if (amtLine.trim()) lines.push(amtLine.trimEnd());
   lines.push('');
   lines.push(lr('PAYMENT:', invoice.paymentMode));
 

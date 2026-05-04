@@ -1,29 +1,26 @@
 import React from 'react';
 import {
   LayoutDashboard, Users, ShoppingCart, FileText,
-  Package, IndianRupee, Settings, ChevronRight,
+  PackageCheck, Box, IndianRupee, Settings,
+  FlaskConical,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { AppPage } from '../../types';
+import { formatDate } from '../../utils/format';
 
 interface NavItem {
   label: string;
   page: AppPage;
   icon: React.ReactNode;
+  badge?: () => React.ReactNode;
 }
 
-const NAV: NavItem[] = [
-  { label: 'Dashboard',    page: 'dashboard',       icon: <LayoutDashboard size={18} /> },
-  { label: 'Customers',    page: 'customer-list',   icon: <Users size={18} /> },
-  { label: 'New Order',    page: 'new-order',       icon: <ShoppingCart size={18} /> },
-  { label: 'Invoices',     page: 'invoice-history', icon: <FileText size={18} /> },
-  { label: 'Inventory',    page: 'stock-dashboard', icon: <Package size={18} /> },
-  { label: 'Price List',   page: 'price-list',      icon: <IndianRupee size={18} /> },
-  { label: 'Settings',     page: 'setup',           icon: <Settings size={18} /> },
-];
+type NavSection = { heading: string; items: NavItem[] };
+
+const TODAY = formatDate(new Date());
 
 export default function Sidebar() {
-  const { currentPage, navigate, businessProfile, currentOrder } = useStore();
+  const { currentPage, navigate, businessProfile, currentOrder, invoices, readyStock, reorderLevels, getReadyStockStatus } = useStore();
 
   const handleNav = (page: AppPage) => {
     if (page === 'new-order') {
@@ -33,54 +30,104 @@ export default function Sidebar() {
     }
   };
 
+  const todaySales = invoices.filter(i => !i.cancelled && i.invoiceDate === TODAY).length;
+
+  const SECTIONS: NavSection[] = [
+    {
+      heading: 'Overview',
+      items: [
+        { label: 'Dashboard', page: 'dashboard', icon: <LayoutDashboard size={16} /> },
+      ],
+    },
+    {
+      heading: 'Sales',
+      items: [
+        {
+          label: 'New Order', page: 'new-order', icon: <ShoppingCart size={16} />,
+          badge: () => currentOrder && currentOrder.items.length > 0
+            ? <span className="bg-amber-400 text-slate-900 text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold leading-none">{currentOrder.items.length}</span>
+            : null,
+        },
+        {
+          label: 'Customers', page: 'customer-list', icon: <Users size={16} />,
+        },
+        {
+          label: 'Invoices', page: 'invoice-history', icon: <FileText size={16} />,
+          badge: () => todaySales > 0
+            ? <span className="bg-indigo-400/30 text-indigo-200 text-xs rounded-full px-1.5 leading-5">{todaySales}</span>
+            : null,
+        },
+        { label: 'Price List', page: 'price-list', icon: <IndianRupee size={16} /> },
+      ],
+    },
+    {
+      heading: 'Inventory',
+      items: [
+        { label: 'Ready Stock', page: 'ready-stock', icon: <PackageCheck size={16} /> },
+        { label: 'Packaging', page: 'packaging-stock', icon: <Box size={16} /> },
+        { label: 'Production Log', page: 'production-entry', icon: <FlaskConical size={16} /> },
+      ],
+    },
+    {
+      heading: 'System',
+      items: [
+        { label: 'Settings', page: 'setup', icon: <Settings size={16} /> },
+      ],
+    },
+  ];
+
+  const initials = (businessProfile?.name ?? 'VM')
+    .split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
+
   return (
-    <aside className="w-56 min-h-screen bg-slate-800 flex flex-col shadow-xl">
-      {/* Logo / Business Name */}
-      <div className="px-4 py-5 border-b border-slate-700">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">
-            VM
+    <aside className="w-56 min-h-screen bg-slate-900 flex flex-col">
+      {/* Brand */}
+      <div className="px-4 pt-5 pb-4 border-b border-slate-700/60">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-indigo-900/40 shrink-0">
+            {initials}
           </div>
-          <div>
-            <div className="text-white text-sm font-semibold leading-tight">
+          <div className="min-w-0">
+            <div className="text-white text-sm font-semibold truncate leading-tight">
               {businessProfile?.name ?? 'Vyaparimay'}
             </div>
-            <div className="text-slate-400 text-xs">Flour Mill</div>
+            <div className="text-slate-400 text-xs mt-0.5">Flour Mill</div>
           </div>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-4">
-        {NAV.map(item => {
-          const active = currentPage === item.page ||
-            (item.page === 'new-order' && currentPage === 'new-order');
-          return (
-            <button
-              key={item.page}
-              onClick={() => handleNav(item.page)}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-                active
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-300 hover:bg-slate-700 hover:text-white'
-              }`}
-            >
-              {item.icon}
-              <span className="flex-1 text-left">{item.label}</span>
-              {item.page === 'new-order' && currentOrder && (
-                <span className="bg-amber-400 text-slate-900 text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-                  {currentOrder.items.length}
-                </span>
-              )}
-              {active && <ChevronRight size={14} />}
-            </button>
-          );
-        })}
+      <nav className="flex-1 py-3 px-2 space-y-4 overflow-y-auto">
+        {SECTIONS.map(section => (
+          <div key={section.heading}>
+            <div className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              {section.heading}
+            </div>
+            {section.items.map(item => {
+              const active = currentPage === item.page;
+              return (
+                <button
+                  key={item.page}
+                  onClick={() => handleNav(item.page)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 ${
+                    active
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/30'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+                  }`}
+                >
+                  <span className={active ? 'text-white' : 'text-slate-500'}>{item.icon}</span>
+                  <span className="flex-1 text-left font-medium">{item.label}</span>
+                  {item.badge?.()}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-slate-700 text-xs text-slate-500">
-        Vyaparimay v1.0
+      <div className="px-4 py-3 border-t border-slate-700/60">
+        <div className="text-xs text-slate-500">{TODAY}</div>
       </div>
     </aside>
   );

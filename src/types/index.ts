@@ -47,7 +47,7 @@ export interface Customer {
 // ─── Product Catalogue ────────────────────────────────────────────────────
 export interface ProductSKU {
   id: string;           // 'WF-26K'
-  product: string;      // 'Wheat Flour'
+  product: string;      // 'Shikharji Atta'
   productId: string;    // 'WF' | 'BS' | 'DL'
   variant: string;      // '26 kg Bag'
   weight: number;       // kg per unit
@@ -65,7 +65,7 @@ export interface PackagingMaterial {
 
 export interface RawMaterialDef {
   id: string;   // 'RM-WF'
-  name: string; // 'Wheat Flour'
+  name: string; // 'Shikharji Atta'
   products: string[]; // skuIds
 }
 
@@ -95,7 +95,7 @@ export interface ProductionLog {
   id: string;
   date: string;          // DD/MM/YYYY
   time: string;          // HH:MM
-  productName: string;   // 'Wheat Flour' | 'Besan' | 'Daliya'
+  productName: string;   // 'Shikharji Atta' | 'Shikharji Besan' | 'Shikharji Dalia'
   quantityProduced: number; // kg
   notes?: string;
 }
@@ -185,6 +185,22 @@ export interface StockTransaction {
 
 export type StockStatus = 'adequate' | 'low' | 'out';
 
+// ─── Ready Stock ──────────────────────────────────────────────────────────
+// Tracks packed/ready-to-sell units per SKU
+export interface ReadyStockTransaction {
+  id: string;
+  date: string;      // DD/MM/YYYY
+  time: string;      // HH:MM
+  skuId: string;
+  skuName: string;   // e.g. "Shikharji Atta – 26 kg Bag"
+  type: 'ADD' | 'DEDUCT' | 'ADJUST';
+  quantity: number;
+  previousStock: number;
+  newStock: number;
+  reason: string;
+  invoiceNo?: string;
+}
+
 // ─── Navigation ──────────────────────────────────────────────────────────
 export type AppPage =
   | 'setup'
@@ -196,8 +212,8 @@ export type AppPage =
   | 'invoice-history'
   | 'invoice-view'
   | 'stock-dashboard'
+  | 'ready-stock'
+  | 'packaging-stock'
   | 'add-stock'
   | 'production-entry'
   | 'price-list';
-  // add-stock = packaging entries (purchase/used/damaged)
-  // production-entry = daily production log
