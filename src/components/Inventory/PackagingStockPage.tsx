@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, CheckCircle, AlertTriangle, XCircle, Package } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X, CheckCircle, AlertTriangle, XCircle, Package, Upload, ShieldAlert } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PACKAGING_MATERIALS } from '../../data/products';
 import Layout from '../Layout/Layout';
@@ -23,6 +23,79 @@ export default function PackagingStockPage() {
   const [entryQty, setEntryQty]   = useState(0);
   const [entryNotes, setEntryNotes] = useState('');
   const [entryError, setEntryError] = useState('');
+
+  // Bulk entry state
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkQtys, setBulkQtys] = useState<Record<string, string>>({});
+  const [bulkNotes, setBulkNotes] = useState('');
+  const [bulkError, setBulkError] = useState('');
+  const [bulkDate, setBulkDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
+
+  // PIN gate state
+  const PIN = import.meta.env.VITE_INVOICE_DELETE_PASSWORD as string;
+  const [pinDigits, setPinDigits] = useState(['', '', '', '']);
+  const [pinError, setPinError] = useState('');
+  const pinRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)];
+
+  const openBulkModal = () => {
+    setPinDigits(['', '', '', '']);
+    setPinError('');
+    setShowPinModal(true);
+  };
+
+  const handlePinChange = (index: number, value: string) => {
+    if (!/^\d?$/.test(value)) return;
+    const next = [...pinDigits];
+    next[index] = value;
+    setPinDigits(next);
+    setPinError('');
+    if (value && index < 3) pinRefs[index + 1].current?.focus();
+    if (next.every(d => d !== '') && value) {
+      if (next.join('') === PIN) {
+        setShowPinModal(false);
+        setBulkQtys({});
+        setBulkNotes('');
+        setBulkError('');
+        const d = new Date();
+        setBulkDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+        setShowBulkModal(true);
+      } else {
+        setPinError('Incorrect PIN. Try again.');
+        setPinDigits(['', '', '', '']);
+        setTimeout(() => pinRefs[0].current?.focus(), 50);
+      }
+    }
+  };
+
+  const handlePinKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !pinDigits[index] && index > 0) pinRefs[index - 1].current?.focus();
+  };
+
+  const handleBulkSave = () => {
+    const entries = PACKAGING_MATERIALS.filter(m => Number(bulkQtys[m.id]) > 0);
+    if (entries.length === 0) {
+      setBulkError('Enter at least one quantity.');
+      return;
+    }
+    // Convert YYYY-MM-DD → DD/MM/YYYY
+    const [yr, mo, dy] = bulkDate.split('-');
+    const dateStr = `${dy}/${mo}/${yr}`;
+    entries.forEach(mat => {
+      addPackagingEntry({
+        date: dateStr,
+        materialId: mat.id,
+        materialName: mat.name,
+        entryType: 'purchase',
+        quantity: Number(bulkQtys[mat.id]),
+        notes: bulkNotes.trim() || undefined,
+      });
+    });
+    setShowBulkModal(false);
+  };
 
   const openPanel = (materialId: string) => {
     setPanelMaterialId(materialId);
@@ -56,6 +129,16 @@ export default function PackagingStockPage() {
 
   return (
     <Layout title="Packaging Materials">
+      <div className="flex justify-end mb-3">
+        <button
+          onClick={openBulkModal}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow transition-colors"
+        >
+          <Upload size={15} />
+          Bulk Entry
+        </button>
+      </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
         {PACKAGING_MATERIALS.map(pm => {
           const stock  = packagingStock[pm.id] ?? 0;
@@ -96,6 +179,114 @@ export default function PackagingStockPage() {
           );
         })}
       </div>
+
+      {/* PIN Gate Modal */}
+      {showPinModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2 text-indigo-700">
+                <ShieldAlert size={20} />
+                <span className="font-semibold text-base">Bulk Entry</span>
+              </div>
+              <button onClick={() => setShowPinModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-sm text-slate-500 mb-6">Enter the 4-digit PIN to continue.</p>
+            <div className="flex justify-center gap-3 mb-4">
+              {pinDigits.map((d, i) => (
+                <input
+                  key={i}
+                  ref={pinRefs[i]}
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={d}
+                  onChange={e => handlePinChange(i, e.target.value)}
+                  onKeyDown={e => handlePinKeyDown(i, e)}
+                  className="w-12 h-12 text-center text-xl font-bold border-2 border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                  autoFocus={i === 0}
+                />
+              ))}
+            </div>
+            {pinError && <p className="text-xs text-red-500 text-center">{pinError}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Entry Modal */}
+      {showBulkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowBulkModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+              <div>
+                <div className="font-bold text-slate-800 text-lg">Bulk Packaging Entry</div>
+                <div className="text-xs text-slate-400 mt-0.5">Enter quantities for multiple materials at once</div>
+              </div>
+              <button onClick={() => setShowBulkModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Materials list */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+              {PACKAGING_MATERIALS.map(mat => {
+                const currentStock = packagingStock[mat.id] ?? 0;
+                const status = getStockStatus('packaging', mat.id);
+                return (
+                  <div key={mat.id} className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-700 truncate">{mat.name}</div>
+                      <div className="text-xs text-slate-400">In hand: {currentStock}</div>
+                    </div>
+                    <StatusBadge status={status} />
+                    <input
+                      type="number"
+                      min="0"
+                      value={bulkQtys[mat.id] ?? ''}
+                      onChange={e => {
+                        setBulkQtys(prev => ({ ...prev, [mat.id]: e.target.value }));
+                        setBulkError('');
+                      }}
+                      placeholder="Qty"
+                      className="w-24 border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-indigo-400 shrink-0"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 shrink-0 space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Date</label>
+                <input
+                  type="date"
+                  value={bulkDate}
+                  onChange={e => setBulkDate(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                />
+              </div>
+              <input
+                value={bulkNotes}
+                onChange={e => setBulkNotes(e.target.value)}
+                placeholder="Notes (optional, applies to all)"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              {bulkError && <p className="text-xs text-red-500">{bulkError}</p>}
+              <button
+                onClick={handleBulkSave}
+                className="w-full py-2.5 rounded-lg text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors"
+              >
+                Save All Entries
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Slide-over panel */}
       <div className={`fixed inset-0 z-50 ${panelMaterialId ? '' : 'pointer-events-none'}`}>

@@ -197,7 +197,7 @@ export interface ReadyStockTransaction {
   quantity: number;
   previousStock: number;
   newStock: number;
-  reason: string;
+  reason?: string;
   invoiceNo?: string;
 }
 

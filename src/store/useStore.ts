@@ -97,8 +97,9 @@ interface AppState {
   addProductionLog(log: Omit<ProductionLog, 'id' | 'time'>): void;
   adjustStock(type: 'raw' | 'packaging', id: string, qty: number, reason: string): void;
   setReorderLevel(type: 'raw' | 'packaging', id: string, level: number): void;
-  addReadyStockEntry(skuId: string, qty: number, reason: string, date: string): void;
-  adjustReadyStock(skuId: string, qty: number, reason: string, date?: string): void;
+  addReadyStockEntry(skuId: string, qty: number, reason: string | undefined, date: string): void;
+  adjustReadyStock(skuId: string, qty: number, reason: string | undefined, date?: string): void;
+  editReadyStockTransaction(txId: string, newQty: number, newReason: string | undefined): void;
   setReadyStockReorderLevel(skuId: string, level: number): void;
   getReadyStockStatus(skuId: string): StockStatus;
 
@@ -601,7 +602,7 @@ export const useStore = create<AppState>()(
         if (orgId) db.saveReadyStockTransaction(orgId, txn).catch(console.error);
       },
 
-      adjustReadyStock(skuId, qty, reason, date?) {
+      adjustReadyStock(skuId, qty, reason?: string, date?) {
         const now = new Date();
         const sku = PRODUCTS.find(p => p.id === skuId);
         const skuName = sku ? `${sku.product} – ${sku.variant}` : skuId;
@@ -626,6 +627,30 @@ export const useStore = create<AppState>()(
         });
         const { orgId } = get();
         if (orgId) db.saveReadyStockTransaction(orgId, txn).catch(console.error);
+      },
+
+      editReadyStockTransaction(txId, newQty, newReason?) {
+        let updatedTxn!: ReadyStockTransaction;
+        set(s => {
+          const idx = s.readyStockTransactions.findIndex(t => t.id === txId);
+          if (idx === -1) return {};
+          const old = s.readyStockTransactions[idx];
+          const delta = newQty - old.quantity;
+          const signedDelta = old.type === 'DEDUCT' ? -delta : delta;
+          const updatedTxns = s.readyStockTransactions.map(t =>
+            t.id === txId
+              ? { ...t, quantity: newQty, newStock: old.newStock + signedDelta, reason: newReason }
+              : t
+          );
+          const newCurrentStock = Math.max(0, (s.readyStock[old.skuId] ?? 0) + signedDelta);
+          updatedTxn = updatedTxns[idx];
+          return {
+            readyStockTransactions: updatedTxns,
+            readyStock: { ...s.readyStock, [old.skuId]: newCurrentStock },
+          };
+        });
+        const { orgId } = get();
+        if (orgId && updatedTxn) db.updateReadyStockTransactionInDb(orgId, updatedTxn).catch(console.error);
       },
 
       setReadyStockReorderLevel(skuId, level) {

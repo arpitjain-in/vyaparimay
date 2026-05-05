@@ -3,6 +3,7 @@ import { ProductSKU, PackagingMaterial, RawMaterialDef } from '../types';
 export const PRODUCTS: ProductSKU[] = [
   // Shikharji Atta
   { id: 'WF-26K',  product: 'Shikharji Atta', productId: 'WF', variant: '26 kg Bag',        weight: 26,   packagingId: 'PKG-WF-26K',  hsnCode: '1101', gstRate: 5, unit: 'Bag'    },
+  { id: 'WF-25K',  product: 'Shikharji Atta', productId: 'WF', variant: '25 kg Bag',        weight: 25,   packagingId: 'PKG-WF-26K',  hsnCode: '1101', gstRate: 5, unit: 'Bag'    },
   { id: 'WF-5P',   product: 'Shikharji Atta', productId: 'WF', variant: '5 kg Pouch',        weight: 5,    packagingId: 'PKG-WF-5P',   hsnCode: '1101', gstRate: 5, unit: 'Pouch'  },
   { id: 'WF-10P',  product: 'Shikharji Atta', productId: 'WF', variant: '10 kg Pouch',       weight: 10,   packagingId: 'PKG-WF-10P',  hsnCode: '1101', gstRate: 5, unit: 'Pouch'  },
   { id: 'WF-5H',   product: 'Shikharji Atta', productId: 'WF', variant: '5 kg Handle Bag',   weight: 5,    packagingId: 'PKG-WF-5H',   hsnCode: '1101', gstRate: 5, unit: 'Bag'    },
@@ -18,7 +19,7 @@ export const PRODUCTS: ProductSKU[] = [
 ];
 
 export const PACKAGING_MATERIALS: PackagingMaterial[] = [
-  { id: 'PKG-WF-26K',  name: '26 kg Bags (Shikharji Atta)',       usedFor: ['WF-26K']  },
+  { id: 'PKG-WF-26K',  name: '25/26 kg Bags (Shikharji Atta)',    usedFor: ['WF-26K', 'WF-25K']  },
   { id: 'PKG-WF-5P',   name: '5 kg Pouches (Shikharji Atta)',     usedFor: ['WF-5P']   },
   { id: 'PKG-WF-10P',  name: '10 kg Pouches (Shikharji Atta)',    usedFor: ['WF-10P']  },
   { id: 'PKG-WF-5H',   name: '5 kg Handle Bags (Shikharji Atta)', usedFor: ['WF-5H']   },
@@ -26,12 +27,14 @@ export const PACKAGING_MATERIALS: PackagingMaterial[] = [
   { id: 'PKG-BS-40K',  name: '40 kg Bags (Shikharji Besan)',             usedFor: ['BS-40K']  },
   { id: 'PKG-BS-500G', name: '500 gm Packets (Shikharji Besan)',         usedFor: ['BS-500G'] },
   { id: 'PKG-DL-500G', name: '500 gm Packets (Shikharji Dalia)', usedFor: ['DL-500G'] },
-  { id: 'PKG-BR-50K',  name: '50 kg Bags (Shikharji Bran)',       usedFor: ['BR-50K']  },
-  { id: 'PKG-BR-25K',  name: '25 kg Bags (Shikharji Bran)',       usedFor: ['BR-25K']  },
+  { id: 'PKG-BR-50K',    name: '50 kg Bags (Shikharji Bran)',       usedFor: ['BR-50K']  },
+  { id: 'PKG-BR-25K',    name: '25 kg Bags (Shikharji Bran)',       usedFor: ['BR-25K']  },
+  { id: 'PKG-OUTER-10X3', name: 'Outer Bag 10X3',                   usedFor: []          },
+  { id: 'PKG-OUTER-5X6',  name: 'Outer Bag 5X6',                    usedFor: []          },
 ];
 
 export const RAW_MATERIALS: RawMaterialDef[] = [
-  { id: 'RM-WF', name: 'Shikharji Atta', products: ['WF-26K', 'WF-5P', 'WF-10P', 'WF-5H', 'WF-10H'] },
+  { id: 'RM-WF', name: 'Shikharji Atta', products: ['WF-26K', 'WF-25K', 'WF-5P', 'WF-10P', 'WF-5H', 'WF-10H'] },
   { id: 'RM-BS', name: 'Shikharji Besan',       products: ['BS-40K', 'BS-500G'] },
   { id: 'RM-DL', name: 'Shikharji Dalia', products: ['DL-500G'] },
   { id: 'RM-BR', name: 'Shikharji Bran',   products: ['BR-50K', 'BR-25K'] },
@@ -53,6 +56,7 @@ export const INDIAN_STATES = [
 // Default prices (₹ per unit, user-editable)
 export const DEFAULT_PRICES: Record<string, number> = {
   'WF-26K':  780,
+  'WF-25K':  750,
   'WF-5P':   165,
   'WF-10P':  320,
   'WF-5H':   175,

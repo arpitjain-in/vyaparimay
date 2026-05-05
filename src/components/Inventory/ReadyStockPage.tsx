@@ -1,9 +1,143 @@
-import React, { useState } from 'react';
-import { X, CheckCircle, AlertTriangle, XCircle, PackageCheck } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { X, CheckCircle, AlertTriangle, XCircle, PackageCheck, Pencil, ShieldAlert } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES } from '../../data/products';
 import Layout from '../Layout/Layout';
 import { formatDate } from '../../utils/format';
+import type { ReadyStockTransaction } from '../../types';
+
+const EDIT_PASSWORD = import.meta.env.VITE_INVOICE_DELETE_PASSWORD as string;
+
+// ─── Password-protected edit modal ──────────────────────────────────────────
+function EditTransactionModal({
+  txn,
+  onConfirm,
+  onCancel,
+}: {
+  txn: ReadyStockTransaction;
+  onConfirm: (newQty: number, newReason: string) => void;
+  onCancel: () => void;
+}) {
+  const [step, setStep] = useState<'pin' | 'form'>('pin');
+  const [digits, setDigits] = useState(['', '', '', '']);
+  const [pinError, setPinError] = useState('');
+  const [editQty, setEditQty] = useState(txn.quantity);
+  const [editReason, setEditReason] = useState(txn.reason ?? '');
+  const inputRefs = [
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+  ];
+
+  const handleDigit = (index: number, value: string) => {
+    if (!/^\d?$/.test(value)) return;
+    const next = [...digits];
+    next[index] = value;
+    setDigits(next);
+    setPinError('');
+    if (value && index < 3) inputRefs[index + 1].current?.focus();
+    if (next.every(d => d !== '') && value) {
+      if (next.join('') === EDIT_PASSWORD) {
+        setStep('form');
+      } else {
+        setPinError('Incorrect password. Try again.');
+        setDigits(['', '', '', '']);
+        setTimeout(() => inputRefs[0].current?.focus(), 50);
+      }
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !digits[index] && index > 0) {
+      inputRefs[index - 1].current?.focus();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2 text-indigo-600">
+            {step === 'pin' ? <ShieldAlert size={20} /> : <Pencil size={18} />}
+            <span className="font-semibold text-base">
+              {step === 'pin' ? 'Verify Identity' : 'Edit Transaction'}
+            </span>
+          </div>
+          <button onClick={onCancel} className="text-slate-400 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+
+        {step === 'pin' ? (
+          <>
+            <p className="text-sm text-slate-500 mb-6">Enter the 4-digit password to edit this transaction.</p>
+            <div className="flex justify-center gap-3 mb-4">
+              {digits.map((d, i) => (
+                <input
+                  key={i}
+                  ref={inputRefs[i]}
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={d}
+                  autoFocus={i === 0}
+                  onChange={e => handleDigit(i, e.target.value)}
+                  onKeyDown={e => handleKeyDown(i, e)}
+                  className={`w-12 h-12 text-center text-xl font-bold border-2 rounded-xl outline-none transition-colors ${
+                    pinError ? 'border-red-400 bg-red-50' : 'border-slate-200 focus:border-indigo-500 bg-slate-50'
+                  }`}
+                />
+              ))}
+            </div>
+            {pinError && <p className="text-center text-xs text-red-500 mb-4">{pinError}</p>}
+            <button onClick={onCancel} className="w-full mt-1 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-slate-500 mb-4">
+              Editing <span className="font-semibold text-slate-700">{txn.type === 'ADD' ? '+' : '−'}{txn.quantity} units</span> entry on {txn.date}.
+            </p>
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Quantity</label>
+                <input
+                  type="number" min="1"
+                  value={editQty}
+                  onChange={e => setEditQty(Math.max(1, Number(e.target.value)))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Reason <span className="text-slate-400">(optional)</span></label>
+                <input
+                  value={editReason}
+                  onChange={e => setEditReason(e.target.value)}
+                  placeholder="e.g. Production batch #12"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={onCancel} className="flex-1 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
+                Cancel
+              </button>
+              <button
+                onClick={() => onConfirm(editQty, editReason)}
+                disabled={editQty <= 0}
+                className="flex-1 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40"
+              >
+                Save Changes
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function StatusBadge({ status }: { status: 'adequate' | 'low' | 'out' }) {
   if (status === 'out') return <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Out</span>;
@@ -21,7 +155,7 @@ const CATEGORY_STYLE: Record<string, { border: string; header: string; badge: st
 export default function ReadyStockPage() {
   const {
     readyStock, readyStockTransactions, reorderLevels,
-    adjustReadyStock, getReadyStockStatus,
+    adjustReadyStock, getReadyStockStatus, editReadyStockTransaction,
   } = useStore();
 
   const [panelSkuId, setPanelSkuId] = useState<string | null>(null);
@@ -29,6 +163,7 @@ export default function ReadyStockPage() {
   const [modifyQty, setModifyQty] = useState(0);
   const [modifyReason, setModifyReason] = useState('');
   const [modifyDate, setModifyDate] = useState(formatDate(new Date()));
+  const [editingTxn, setEditingTxn] = useState<ReadyStockTransaction | null>(null);
 
   const openPanel = (skuId: string) => {
     setPanelSkuId(skuId);
@@ -39,10 +174,16 @@ export default function ReadyStockPage() {
   };
 
   const handleModify = () => {
-    if (!panelSkuId || modifyQty <= 0 || !modifyReason.trim()) return;
-    adjustReadyStock(panelSkuId, modifyMode === 'add' ? modifyQty : -modifyQty, modifyReason.trim(), modifyDate);
+    if (!panelSkuId || modifyQty <= 0) return;
+    adjustReadyStock(panelSkuId, modifyMode === 'add' ? modifyQty : -modifyQty, modifyReason.trim() || undefined, modifyDate);
     setModifyQty(0);
     setModifyReason('');
+  };
+
+  const handleEditConfirm = (newQty: number, newReason: string) => {
+    if (!editingTxn) return;
+    editReadyStockTransaction(editingTxn.id, newQty, newReason.trim() || undefined);
+    setEditingTxn(null);
   };
 
   const groupedProducts = PRODUCT_CATEGORIES.map(cat => ({
@@ -60,6 +201,7 @@ export default function ReadyStockPage() {
     : [];
 
   return (
+    <>
     <Layout title="Ready Stock">
       <div className="space-y-8">
         {groupedProducts.map(({ category, skus, style }) => {
@@ -158,7 +300,7 @@ export default function ReadyStockPage() {
               />
               <input
                 value={modifyReason} onChange={e => setModifyReason(e.target.value)}
-                placeholder="Reason (required)"
+                placeholder="Reason (optional)"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
               <div className="flex items-center gap-2">
@@ -176,7 +318,7 @@ export default function ReadyStockPage() {
               </div>
               <button
                 onClick={handleModify}
-                disabled={!modifyReason.trim() || modifyQty <= 0}
+                disabled={modifyQty <= 0}
                 className={`w-full py-2.5 rounded-lg text-sm font-semibold text-white disabled:opacity-40 transition-colors ${modifyMode === 'add' ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'}`}
               >
                 {modifyMode === 'add' ? `Add ${modifyQty || ''} units` : `Remove ${modifyQty || ''} units`}
@@ -201,10 +343,21 @@ export default function ReadyStockPage() {
                         <span className="font-semibold text-slate-700 text-sm">
                           {t.type === 'ADD' ? '+' : '−'}{t.quantity} units
                         </span>
-                        <span className="text-xs text-slate-400 shrink-0">{t.date}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="text-xs text-slate-400">{t.date}</span>
+                          {!t.invoiceNo && (
+                            <button
+                              onClick={() => setEditingTxn(t)}
+                              className="ml-1 p-1 rounded hover:bg-slate-100 text-slate-300 hover:text-indigo-500 transition-colors"
+                              title="Edit transaction"
+                            >
+                              <Pencil size={12} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="text-xs text-slate-400 truncate mt-0.5">
-                        {t.invoiceNo ? <span className="text-indigo-500 font-medium">{t.invoiceNo}</span> : t.reason}
+                        {t.invoiceNo ? <span className="text-indigo-500 font-medium">{t.invoiceNo}</span> : (t.reason || <span className="italic text-slate-300">No reason</span>)}
                       </div>
                       <div className="text-xs text-slate-300 mt-0.5">
                         Balance: <span className="text-slate-500 font-medium">{t.newStock}</span>
@@ -218,6 +371,14 @@ export default function ReadyStockPage() {
         </div>
       </div>
     </Layout>
+    {editingTxn && (
+      <EditTransactionModal
+        txn={editingTxn}
+        onConfirm={handleEditConfirm}
+        onCancel={() => setEditingTxn(null)}
+      />
+    )}
+  </>
   );
 }
 

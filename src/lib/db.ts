@@ -672,8 +672,32 @@ export async function saveReadyStockTransaction(
       quantity: txn.quantity,
       previous_stock: txn.previousStock,
       new_stock: txn.newStock,
-      reason: txn.reason,
+      reason: txn.reason ?? null,
     });
+  if (txErr) throw txErr;
+
+  const { error: stockErr } = await supabase
+    .from('ready_stock')
+    .upsert(
+      { org_id: orgId, sku_id: txn.skuId, quantity: txn.newStock },
+      { onConflict: 'org_id,sku_id' },
+    );
+  if (stockErr) throw stockErr;
+}
+
+export async function updateReadyStockTransactionInDb(
+  orgId: string,
+  txn: ReadyStockTransaction,
+): Promise<void> {
+  const { error: txErr } = await supabase
+    .from('ready_stock_transactions')
+    .update({
+      quantity: txn.quantity,
+      new_stock: txn.newStock,
+      reason: txn.reason ?? null,
+    })
+    .eq('id', txn.id)
+    .eq('org_id', orgId);
   if (txErr) throw txErr;
 
   const { error: stockErr } = await supabase
