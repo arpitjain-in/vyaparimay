@@ -36,14 +36,21 @@ function fromDbTime(t: string): string {
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
-// Auth is bypassed: RLS is disabled and a fixed org is used.
-// All reads/writes go through the anon key directly.
+// Auth uses Supabase email OTP. RLS is disabled; a fixed org is shared.
 
 export const FIXED_ORG_ID = '00000000-0000-0000-0000-000000000001';
 
-/** No-op: returns the fixed org id without any authentication. */
+/** Returns the authenticated user's id, or throws if no session exists. */
 export async function initAuth(): Promise<string> {
-  return 'bypass';
+  const { data: { session }, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  if (!session?.user) throw new Error('Not authenticated');
+  return session.user.id;
+}
+
+/** Signs the current user out. */
+export async function signOut(): Promise<void> {
+  await supabase.auth.signOut();
 }
 
 // ─── Organisation ─────────────────────────────────────────────────────────────

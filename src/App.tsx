@@ -1,5 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Session } from '@supabase/supabase-js';
 import { useStore } from './store/useStore';
+import { supabase } from './lib/supabase';
+import AuthPage from './components/Auth/AuthPage';
 
 // Pages
 import BusinessSetup from './components/Business/BusinessSetup';
@@ -19,11 +22,44 @@ import PriceList from './components/Pricing/PriceList';
 
 export default function App() {
   const { currentPage, businessProfile, isInitialized, initError, initializeApp } = useStore();
+  const [session, setSession] = useState<Session | null | 'loading'>('loading');
 
   useEffect(() => {
-    initializeApp();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+      if (!s) {
+        // Reset app state on sign-out
+        useStore.setState({ isInitialized: false, orgId: null, businessProfile: null });
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (session && session !== 'loading') {
+      initializeApp();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
+  // Checking auth
+  if (session === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-400" />
+      </div>
+    );
+  }
+
+  // Not authenticated
+  if (!session) {
+    return <AuthPage />;
+  }
 
   if (!isInitialized) {
     return (

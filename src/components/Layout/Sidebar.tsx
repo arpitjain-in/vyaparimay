@@ -2,11 +2,12 @@ import React from 'react';
 import {
   LayoutDashboard, Users, ShoppingCart, FileText,
   PackageCheck, Box, IndianRupee, Settings,
-  FlaskConical,
+  FlaskConical, LogOut,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { AppPage } from '../../types';
 import { formatDate } from '../../utils/format';
+import { signOut } from '../../lib/db';
 
 interface NavItem {
   label: string;
@@ -126,8 +127,15 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-slate-700/60">
+      <div className="px-4 py-3 border-t border-slate-700/60 space-y-2">
         <div className="text-xs text-slate-500">{TODAY}</div>
+        <button
+          onClick={() => signOut()}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 transition-colors text-xs"
+        >
+          <LogOut size={13} />
+          <span>Sign out</span>
+        </button>
       </div>
     </aside>
   );
