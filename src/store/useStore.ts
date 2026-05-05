@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import {
   AppPage, BusinessProfile, CartItem, CurrentOrder,
   Customer, Invoice, OrderItem, StockTransaction,
@@ -129,8 +128,7 @@ const initReorder = {
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 export const useStore = create<AppState>()(
-  persist(
-    (set, get) => ({
+  (set, get) => ({
       // Auth / tenant
       orgId: null,
       isInitialized: false,
@@ -214,6 +212,7 @@ export const useStore = create<AppState>()(
           }
 
           const s = get();
+
           set({
             orgId,
             isInitialized: true,
@@ -237,17 +236,12 @@ export const useStore = create<AppState>()(
               },
               ready: { ...s.reorderLevels.ready, ...dbReorderLevels.ready },
             },
-            currentPage: businessProfile
-              ? s.currentPage === 'setup'
-                ? 'dashboard'
-                : s.currentPage
-              : 'setup',
+            currentPage: businessProfile ? 'dashboard' : 'setup',
           });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          console.warn('[initializeApp] Supabase unavailable, running offline:', msg);
-          // App continues with localStorage data — Supabase writes will be skipped
-          set({ isInitialized: true, initError: null });
+          console.error('[initializeApp] Failed to connect to database:', msg);
+          set({ isInitialized: true, initError: msg, orgId: db.FIXED_ORG_ID });
         }
       },
 
@@ -697,22 +691,7 @@ export const useStore = create<AppState>()(
         if (reorder > 0 && stock <= reorder) return 'low';
         return 'adequate';
       },
-    }),
-    {
-      name: 'vyaparimay-v1',
-      merge: (persisted: any, current) => ({
-        ...current,
-        ...persisted,
-        readyStock: persisted.readyStock ?? current.readyStock,
-        readyStockTransactions: persisted.readyStockTransactions ?? current.readyStockTransactions,
-        reorderLevels: {
-          ...current.reorderLevels,
-          ...(persisted.reorderLevels ?? {}),
-          ready: persisted.reorderLevels?.ready ?? current.reorderLevels.ready,
-        },
-      }),
-    },
-  ),
+  }),
 );
 
 export type Store = AppState;

@@ -39,7 +39,7 @@ function fromDbTime(t: string): string {
 // Auth is bypassed: RLS is disabled and a fixed org is used.
 // All reads/writes go through the anon key directly.
 
-const FIXED_ORG_ID = '00000000-0000-0000-0000-000000000001';
+export const FIXED_ORG_ID = '00000000-0000-0000-0000-000000000001';
 
 /** No-op: returns the fixed org id without any authentication. */
 export async function initAuth(): Promise<string> {
@@ -147,7 +147,6 @@ export async function loadCustomers(
     .from('customers')
     .select('*')
     .eq('org_id', orgId)
-    .is('deleted_at', null)
     .order('seq', { ascending: true });
   if (error) throw error;
 
@@ -162,7 +161,7 @@ export async function saveCustomer(
   customer: Customer,
   seq: number,
 ): Promise<void> {
-  const { error } = await supabase.from('customers').insert({
+  const { error } = await supabase.from('customers').upsert({
     id: customer.id,
     org_id: orgId,
     seq,
@@ -183,8 +182,9 @@ export async function saveCustomer(
     opening_balance: customer.openingBalance,
     notes: customer.notes ?? null,
     active: customer.active,
+    deleted_at: customer.active ? null : new Date().toISOString(),
     created_on: toDbDate(customer.createdOn),
-  });
+  }, { onConflict: 'id' });
   if (error) throw error;
 }
 
@@ -214,7 +214,7 @@ export async function updateCustomerInDb(
   if (data.notes !== undefined) row.notes = data.notes ?? null;
   if (data.active !== undefined) {
     row.active = data.active;
-    if (!data.active) row.deleted_at = new Date().toISOString();
+    row.deleted_at = data.active ? null : new Date().toISOString();
   }
 
   const { error } = await supabase

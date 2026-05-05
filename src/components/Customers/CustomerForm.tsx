@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, AlertCircle } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { Customer, CustomerType, PaymentTerms } from '../../types';
 import { INDIAN_STATES } from '../../data/products';
 import Layout from '../Layout/Layout';
+import * as db from '../../lib/db';
+import { formatDate } from '../../utils/format';
 
 type FormData = Omit<Customer, 'id' | 'createdOn' | 'active'>;
 
@@ -49,25 +51,48 @@ function F({
 }
 
 export default function CustomerForm() {
-  const { editCustomerId, customers, addCustomer, updateCustomer, navigate } = useStore();
-  const existing = customers.find(c => c.id === editCustomerId);
+  const { orgId, editCustomerId, customers, navigate } = useStore();
 
-  const [form, setForm] = useState<FormData>(existing
-    ? { name: existing.name, firmName: existing.firmName ?? '', mobile: existing.mobile,
-        alternateMobile: existing.alternateMobile ?? '', address1: existing.address1,
-        address2: existing.address2 ?? '', city: existing.city, state: existing.state,
-        pinCode: existing.pinCode ?? '', gstin: existing.gstin ?? '', fssai: existing.fssai ?? '',
+  // Load existing customer from DB if editing
+  const [existing, setExisting] = useState<Customer | null>(
+    customers.find(c => c.id === editCustomerId) ?? null,
+  );
+  const [loadingCustomer, setLoadingCustomer] = useState(!!editCustomerId && !existing);
+
+  useEffect(() => {
+    if (!editCustomerId || !orgId) return;
+    if (existing?.id === editCustomerId) return;
+    setLoadingCustomer(true);
+    db.loadCustomers(orgId).then(({ customers: all }) => {
+      setExisting(all.find(c => c.id === editCustomerId) ?? null);
+    }).catch(console.error).finally(() => setLoadingCustomer(false));
+  }, [editCustomerId, orgId]);
+
+  const [form, setForm] = useState<FormData>(EMPTY);
+  const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Populate form when existing customer is loaded
+  useEffect(() => {
+    if (existing) {
+      setForm({
+        name: existing.name, firmName: existing.firmName ?? '',
+        mobile: existing.mobile, alternateMobile: existing.alternateMobile ?? '',
+        address1: existing.address1, address2: existing.address2 ?? '',
+        city: existing.city, state: existing.state, pinCode: existing.pinCode ?? '',
+        gstin: existing.gstin ?? '', fssai: existing.fssai ?? '',
         customerType: existing.customerType, creditLimit: existing.creditLimit,
         paymentTerms: existing.paymentTerms, openingBalance: existing.openingBalance,
-        notes: existing.notes ?? '' }
-    : EMPTY
-  );
-  const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
-  const [saved, setSaved] = useState(false);
+        notes: existing.notes ?? '',
+      });
+    }
+    setSaved(false);
+    setSubmitError(null);
+  }, [existing]);
 
-  useEffect(() => { setSaved(false); }, [editCustomerId]);
-
-  const set = (k: keyof FormData) =>
+  const setField = (k: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
       setForm(prev => ({ ...prev, [k]: e.target.value }));
 
@@ -82,17 +107,62 @@ export default function CustomerForm() {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validate()) return;
-    if (existing) {
-      updateCustomer(existing.id, form);
-      setSaved(true);
-    } else {
-      addCustomer(form);
-      navigate('customer-list');
+    if (!validate() || !orgId) return;
+    setSaving(true);
+    setSubmitError(null);
+    try {
+      if (existing) {
+        await db.updateCustomerInDb(orgId, existing.id, form);
+        // Update in-memory store so other pages stay in sync
+        useStore.setState(s => ({
+          customers: s.customers.map(c => c.id === existing.id ? { ...c, ...form } : c),
+        }));
+        setSaved(true);
+      } else {
+        // Get next seq from DB for consistent ID generation
+        const { seq: maxSeq } = await db.loadCustomers(orgId);
+        const seq = maxSeq + 1;
+        const id = `CUST-${String(seq).padStart(3, '0')}`;
+        const customer: Customer = {
+          ...form,
+          id,
+          createdOn: formatDate(new Date()),
+          active: true,
+          firmName: form.firmName?.trim() || undefined,
+          alternateMobile: form.alternateMobile?.trim() || undefined,
+          address2: form.address2?.trim() || undefined,
+          pinCode: form.pinCode?.trim() || undefined,
+          gstin: form.gstin?.trim() || undefined,
+          fssai: form.fssai?.trim() || undefined,
+          notes: form.notes?.trim() || undefined,
+        };
+        await db.saveCustomer(orgId, customer, seq);
+        // Update in-memory store
+        useStore.setState(s => ({
+          customers: [...s.customers, customer],
+          customerSeq: seq,
+        }));
+        navigate('customer-list');
+      }
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Save failed. Please try again.');
+    } finally {
+      setSaving(false);
     }
   };
+
+  if (loadingCustomer) {
+    return (
+      <Layout title="Edit Customer">
+        <div className="flex items-center justify-center py-20 text-slate-400 gap-2">
+          <Loader2 size={20} className="animate-spin" />
+          <span className="text-sm">Loading customer…</span>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout
@@ -108,14 +178,22 @@ export default function CustomerForm() {
     >
       <div className="max-w-2xl">
         <form onSubmit={handleSubmit} className="space-y-6">
+
+          {submitError && (
+            <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-700 text-sm">
+              <AlertCircle size={16} className="shrink-0" />
+              {submitError}
+            </div>
+          )}
+
           {/* Basic */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h3 className="font-semibold text-gray-700 mb-4">Basic Information</h3>
             <div className="grid grid-cols-2 gap-4">
-              <F label="Customer Name" k="name" required placeholder="Full name" form={form} errors={errors} onChange={set} />
-              <F label="Business / Firm Name" k="firmName" placeholder="Firm (optional)" form={form} errors={errors} onChange={set} />
-              <F label="Mobile Number" k="mobile" required placeholder="10-digit mobile" form={form} errors={errors} onChange={set} />
-              <F label="Alternate Mobile" k="alternateMobile" placeholder="Optional" form={form} errors={errors} onChange={set} />
+              <F label="Customer Name" k="name" required placeholder="Full name" form={form} errors={errors} onChange={setField} />
+              <F label="Business / Firm Name" k="firmName" placeholder="Firm (optional)" form={form} errors={errors} onChange={setField} />
+              <F label="Mobile Number" k="mobile" required placeholder="10-digit mobile" form={form} errors={errors} onChange={setField} />
+              <F label="Alternate Mobile" k="alternateMobile" placeholder="Optional" form={form} errors={errors} onChange={setField} />
             </div>
           </div>
 
@@ -123,9 +201,9 @@ export default function CustomerForm() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h3 className="font-semibold text-gray-700 mb-4">Address</h3>
             <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2"><F label="Address Line 1" k="address1" required placeholder="Street / Area" form={form} errors={errors} onChange={set} /></div>
-              <F label="Address Line 2" k="address2" placeholder="Landmark (optional)" form={form} errors={errors} onChange={set} />
-              <F label="City" k="city" required form={form} errors={errors} onChange={set} />
+              <div className="col-span-2"><F label="Address Line 1" k="address1" required placeholder="Street / Area" form={form} errors={errors} onChange={setField} /></div>
+              <F label="Address Line 2" k="address2" placeholder="Landmark (optional)" form={form} errors={errors} onChange={setField} />
+              <F label="City" k="city" required form={form} errors={errors} onChange={setField} />
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">State <span className="text-red-500">*</span></label>
                 <select
@@ -138,7 +216,7 @@ export default function CustomerForm() {
                 </select>
                 {errors.state && <p className="text-xs text-red-500 mt-0.5">{errors.state}</p>}
               </div>
-              <F label="PIN Code" k="pinCode" placeholder="6-digit PIN" form={form} errors={errors} onChange={set} />
+              <F label="PIN Code" k="pinCode" placeholder="6-digit PIN" form={form} errors={errors} onChange={setField} />
             </div>
           </div>
 
@@ -146,8 +224,8 @@ export default function CustomerForm() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h3 className="font-semibold text-gray-700 mb-4">Tax & Legal</h3>
             <div className="grid grid-cols-2 gap-4">
-              <F label="GSTIN" k="gstin" placeholder="15-char GSTIN (if B2B)" form={form} errors={errors} onChange={set} />
-              <F label="FSSAI Number" k="fssai" placeholder="If food business" form={form} errors={errors} onChange={set} />
+              <F label="GSTIN" k="gstin" placeholder="15-char GSTIN (if B2B)" form={form} errors={errors} onChange={setField} />
+              <F label="FSSAI Number" k="fssai" placeholder="If food business" form={form} errors={errors} onChange={setField} />
             </div>
           </div>
 
@@ -212,9 +290,12 @@ export default function CustomerForm() {
           <div className="flex items-center gap-3">
             <button
               type="submit"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2"
+              disabled={saving}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white px-6 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2"
             >
-              <Save size={16} /> {existing ? 'Save Changes' : 'Add Customer'}
+              {saving
+                ? <><Loader2 size={16} className="animate-spin" /> Saving…</>
+                : <><Save size={16} /> {existing ? 'Save Changes' : 'Add Customer'}</>}
             </button>
             <button
               type="button"
@@ -230,3 +311,4 @@ export default function CustomerForm() {
     </Layout>
   );
 }
+

@@ -1,20 +1,52 @@
-import React, { useState } from 'react';
-import { ArrowLeft, Phone, MapPin, Building2, PlusCircle, TrendingUp, TrendingDown } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowLeft, Phone, MapPin, Building2, PlusCircle, TrendingUp, TrendingDown, Loader2, AlertCircle } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR } from '../../utils/format';
 import Layout from '../Layout/Layout';
 import AddPaymentModal from '../common/AddPaymentModal';
+import * as db from '../../lib/db';
+import type { Customer } from '../../types';
 
 // ─── Main Ledger ─────────────────────────────────────────────────────────────
 export default function CustomerLedger() {
-  const { selectedCustomerId, customers, invoices, paymentReceipts, navigate } = useStore();
-  const customer = customers.find(c => c.id === selectedCustomerId);
+  const { selectedCustomerId, orgId, invoices, paymentReceipts, navigate } = useStore();
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showAddPayment, setShowAddPayment] = useState(false);
 
-  if (!customer) {
+  useEffect(() => {
+    if (!selectedCustomerId || !orgId) return;
+    setLoading(true);
+    setError(null);
+    db.loadCustomers(orgId)
+      .then(({ customers }) => {
+        const found = customers.find(c => c.id === selectedCustomerId) ?? null;
+        setCustomer(found);
+        if (!found) setError('Customer not found.');
+      })
+      .catch(err => setError(err instanceof Error ? err.message : 'Failed to load customer'))
+      .finally(() => setLoading(false));
+  }, [selectedCustomerId, orgId]);
+
+  if (loading) {
     return (
       <Layout title="Customer Ledger">
-        <div className="text-center py-12 text-gray-400">Customer not found.</div>
+        <div className="flex items-center justify-center py-20 text-slate-400 gap-2">
+          <Loader2 size={20} className="animate-spin" />
+          <span className="text-sm">Loading…</span>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (error || !customer) {
+    return (
+      <Layout title="Customer Ledger">
+        <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-700 text-sm">
+          <AlertCircle size={16} className="shrink-0" />
+          {error ?? 'Customer not found.'}
+        </div>
       </Layout>
     );
   }
