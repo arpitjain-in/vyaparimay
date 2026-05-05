@@ -184,7 +184,7 @@ export async function saveCustomer(
     active: customer.active,
     deleted_at: customer.active ? null : new Date().toISOString(),
     created_on: toDbDate(customer.createdOn),
-  }, { onConflict: 'id' });
+  }, { onConflict: 'id,org_id' });
   if (error) throw error;
 }
 
