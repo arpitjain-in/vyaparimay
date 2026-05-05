@@ -99,6 +99,7 @@ interface AppState {
   addReadyStockEntry(skuId: string, qty: number, reason: string | undefined, date: string): void;
   adjustReadyStock(skuId: string, qty: number, reason: string | undefined, date?: string): void;
   editReadyStockTransaction(txId: string, newQty: number, newReason: string | undefined): void;
+  deleteReadyStockTransaction(txId: string): void;
   setReadyStockReorderLevel(skuId: string, level: number): void;
   getReadyStockStatus(skuId: string): StockStatus;
 
@@ -645,6 +646,24 @@ export const useStore = create<AppState>()(
         });
         const { orgId } = get();
         if (orgId && updatedTxn) db.updateReadyStockTransactionInDb(orgId, updatedTxn).catch(console.error);
+      },
+
+      deleteReadyStockTransaction(txId) {
+        let deletedSkuId = '';
+        let newCurrentStock = 0;
+        set(s => {
+          const txn = s.readyStockTransactions.find(t => t.id === txId);
+          if (!txn) return {};
+          deletedSkuId = txn.skuId;
+          const signedQty = txn.type === 'DEDUCT' ? txn.quantity : -txn.quantity;
+          newCurrentStock = Math.max(0, (s.readyStock[txn.skuId] ?? 0) + signedQty);
+          return {
+            readyStockTransactions: s.readyStockTransactions.filter(t => t.id !== txId),
+            readyStock: { ...s.readyStock, [txn.skuId]: newCurrentStock },
+          };
+        });
+        const { orgId } = get();
+        if (orgId && deletedSkuId) db.deleteReadyStockTransactionInDb(orgId, txId, deletedSkuId, newCurrentStock).catch(console.error);
       },
 
       setReadyStockReorderLevel(skuId, level) {

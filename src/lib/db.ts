@@ -709,6 +709,28 @@ export async function updateReadyStockTransactionInDb(
   if (stockErr) throw stockErr;
 }
 
+export async function deleteReadyStockTransactionInDb(
+  orgId: string,
+  txnId: string,
+  skuId: string,
+  newCurrentStock: number,
+): Promise<void> {
+  const { error: txErr } = await supabase
+    .from('ready_stock_transactions')
+    .delete()
+    .eq('id', txnId)
+    .eq('org_id', orgId);
+  if (txErr) throw txErr;
+
+  const { error: stockErr } = await supabase
+    .from('ready_stock')
+    .upsert(
+      { org_id: orgId, sku_id: skuId, quantity: newCurrentStock },
+      { onConflict: 'org_id,sku_id' },
+    );
+  if (stockErr) throw stockErr;
+}
+
 // ─── Price List ───────────────────────────────────────────────────────────────
 
 export async function loadPriceList(

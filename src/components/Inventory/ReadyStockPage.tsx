@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { X, CheckCircle, AlertTriangle, XCircle, PackageCheck, Pencil, ShieldAlert } from 'lucide-react';
+import { X, CheckCircle, AlertTriangle, XCircle, PackageCheck, Pencil, ShieldAlert, Trash2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES } from '../../data/products';
 import Layout from '../Layout/Layout';
@@ -139,6 +139,96 @@ function EditTransactionModal({
   );
 }
 
+// ─── Password-protected delete modal ────────────────────────────────────────
+function DeleteTransactionModal({
+  txn,
+  onConfirm,
+  onCancel,
+}: {
+  txn: ReadyStockTransaction;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const [digits, setDigits] = useState(['', '', '', '']);
+  const [pinError, setPinError] = useState('');
+  const inputRefs = [
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+  ];
+
+  const handleDigit = (index: number, value: string) => {
+    if (!/^\d?$/.test(value)) return;
+    const next = [...digits];
+    next[index] = value;
+    setDigits(next);
+    setPinError('');
+    if (value && index < 3) inputRefs[index + 1].current?.focus();
+    if (next.every(d => d !== '') && value) {
+      if (next.join('') === EDIT_PASSWORD) {
+        onConfirm();
+      } else {
+        setPinError('Incorrect password. Try again.');
+        setDigits(['', '', '', '']);
+        setTimeout(() => inputRefs[0].current?.focus(), 50);
+      }
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !digits[index] && index > 0) {
+      inputRefs[index - 1].current?.focus();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2 text-red-600">
+            <ShieldAlert size={20} />
+            <span className="font-semibold text-base">Delete Transaction</span>
+          </div>
+          <button onClick={onCancel} className="text-slate-400 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+        <p className="text-sm text-slate-500 mb-1">
+          You are about to delete a{' '}
+          <span className="font-semibold text-slate-700">
+            {txn.type === 'ADD' ? '+' : '−'}{txn.quantity} units
+          </span>{' '}
+          entry on {txn.date}.
+        </p>
+        <p className="text-sm text-slate-500 mb-6">Enter the 4-digit password to confirm.</p>
+        <div className="flex justify-center gap-3 mb-4">
+          {digits.map((d, i) => (
+            <input
+              key={i}
+              ref={inputRefs[i]}
+              type="password"
+              inputMode="numeric"
+              maxLength={1}
+              value={d}
+              autoFocus={i === 0}
+              onChange={e => handleDigit(i, e.target.value)}
+              onKeyDown={e => handleKeyDown(i, e)}
+              className={`w-12 h-12 text-center text-xl font-bold border-2 rounded-xl outline-none transition-colors ${
+                pinError ? 'border-red-400 bg-red-50' : 'border-slate-200 focus:border-red-500 bg-slate-50'
+              }`}
+            />
+          ))}
+        </div>
+        {pinError && <p className="text-center text-xs text-red-500 mb-4">{pinError}</p>}
+        <button onClick={onCancel} className="w-full mt-1 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function StatusBadge({ status }: { status: 'adequate' | 'low' | 'out' }) {
   if (status === 'out') return <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Out</span>;
   if (status === 'low') return <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Low</span>;
@@ -155,7 +245,7 @@ const CATEGORY_STYLE: Record<string, { border: string; header: string; badge: st
 export default function ReadyStockPage() {
   const {
     readyStock, readyStockTransactions, reorderLevels,
-    adjustReadyStock, getReadyStockStatus, editReadyStockTransaction,
+    adjustReadyStock, getReadyStockStatus, editReadyStockTransaction, deleteReadyStockTransaction,
   } = useStore();
 
   const [panelSkuId, setPanelSkuId] = useState<string | null>(null);
@@ -164,6 +254,7 @@ export default function ReadyStockPage() {
   const [modifyReason, setModifyReason] = useState('');
   const [modifyDate, setModifyDate] = useState(formatDate(new Date()));
   const [editingTxn, setEditingTxn] = useState<ReadyStockTransaction | null>(null);
+  const [deletingTxn, setDeletingTxn] = useState<ReadyStockTransaction | null>(null);
 
   const openPanel = (skuId: string) => {
     setPanelSkuId(skuId);
@@ -184,6 +275,12 @@ export default function ReadyStockPage() {
     if (!editingTxn) return;
     editReadyStockTransaction(editingTxn.id, newQty, newReason.trim() || undefined);
     setEditingTxn(null);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (!deletingTxn) return;
+    deleteReadyStockTransaction(deletingTxn.id);
+    setDeletingTxn(null);
   };
 
   const groupedProducts = PRODUCT_CATEGORIES.map(cat => ({
@@ -346,13 +443,22 @@ export default function ReadyStockPage() {
                         <div className="flex items-center gap-1 shrink-0">
                           <span className="text-xs text-slate-400">{t.date}</span>
                           {!t.invoiceNo && (
-                            <button
-                              onClick={() => setEditingTxn(t)}
-                              className="ml-1 p-1 rounded hover:bg-slate-100 text-slate-300 hover:text-indigo-500 transition-colors"
-                              title="Edit transaction"
-                            >
-                              <Pencil size={12} />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => setEditingTxn(t)}
+                                className="ml-1 p-1 rounded hover:bg-slate-100 text-slate-300 hover:text-indigo-500 transition-colors"
+                                title="Edit transaction"
+                              >
+                                <Pencil size={12} />
+                              </button>
+                              <button
+                                onClick={() => setDeletingTxn(t)}
+                                className="p-1 rounded hover:bg-slate-100 text-slate-300 hover:text-red-500 transition-colors"
+                                title="Delete transaction"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -376,6 +482,13 @@ export default function ReadyStockPage() {
         txn={editingTxn}
         onConfirm={handleEditConfirm}
         onCancel={() => setEditingTxn(null)}
+      />
+    )}
+    {deletingTxn && (
+      <DeleteTransactionModal
+        txn={deletingTxn}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeletingTxn(null)}
       />
     )}
   </>
