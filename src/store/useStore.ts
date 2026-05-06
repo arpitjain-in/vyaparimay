@@ -237,7 +237,7 @@ export const useStore = create<AppState>()(
               },
               ready: { ...s.reorderLevels.ready, ...dbReorderLevels.ready },
             },
-            currentPage: businessProfile ? 'dashboard' : 'setup',
+            currentPage: get().isInitialized ? get().currentPage : (businessProfile ? 'dashboard' : 'setup'),
           });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
