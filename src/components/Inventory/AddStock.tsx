@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ArrowLeft, Save, PackageCheck } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES } from '../../data/products';
-import { formatDate } from '../../utils/format';
+import { formatDate, isValidDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
 
 export default function AddStock() {
@@ -20,6 +20,7 @@ export default function AddStock() {
 
   const validate = () => {
     const errs: Record<string, string> = {};
+    if (!isValidDDMMYYYY(date)) errs.date     = 'Enter date in DD/MM/YYYY format';
     if (!skuId)        errs.skuId    = 'Select a product variant';
     if (quantity <= 0) errs.quantity = 'Enter a valid positive quantity';
     if (!reason.trim()) errs.reason  = 'Enter a reason / batch description';
@@ -66,10 +67,11 @@ export default function AddStock() {
             <input
               type="text"
               value={date}
-              onChange={e => setDate(e.target.value)}
+              onChange={e => { setDate(e.target.value); setErrors(prev => ({ ...prev, date: '' })); }}
               placeholder="DD/MM/YYYY"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+              className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 ${errors.date ? 'border-red-400' : 'border-gray-300'}`}
             />
+            {errors.date && <p className="text-xs text-red-500 mt-0.5">{errors.date}</p>}
           </div>
 
           {/* Product SKU */}

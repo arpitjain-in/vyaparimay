@@ -3,7 +3,7 @@ import { X, CheckCircle, AlertTriangle, XCircle, PackageCheck, Pencil, ShieldAle
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES } from '../../data/products';
 import Layout from '../Layout/Layout';
-import { formatDate } from '../../utils/format';
+import { formatDate, isValidDDMMYYYY, parseDDMMYYYY } from '../../utils/format';
 import type { ReadyStockTransaction } from '../../types';
 
 const EDIT_PASSWORD = import.meta.env.VITE_INVOICE_DELETE_PASSWORD as string;
@@ -255,6 +255,7 @@ export default function ReadyStockPage() {
   const [modifyDate, setModifyDate] = useState(formatDate(new Date()));
   const [editingTxn, setEditingTxn] = useState<ReadyStockTransaction | null>(null);
   const [deletingTxn, setDeletingTxn] = useState<ReadyStockTransaction | null>(null);
+  const [modifyDateError, setModifyDateError] = useState('');
 
   const openPanel = (skuId: string) => {
     setPanelSkuId(skuId);
@@ -266,6 +267,8 @@ export default function ReadyStockPage() {
 
   const handleModify = () => {
     if (!panelSkuId || modifyQty <= 0) return;
+    if (!isValidDDMMYYYY(modifyDate)) { setModifyDateError('Enter date in DD/MM/YYYY format'); return; }
+    setModifyDateError('');
     adjustReadyStock(panelSkuId, modifyMode === 'add' ? modifyQty : -modifyQty, modifyReason.trim() || undefined, modifyDate);
     setModifyQty(0);
     setModifyReason('');
@@ -294,7 +297,7 @@ export default function ReadyStockPage() {
   const panelStatus   = panelSkuId ? getReadyStockStatus(panelSkuId) : ('adequate' as const);
   const panelReorder  = panelSkuId ? (reorderLevels.ready[panelSkuId] ?? 0) : 0;
   const panelTxns     = panelSkuId
-    ? [...readyStockTransactions].filter(t => t.skuId === panelSkuId).sort((a, b) => b.id.localeCompare(a.id))
+    ? [...readyStockTransactions].filter(t => t.skuId === panelSkuId).sort((a, b) => parseDDMMYYYY(b.date, b.time) - parseDDMMYYYY(a.date, a.time))
     : [];
 
   return (
@@ -401,10 +404,15 @@ export default function ReadyStockPage() {
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
               <div className="flex items-center gap-2">
-                <input
-                  type="text" value={modifyDate} onChange={e => setModifyDate(e.target.value)}
-                  className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                />
+                <div className="flex-1">
+                  <input
+                    type="text" value={modifyDate}
+                    onChange={e => { setModifyDate(e.target.value); setModifyDateError(''); }}
+                    placeholder="DD/MM/YYYY"
+                    className={`w-full border rounded-lg px-3 py-2 text-xs text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${modifyDateError ? 'border-red-400' : 'border-slate-200'}`}
+                  />
+                  {modifyDateError && <p className="text-xs text-red-500 mt-0.5">{modifyDateError}</p>}
+                </div>
                 {modifyQty > 0 && (
                   <span className="text-xs text-slate-400 shrink-0">
                     → <strong className={modifyMode === 'add' ? 'text-emerald-700' : 'text-red-600'}>

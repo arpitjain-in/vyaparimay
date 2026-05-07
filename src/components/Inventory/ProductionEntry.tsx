@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ArrowLeft, FlaskConical, Save, ChevronDown } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCT_CATEGORIES } from '../../data/products';
-import { formatDate } from '../../utils/format';
+import { formatDate, isValidDDMMYYYY, parseDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
 
 export default function ProductionEntry() {
@@ -17,8 +17,9 @@ export default function ProductionEntry() {
 
   const validate = () => {
     const errs: Record<string, string> = {};
-    if (!productName)         errs.productName = 'Select a product';
-    if (quantityProduced <= 0) errs.qty        = 'Enter quantity produced';
+    if (!isValidDDMMYYYY(date)) errs.date      = 'Enter date in DD/MM/YYYY format';
+    if (!productName)           errs.productName = 'Select a product';
+    if (quantityProduced <= 0)  errs.qty        = 'Enter quantity produced';
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -34,7 +35,7 @@ export default function ProductionEntry() {
   };
 
   const recentLogs = [...productionLogs]
-    .sort((a, b) => b.id.localeCompare(a.id))
+    .sort((a, b) => parseDDMMYYYY(b.date, b.time) - parseDDMMYYYY(a.date, a.time))
     .slice(0, 20);
 
   // Group totals per product for summary
@@ -79,12 +80,14 @@ export default function ProductionEntry() {
 
           {/* Date */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Date <span className="text-red-500">*</span></label>
             <input
               value={date}
-              onChange={e => setDate(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              onChange={e => { setDate(e.target.value); setErrors(prev => ({ ...prev, date: '' })); }}
+              placeholder="DD/MM/YYYY"
+              className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 ${errors.date ? 'border-red-400' : 'border-gray-200'}`}
             />
+            {errors.date && <p className="text-xs text-red-500 mt-0.5">{errors.date}</p>}
           </div>
 
           {/* Product */}

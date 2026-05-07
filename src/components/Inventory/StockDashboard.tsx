@@ -9,6 +9,7 @@ import { PACKAGING_MATERIALS, PRODUCTS, PRODUCT_CATEGORIES } from '../../data/pr
 import Layout from '../Layout/Layout';
 import Modal from '../common/Modal';
 import { PackagingEntry } from '../../types';
+import { isValidDDMMYYYY, parseDDMMYYYY } from '../../utils/format';
 
 function StatusBadge({ status }: { status: 'adequate' | 'low' | 'out' }) {
   if (status === 'out') return (
@@ -57,6 +58,7 @@ export default function StockDashboard() {
   } = useStore();
 
   const [addModal, setAddModal] = useState(false);
+  const [addDateError, setAddDateError] = useState('');
   const [addSkuId, setAddSkuId] = useState('');
   const [addQty, setAddQty] = useState(0);
   const [addReason, setAddReason] = useState('');
@@ -94,6 +96,8 @@ export default function StockDashboard() {
   };
   const handleAdd = () => {
     if (!addSkuId || addQty <= 0 || !addReason.trim()) return;
+    if (!isValidDDMMYYYY(addDate)) { setAddDateError('Enter date in DD/MM/YYYY format'); return; }
+    setAddDateError('');
     addReadyStockEntry(addSkuId, addQty, addReason.trim(), addDate);
     setAddModal(false);
   };
@@ -136,7 +140,7 @@ export default function StockDashboard() {
     style: CATEGORY_STYLE[cat] ?? { header: 'bg-gray-50 border-gray-200', badge: 'bg-gray-100 text-gray-700', icon: 'text-gray-500' },
   }));
 
-  const recentRSTxns = [...readyStockTransactions].sort((a, b) => b.id.localeCompare(a.id)).slice(0, 30);
+  const recentRSTxns = [...readyStockTransactions].sort((a, b) => parseDDMMYYYY(b.date, b.time) - parseDDMMYYYY(a.date, a.time)).slice(0, 30);
 
   return (
     <Layout
@@ -188,7 +192,7 @@ export default function StockDashboard() {
                     const isExpanded = expandedSku === sku.id;
                     const skuTxns = readyStockTransactions
                       .filter(t => t.skuId === sku.id)
-                      .sort((a, b) => b.id.localeCompare(a.id))
+                      .sort((a, b) => parseDDMMYYYY(b.date, b.time) - parseDDMMYYYY(a.date, a.time))
                       .slice(0, 20);
                     return (
                       <div key={sku.id}>
@@ -293,7 +297,7 @@ export default function StockDashboard() {
             const isExpanded = expandedPkg === pm.id;
             const materialEntries = packagingEntries
               .filter(e => e.materialId === pm.id)
-              .sort((a, b) => b.id.localeCompare(a.id));
+              .sort((a, b) => parseDDMMYYYY(b.date, b.time) - parseDDMMYYYY(a.date, a.time));
             return (
               <div key={pm.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                 <div
@@ -432,8 +436,11 @@ export default function StockDashboard() {
           })()}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-            <input type="text" value={addDate} onChange={e => setAddDate(e.target.value)} placeholder="DD/MM/YYYY"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+            <input type="text" value={addDate}
+              onChange={e => { setAddDate(e.target.value); setAddDateError(''); }}
+              placeholder="DD/MM/YYYY"
+              className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 ${addDateError ? 'border-red-400' : 'border-gray-300'}`} />
+            {addDateError && <p className="text-xs text-red-500 mt-0.5">{addDateError}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

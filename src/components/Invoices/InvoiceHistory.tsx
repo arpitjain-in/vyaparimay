@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Search, FileText, XCircle } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { fmtINR } from '../../utils/format';
+import { fmtINR, parseDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
 import DeletePasswordModal from './DeletePasswordModal';
 
@@ -24,7 +24,10 @@ export default function InvoiceHistory() {
         inv.invoiceDate.includes(q)
       );
     })
-    .sort((a, b) => b.invoiceNo.localeCompare(a.invoiceNo));
+    .sort((a, b) => {
+      const d = parseDDMMYYYY(b.invoiceDate) - parseDDMMYYYY(a.invoiceDate);
+      return d !== 0 ? d : b.invoiceNo.localeCompare(a.invoiceNo);
+    });
 
   const totalRevenue = invoices.filter(i => !i.cancelled).reduce((s, i) => s + i.grandTotal, 0);
 

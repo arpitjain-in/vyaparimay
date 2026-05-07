@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
-import { X, CheckCircle, AlertTriangle, XCircle, Package, Upload, ShieldAlert } from 'lucide-react';
+import { X, CheckCircle, AlertTriangle, XCircle, Package, Upload, ShieldAlert, RefreshCw, Trash2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { PACKAGING_MATERIALS } from '../../data/products';
+import { PACKAGING_MATERIALS, PRODUCTS } from '../../data/products';
 import Layout from '../Layout/Layout';
-import { formatDate } from '../../utils/format';
+import { formatDate, parseDDMMYYYY } from '../../utils/format';
 
 function StatusBadge({ status }: { status: 'adequate' | 'low' | 'out' }) {
   if (status === 'out') return <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Out</span>;
@@ -14,10 +14,63 @@ function StatusBadge({ status }: { status: 'adequate' | 'low' | 'out' }) {
 export default function PackagingStockPage() {
   const {
     packagingStock, packagingEntries, reorderLevels,
-    addPackagingEntry, getStockStatus,
+    addPackagingEntry, getStockStatus, syncPackagingFromReadyStock, revertLastPackagingSync,
+    readyStockTransactions, clearAllPackagingData,
   } = useStore();
 
+  const SYNC_NOTE = 'One-time sync: deducted for existing Ready Stock';
+  const hasSyncEntries = packagingEntries.some(e => e.notes === SYNC_NOTE && e.entryType === 'used');
+
   const [panelMaterialId, setPanelMaterialId] = useState<string | null>(null);
+
+  // Sync modal state
+  const [showSyncConfirm, setShowSyncConfirm] = useState(false);
+  const [syncPreview, setSyncPreview] = useState<{ materialId: string; materialName: string; qty: number }[]>([]);
+  const [syncDone, setSyncDone] = useState(false);
+
+  const openSyncModal = () => {
+    // Sum all ADD transactions per packaging material (not current balance,
+    // because sales deduct from ready stock but NOT from packaging)
+    const totals: Record<string, number> = {};
+    for (const txn of readyStockTransactions) {
+      if (txn.type !== 'ADD') continue;
+      const sku = PRODUCTS.find(p => p.id === txn.skuId);
+      if (!sku?.packagingId) continue;
+      totals[sku.packagingId] = (totals[sku.packagingId] ?? 0) + txn.quantity;
+    }
+    const preview = Object.entries(totals)
+      .filter(([, q]) => q > 0)
+      .map(([materialId, qty]) => ({
+        materialId,
+        materialName: PACKAGING_MATERIALS.find(m => m.id === materialId)?.name ?? materialId,
+        qty,
+      }));
+    setSyncPreview(preview);
+    setSyncDone(false);
+    setShowSyncConfirm(true);
+  };
+
+  const handleSyncConfirm = () => {
+    syncPackagingFromReadyStock();
+    setSyncDone(true);
+  };
+
+  const [showUndoConfirm, setShowUndoConfirm] = useState(false);
+  const [undoDone, setUndoDone] = useState(false);
+
+  const handleUndoSync = () => {
+    revertLastPackagingSync();
+    setUndoDone(true);
+  };
+
+  // Clear all packaging state
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearDone, setClearDone] = useState(false);
+
+  const handleClearAll = () => {
+    clearAllPackagingData();
+    setClearDone(true);
+  };
 
   // Entry form state
   const [entryQty, setEntryQty]   = useState(0);
@@ -124,20 +177,11 @@ export default function PackagingStockPage() {
   const panelStock      = panelMaterialId ? (packagingStock[panelMaterialId] ?? 0) : 0;
   const panelStatus     = panelMaterialId ? getStockStatus('packaging', panelMaterialId) : ('adequate' as const);
   const panelEntries    = panelMaterialId
-    ? [...packagingEntries].filter(e => e.materialId === panelMaterialId).sort((a, b) => b.id.localeCompare(a.id))
+    ? [...packagingEntries].filter(e => e.materialId === panelMaterialId).sort((a, b) => parseDDMMYYYY(b.date, b.time) - parseDDMMYYYY(a.date, a.time))
     : [];
 
   return (
     <Layout title="Packaging Materials">
-      <div className="flex justify-end mb-3">
-        <button
-          onClick={openBulkModal}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow transition-colors"
-        >
-          <Upload size={15} />
-          Bulk Entry
-        </button>
-      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
         {PACKAGING_MATERIALS.map(pm => {
@@ -179,6 +223,180 @@ export default function PackagingStockPage() {
           );
         })}
       </div>
+
+      {/* Sync from Ready Stock Confirmation Modal */}
+      {showSyncConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2 text-amber-600">
+                <RefreshCw size={18} />
+                <span className="font-bold text-base text-slate-800">Sync from Ready Stock</span>
+              </div>
+              <button onClick={() => setShowSyncConfirm(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={18} />
+              </button>
+            </div>
+
+            {syncDone ? (
+              <div className="flex flex-col items-center justify-center py-10 px-6 gap-3">
+                <CheckCircle size={40} className="text-emerald-500" />
+                <p className="font-semibold text-slate-700 text-center">Packaging inventory synced successfully!</p>
+                <button
+                  onClick={() => setShowSyncConfirm(false)}
+                  className="mt-2 px-6 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+                >
+                  Done
+                </button>
+              </div>
+            ) : syncPreview.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 px-6 gap-3">
+                <AlertTriangle size={36} className="text-amber-400" />
+                <p className="text-slate-500 text-center text-sm">No ready stock found to deduct. Add ready stock first.</p>
+                <button
+                  onClick={() => setShowSyncConfirm(false)}
+                  className="mt-2 px-6 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="px-6 py-3 bg-amber-50 border-b border-amber-100 shrink-0">
+                  <p className="text-xs text-amber-700">
+                    This will deduct the <strong>current ready stock quantities</strong> from packaging inventory as a one-time sync. Use only once to reconcile historical data.
+                  </p>
+                </div>
+                <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+                  {syncPreview.map(item => (
+                    <div key={item.materialId} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                      <span className="text-sm text-slate-700">{item.materialName}</span>
+                      <span className="text-sm font-bold text-red-600">−{item.qty}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 shrink-0 flex gap-2">
+                  <button
+                    onClick={() => setShowSyncConfirm(false)}
+                    className="flex-1 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSyncConfirm}
+                    className="flex-1 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold"
+                  >
+                    Confirm Deduction
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Clear All Packaging Modal */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2 text-red-700">
+                <Trash2 size={18} />
+                <span className="font-bold text-base text-slate-800">Clear All Packaging Data</span>
+              </div>
+              {!clearDone && (
+                <button onClick={() => setShowClearConfirm(false)} className="text-slate-400 hover:text-slate-600">
+                  <X size={18} />
+                </button>
+              )}
+            </div>
+            {clearDone ? (
+              <div className="flex flex-col items-center gap-3 py-4">
+                <CheckCircle size={36} className="text-emerald-500" />
+                <p className="font-semibold text-slate-700 text-center">All packaging entries cleared!</p>
+                <button
+                  onClick={() => setShowClearConfirm(false)}
+                  className="mt-1 px-6 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-slate-500 mb-2">
+                  This will <strong className="text-red-600">permanently delete all packaging entries</strong> and reset all packaging stock to zero.
+                </p>
+                <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mb-5">
+                  This cannot be undone. Use this only to start fresh.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowClearConfirm(false)}
+                    className="flex-1 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleClearAll}
+                    className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold"
+                  >
+                    Delete All
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Undo Last Sync Modal */}
+      {showUndoConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2 text-red-600">
+                <X size={18} />
+                <span className="font-bold text-base text-slate-800">Undo Last Sync</span>
+              </div>
+              <button onClick={() => setShowUndoConfirm(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={18} />
+              </button>
+            </div>
+            {undoDone ? (
+              <div className="flex flex-col items-center gap-3 py-4">
+                <CheckCircle size={36} className="text-emerald-500" />
+                <p className="font-semibold text-slate-700 text-center">Sync reversed successfully!</p>
+                <button
+                  onClick={() => setShowUndoConfirm(false)}
+                  className="mt-1 px-6 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-slate-500 mb-5">
+                  This will add back all quantities that were deducted in the last sync, restoring packaging inventory to its state before the sync.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowUndoConfirm(false)}
+                    className="flex-1 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleUndoSync}
+                    className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold"
+                  >
+                    Undo Sync
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* PIN Gate Modal */}
       {showPinModal && (

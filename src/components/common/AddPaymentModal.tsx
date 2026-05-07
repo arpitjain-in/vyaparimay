@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Wallet, X } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { formatDate } from '../../utils/format';
+import { formatDate, isValidDDMMYYYY } from '../../utils/format';
 import { PaymentMode } from '../../types';
 
 const PAYMENT_MODES: PaymentMode[] = ['Cash', 'Bank Transfer', 'UPI', 'Cheque'];
@@ -26,7 +26,7 @@ export default function AddPaymentModal({ customerId, customerName, onClose }: P
   const handleSave = () => {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { setError('Enter a valid amount'); return; }
-    if (!date.trim()) { setError('Date is required'); return; }
+    if (!isValidDDMMYYYY(date)) { setError('Enter date in DD/MM/YYYY format'); return; }
     addPaymentReceipt({ customerId, date, amount: amt, mode, referenceNo: refNo || undefined, notes: notes || undefined });
     onClose();
   };
@@ -61,7 +61,7 @@ export default function AddPaymentModal({ customerId, customerName, onClose }: P
               </label>
               <input
                 type="text" value={date}
-                onChange={e => setDate(e.target.value)}
+                onChange={e => { setDate(e.target.value); setError(''); }}
                 placeholder="DD/MM/YYYY"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
               />

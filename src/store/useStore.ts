@@ -51,6 +51,7 @@ interface AppState {
   stockTransactions: StockTransaction[];         // legacy bulk flour adjustments
   readyStock: Record<string, number>;           // skuId -> count of packed/ready units
   readyStockTransactions: ReadyStockTransaction[]; // history of ready stock changes
+  lastSyncBatchTime: string | null; // time string of last ready-stock sync batch (for undo)
   reorderLevels: {
     raw: Record<string, number>;
     packaging: Record<string, number>;
@@ -102,6 +103,9 @@ interface AppState {
   deleteReadyStockTransaction(txId: string): void;
   setReadyStockReorderLevel(skuId: string, level: number): void;
   getReadyStockStatus(skuId: string): StockStatus;
+  syncPackagingFromReadyStock(): { materialId: string; materialName: string; qty: number }[];
+  revertLastPackagingSync(): void;
+  clearAllPackagingData(): void;
 
   // Pricing
   updatePrice(skuId: string, rate: number): void;
@@ -121,7 +125,7 @@ const initReady: Record<string, number> = Object.fromEntries(
   PRODUCTS.map(p => [p.id, 0])
 );
 const initReorder = {
-  raw:       { 'RM-WF': 0, 'RM-BS': 0, 'RM-DL': 0 },
+      raw:       { 'RM-WF': 0, 'RM-BS': 0, 'RM-DL': 0, 'RM-BR': 0 },
   packaging: Object.fromEntries(PACKAGING_MATERIALS.map(p => [p.id, 0])),
   ready:     Object.fromEntries(PRODUCTS.map(p => [p.id, 0])),
 };
@@ -167,6 +171,7 @@ export const useStore = create<AppState>()(
       stockTransactions: [],
       readyStock: initReady,
       readyStockTransactions: [],
+      lastSyncBatchTime: null,
       reorderLevels: initReorder,
 
       // Pricing
@@ -575,6 +580,8 @@ export const useStore = create<AppState>()(
         const sku = PRODUCTS.find(p => p.id === skuId);
         const skuName = sku ? `${sku.product} – ${sku.variant}` : skuId;
         let txn!: ReadyStockTransaction;
+        let pkgEntry: PackagingEntry | null = null;
+        let newPkgStock = 0;
         set(s => {
           const prev = s.readyStock[skuId] ?? 0;
           const newStock = prev + qty;
@@ -588,13 +595,40 @@ export const useStore = create<AppState>()(
             newStock,
             reason,
           };
+          // Auto-deduct the corresponding packaging material
+          const pkgMaterial = sku
+            ? PACKAGING_MATERIALS.find(m => m.id === sku.packagingId)
+            : null;
+          let newPackagingStock = s.packagingStock;
+          if (pkgMaterial) {
+            const prevPkg = s.packagingStock[pkgMaterial.id] ?? 0;
+            newPkgStock = Math.max(0, prevPkg - qty);
+            pkgEntry = {
+              id: crypto.randomUUID(),
+              date,
+              time: formatTime(now),
+              materialId: pkgMaterial.id,
+              materialName: pkgMaterial.name,
+              entryType: 'used',
+              quantity: qty,
+              notes: `Auto-deducted for Ready Stock: ${skuName}`,
+            };
+            newPackagingStock = { ...s.packagingStock, [pkgMaterial.id]: newPkgStock };
+          }
           return {
             readyStock: { ...s.readyStock, [skuId]: newStock },
             readyStockTransactions: [...s.readyStockTransactions, txn],
+            packagingStock: newPackagingStock,
+            packagingEntries: pkgEntry
+              ? [...s.packagingEntries, pkgEntry]
+              : s.packagingEntries,
           };
         });
         const { orgId } = get();
-        if (orgId) db.saveReadyStockTransaction(orgId, txn).catch(console.error);
+        if (orgId) {
+          db.saveReadyStockTransaction(orgId, txn).catch(console.error);
+          if (pkgEntry) db.savePackagingEntry(orgId, pkgEntry, newPkgStock).catch(console.error);
+        }
       },
 
       adjustReadyStock(skuId, qty, reason?: string, date?) {
@@ -709,6 +743,100 @@ export const useStore = create<AppState>()(
         if (stock === 0) return 'out';
         if (reorder > 0 && stock <= reorder) return 'low';
         return 'adequate';
+      },
+
+      syncPackagingFromReadyStock() {
+        const { readyStockTransactions, orgId } = get();
+        const now = new Date();
+        const date = formatDate(now);
+        // Sum all ADD transactions per packaging material (not current balance,
+        // because sales deduct from ready stock but NOT from packaging)
+        const pkgTotals: Record<string, number> = {};
+        for (const txn of readyStockTransactions) {
+          if (txn.type !== 'ADD') continue;
+          const sku = PRODUCTS.find(p => p.id === txn.skuId);
+          if (!sku?.packagingId) continue;
+          pkgTotals[sku.packagingId] = (pkgTotals[sku.packagingId] ?? 0) + txn.quantity;
+        }
+        const deductions: { materialId: string; materialName: string; qty: number }[] = [];
+        const entries: PackagingEntry[] = [];
+        const newStocks: Record<string, number> = {};
+        for (const [materialId, qty] of Object.entries(pkgTotals)) {
+          if (qty <= 0) continue;
+          const mat = PACKAGING_MATERIALS.find(m => m.id === materialId);
+          if (!mat) continue;
+          const prevPkg = get().packagingStock[materialId] ?? 0;
+          const newStock = Math.max(0, prevPkg - qty);
+          newStocks[materialId] = newStock;
+          const entry: PackagingEntry = {
+            id: crypto.randomUUID(),
+            date,
+            time: formatTime(now),
+            materialId,
+            materialName: mat.name,
+            entryType: 'used',
+            quantity: qty,
+            notes: 'One-time sync: deducted for existing Ready Stock',
+          };
+          entries.push(entry);
+          deductions.push({ materialId, materialName: mat.name, qty });
+        }
+        if (entries.length === 0) return deductions;
+        set(s => ({
+          packagingStock: { ...s.packagingStock, ...newStocks },
+          packagingEntries: [...s.packagingEntries, ...entries],
+          lastSyncBatchTime: formatTime(now),
+        }));
+        if (orgId) {
+          entries.forEach(e =>
+            db.savePackagingEntry(orgId, e, newStocks[e.materialId]).catch(console.error),
+          );
+        }
+        return deductions;
+      },
+
+      revertLastPackagingSync() {
+        const { packagingEntries, orgId } = get();
+        const SYNC_NOTE = 'One-time sync: deducted for existing Ready Stock';
+        const batchEntries = packagingEntries.filter(
+          e => e.entryType === 'used' && e.notes === SYNC_NOTE,
+        );
+        if (batchEntries.length === 0) return;
+        const now = new Date();
+        const date = formatDate(now);
+        const reversalEntries: PackagingEntry[] = [];
+        const newStocks: Record<string, number> = {};
+        for (const orig of batchEntries) {
+          const prevPkg = get().packagingStock[orig.materialId] ?? 0;
+          const newStock = prevPkg + orig.quantity;
+          newStocks[orig.materialId] = newStock;
+          reversalEntries.push({
+            id: crypto.randomUUID(),
+            date,
+            time: formatTime(now),
+            materialId: orig.materialId,
+            materialName: orig.materialName,
+            entryType: 'purchase',
+            quantity: orig.quantity,
+            notes: 'Undo: reversed one-time ready-stock sync',
+          });
+        }
+        set(s => ({
+          packagingStock: { ...s.packagingStock, ...newStocks },
+          packagingEntries: [...s.packagingEntries, ...reversalEntries],
+        }));
+        if (orgId) {
+          reversalEntries.forEach(e =>
+            db.savePackagingEntry(orgId, e, newStocks[e.materialId]).catch(console.error),
+          );
+        }
+      },
+
+      clearAllPackagingData() {
+        const { orgId } = get();
+        const emptyStock = Object.fromEntries(PACKAGING_MATERIALS.map(m => [m.id, 0]));
+        set({ packagingEntries: [], packagingStock: emptyStock });
+        if (orgId) db.clearAllPackagingData(orgId).catch(console.error);
       },
   }),
 );

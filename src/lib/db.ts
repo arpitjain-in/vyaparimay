@@ -501,6 +501,20 @@ export async function savePackagingEntry(
   if (stockErr) throw stockErr;
 }
 
+export async function clearAllPackagingData(orgId: string): Promise<void> {
+  const { error: entryErr } = await supabase
+    .from('packaging_entries')
+    .delete()
+    .eq('org_id', orgId);
+  if (entryErr) throw entryErr;
+
+  const { error: stockErr } = await supabase
+    .from('packaging_stock')
+    .delete()
+    .eq('org_id', orgId);
+  if (stockErr) throw stockErr;
+}
+
 // ─── Production Logs ──────────────────────────────────────────────────────────
 
 function rowToProductionLog(row: Record<string, unknown>): ProductionLog {
