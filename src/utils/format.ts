@@ -13,15 +13,19 @@ export function formatTime(d: Date): string {
   return `${hh}:${mm}`;
 }
 
-/** Current financial year as 4-digit code e.g. '2627' for FY 2026-27 */
-export function getCurrentFY(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth(); // 0=Jan … 3=Apr
+/** Financial year as 4-digit code e.g. '2627' for FY 2026-27, from a given Date */
+export function getFYFromDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = d.getMonth(); // 0=Jan … 3=Apr
   const startYear = month >= 3 ? year : year - 1;
   const startYY = startYear % 100;
   const endYY = (startYear + 1) % 100;
   return `${String(startYY).padStart(2, '0')}${String(endYY).padStart(2, '0')}`;
+}
+
+/** Current financial year as 4-digit code e.g. '2627' for FY 2026-27 */
+export function getCurrentFY(): string {
+  return getFYFromDate(new Date());
 }
 
 /** Format number in Indian currency style with ₹ symbol */

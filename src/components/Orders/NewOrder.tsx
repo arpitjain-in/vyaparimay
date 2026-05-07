@@ -87,6 +87,15 @@ export default function NewOrder() {
   const [rate, setRate] = useState(0);
   const [perKgRate, setPerKgRate] = useState(0);
   const [addedSku, setAddedSku] = useState<string | null>(null);
+  // saleDate stored as YYYY-MM-DD internally; displayed/entered as DD/MM/YYYY
+  const [saleDate, setSaleDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [saleDateDisplay, setSaleDateDisplay] = useState(() => {
+    const d = new Date();
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+  });
+  const [saleDateError, setSaleDateError] = useState('');
+  // true only after onBlur fully passes all validation checks
+  const [saleDateValid, setSaleDateValid] = useState(true);
 
   const activeCustomers = customers.filter(c => c.active);
   const filteredCustomers = activeCustomers.filter(c => {
@@ -143,7 +152,7 @@ export default function NewOrder() {
   const stockAlerts = getStockAlerts(currentOrder?.items ?? [], rawMaterialStock, packagingStock);
 
   const handleGenerateInvoice = () => {
-    const inv = generateInvoice();
+    const inv = generateInvoice(saleDate);
     if (!inv) alert('Failed to generate invoice. Please check order.');
   };
 
@@ -505,6 +514,57 @@ export default function NewOrder() {
 
           {/* Payment mode */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sale Date <span className="text-xs text-gray-400">(= Invoice Date)</span></label>
+              <input
+                type="text"
+                value={saleDateDisplay}
+                placeholder="DD/MM/YYYY"
+                maxLength={10}
+                onChange={e => {
+                  // Auto-insert '/' after DD and MM as user types; clear error + validity while editing
+                  let raw = e.target.value.replace(/[^\d/]/g, '');
+                  if (/^\d{2}$/.test(raw) && !saleDateDisplay.endsWith('/')) raw += '/';
+                  else if (/^\d{2}\/\d{2}$/.test(raw) && !saleDateDisplay.endsWith('/')) raw += '/';
+                  setSaleDateDisplay(raw);
+                  setSaleDateError('');
+                  setSaleDateValid(false);
+                }}
+                onBlur={() => {
+                  const raw = saleDateDisplay;
+                  if (!raw) return;
+                  const DD_MM_YYYY = /^(0[1-9]|[12]\d|3[01])\/(0[1-9]|1[0-2])\/(\d{4})$/;
+                  const match = raw.match(DD_MM_YYYY);
+                  if (match) {
+                    const [, dd, mm, yyyy] = match;
+                    const parsed = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+                    // Guard against invalid dates like 31/02/2026
+                    if (
+                      parsed.getFullYear() !== Number(yyyy) ||
+                      parsed.getMonth() + 1 !== Number(mm) ||
+                      parsed.getDate() !== Number(dd)
+                    ) {
+                      setSaleDateError('Invalid date');
+                    } else {
+                      const today = new Date(); today.setHours(0, 0, 0, 0);
+                      if (parsed > today) {
+                        setSaleDateError('Date cannot be in the future');
+                      } else {
+                        setSaleDateError('');
+                        setSaleDateValid(true);
+                        setSaleDate(`${yyyy}-${mm}-${dd}`);
+                      }
+                    }
+                  } else {
+                    setSaleDateError('Enter a valid date as DD/MM/YYYY');
+                  }
+                }}
+                className={`border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 w-36 ${
+                  saleDateError ? 'border-red-400' : 'border-gray-300'
+                }`}
+              />
+              {saleDateError && <p className="text-xs text-red-500 mt-1">{saleDateError}</p>}
+            </div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Payment Mode</label>
             <div className="flex gap-4">
               {(['Cash', 'Credit'] as const).map(mode => (
@@ -528,7 +588,8 @@ export default function NewOrder() {
             </button>
             <button
               onClick={handleGenerateInvoice}
-              className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-semibold flex items-center justify-center gap-2"
+              disabled={!saleDateValid || !!saleDateError}
+              className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed text-white py-2.5 rounded-lg font-semibold flex items-center justify-center gap-2"
             >
               <CheckCircle2 size={18} /> Generate Invoice
             </button>

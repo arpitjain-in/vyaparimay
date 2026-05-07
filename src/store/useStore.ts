@@ -8,7 +8,7 @@ import {
 import { PACKAGING_MATERIALS, PRODUCTS, DEFAULT_PRICES } from '../data/products';
 import { isInterState, calcGST } from '../utils/gst';
 import { numberToWords } from '../utils/numberToWords';
-import { formatDate, formatTime, getCurrentFY } from '../utils/format';
+import { formatDate, formatTime, getCurrentFY, getFYFromDate } from '../utils/format';
 import * as db from '../lib/db';
 
 // ─── State shape ─────────────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ interface AppState {
   clearOrder(): void;
 
   // Invoice
-  generateInvoice(): Invoice | null;
+  generateInvoice(saleDate?: string): Invoice | null;
   cancelInvoice(id: string): void;
 
   // Payments
@@ -362,7 +362,7 @@ export const useStore = create<AppState>()(
 
       // ─── Invoice Generation ───────────────────────────────────────────
 
-      generateInvoice() {
+      generateInvoice(saleDate?: string) {
         const s = get();
         const { currentOrder, businessProfile, invoiceCounters, customers } = s;
         if (!currentOrder || !businessProfile) return null;
@@ -370,7 +370,11 @@ export const useStore = create<AppState>()(
         const customer = customers.find(c => c.id === currentOrder.customerId);
         if (!customer) return null;
 
-        const fy = getCurrentFY();
+        // Use saleDate if provided (YYYY-MM-DD), otherwise use today
+        const invoiceDateObj = saleDate
+          ? (() => { const [y, m, d] = saleDate.split('-').map(Number); return new Date(y, m - 1, d); })()
+          : new Date();
+        const fy = getFYFromDate(invoiceDateObj);
         const seq = (invoiceCounters[fy] ?? 0) + 1;
         const invoiceNo = `INV-${fy}-${String(seq).padStart(3, '0')}`;
         const inter = isInterState(businessProfile.state, customer.state);
@@ -410,7 +414,7 @@ export const useStore = create<AppState>()(
         const invoice: Invoice = {
           id: crypto.randomUUID(),
           invoiceNo,
-          invoiceDate: formatDate(now),
+          invoiceDate: formatDate(invoiceDateObj),
           invoiceTime: formatTime(now),
           customerId: customer.id,
           customerSnapshot: { ...customer },
