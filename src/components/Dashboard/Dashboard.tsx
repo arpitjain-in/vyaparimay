@@ -33,9 +33,9 @@ function KpiCard({
 
 export default function Dashboard() {
   const {
-    customers, invoices, packagingStock, reorderLevels,
+    customers, invoices, packagingStock, packagingEntries, reorderLevels,
     navigate, startNewOrder, businessProfile,
-    productionLogs, readyStock, getReadyStockStatus,
+    productionLogs, readyStock, readyStockTransactions, getReadyStockStatus,
   } = useStore();
 
   // ── Today's figures ──────────────────────────────────────────────
@@ -66,14 +66,26 @@ export default function Dashboard() {
     .reduce((s, l) => s + l.quantityProduced, 0);
 
   // ── Ready stock alerts ────────────────────────────────────────────
+  // Pre-compute which SKUs / packaging materials have ever been actively managed
+  const activatedSkuIds = new Set(readyStockTransactions.map(t => t.skuId));
+  const activatedPkgIds = new Set(packagingEntries.map(e => e.materialId));
+
   const lowReadyItems = PRODUCTS.filter(p => {
     const status = getReadyStockStatus(p.id);
-    return status === 'low' || status === 'out';
+    // 'low' → reorder level configured and stock at/below it
+    if (status === 'low') return true;
+    // 'out' → only alert if this SKU has been actively managed (not just default 0)
+    if (status === 'out' && activatedSkuIds.has(p.id)) return true;
+    return false;
   });
   const lowPkgItems = PACKAGING_MATERIALS.filter(pm => {
     const stock = packagingStock[pm.id] ?? 0;
     const reorder = reorderLevels.packaging[pm.id] ?? 0;
-    return stock === 0 || (reorder > 0 && stock <= reorder);
+    // reorder level configured and stock at/below it
+    if (reorder > 0 && stock <= reorder) return true;
+    // completely out, but only if it has ever been purchased/used
+    if (stock === 0 && activatedPkgIds.has(pm.id)) return true;
+    return false;
   });
 
   // ── Today's sales by SKU ──────────────────────────────────────────
