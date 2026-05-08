@@ -470,7 +470,14 @@ export const useStore = create<AppState>()(
         const { orgId } = get();
         if (orgId) {
           db.saveInvoice(orgId, invoice, items, newReadyTxns, newReady)
-            .catch(console.error);
+            .catch((err) => {
+              console.error('[saveInvoice] Failed to save invoice items:', err);
+              alert(
+                `Invoice ${invoiceNo} was created but could not be saved to the database.\n\n` +
+                `Error: ${err instanceof Error ? err.message : String(err)}\n\n` +
+                `Please note down the items and contact support, or re-create the invoice after checking your connection.`
+              );
+            });
         }
 
         return invoice;

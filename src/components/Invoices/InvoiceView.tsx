@@ -150,7 +150,13 @@ export default function InvoiceView() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {invoice.items.map((item, i) => {
+                {invoice.items.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-3 py-6 text-center text-sm text-red-500 bg-red-50">
+                      ⚠️ No items found for this invoice. The item data may not have been saved to the database correctly. Please check with support or re-create this invoice.
+                    </td>
+                  </tr>
+                ) : invoice.items.map((item, i) => {
                   const gstAmt = item.cgst + item.sgst + item.igst;
                   return (
                     <tr key={item.skuId}>

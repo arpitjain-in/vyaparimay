@@ -7,6 +7,14 @@ import { fmtINR } from '../../utils/format';
 import { ProductSKU } from '../../types';
 import Layout from '../Layout/Layout';
 
+// ─── Packaging type badge ───────────────────────────────────────────────────
+function packagingBadge(variant: string): { label: string; badgeCls: string; isPouch: boolean } {
+  if (variant.includes('Handle Bag')) return { label: 'Handle Bag', badgeCls: 'bg-emerald-600 text-white',                    isPouch: false };
+  if (variant.includes('Pouch'))      return { label: 'Pouch',      badgeCls: 'bg-white/30 text-white border border-white/50', isPouch: true  };
+  if (variant.includes('Packet'))     return { label: 'Packet',     badgeCls: 'bg-amber-600 text-white',                      isPouch: false };
+  return                                     { label: 'Bag',        badgeCls: 'bg-gray-500 text-white',                       isPouch: false };
+}
+
 // ─── Step indicator ────────────────────────────────────────────────────────
 function Steps({ step }: { step: number }) {
   const labels = ['Select Customer', 'Add Products', 'Review & Confirm'];
@@ -101,8 +109,8 @@ export default function NewOrder() {
   const filteredCustomers = activeCustomers.filter(c => {
     const q = custSearch.toLowerCase();
     return c.name.toLowerCase().includes(q) ||
-      c.mobile.includes(q) ||
-      c.id.toLowerCase().includes(q);
+      (c.firmName ?? '').toLowerCase().includes(q) ||
+      c.mobile.includes(q);
   });
 
   const selectedCustomer = customers.find(c => c.id === currentOrder?.customerId);
@@ -171,7 +179,7 @@ export default function NewOrder() {
               <input
                 value={custSearch}
                 onChange={e => setCustSearch(e.target.value)}
-                placeholder="Search by name, mobile or ID..."
+                placeholder="Search by name, business name or phone..."
                 className="w-full border border-gray-300 rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
             </div>
@@ -180,8 +188,9 @@ export default function NewOrder() {
             {selectedCustomer && (
               <div className="mb-4 p-3 bg-indigo-50 rounded-lg border border-indigo-200 flex items-center justify-between">
                 <div>
-                  <div className="font-semibold text-indigo-800">{selectedCustomer.name}</div>
-                  <div className="text-xs text-indigo-600">{selectedCustomer.mobile} · {selectedCustomer.city} · {selectedCustomer.id}</div>
+                  <div className="font-semibold text-indigo-800">{selectedCustomer.firmName ?? selectedCustomer.name}</div>
+                  {selectedCustomer.firmName && <div className="text-xs text-indigo-700">{selectedCustomer.name}</div>}
+                  <div className="text-xs text-indigo-600">{selectedCustomer.mobile} · {selectedCustomer.city}</div>
                   {selectedCustomer.openingBalance > 0 && (
                     <div className="text-xs text-amber-600 mt-0.5">
                       ⚠ Outstanding: {fmtINR(selectedCustomer.openingBalance)}
@@ -205,8 +214,9 @@ export default function NewOrder() {
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="font-medium text-gray-800 text-sm">{c.name}</div>
-                        <div className="text-xs text-gray-400">{c.mobile} · {c.city} · {c.id}</div>
+                        <div className="font-semibold text-gray-800 text-sm">{c.firmName ?? c.name}</div>
+                        {c.firmName && <div className="text-xs text-gray-600">{c.name}</div>}
+                        <div className="text-xs text-gray-400">{c.mobile} · {c.city}</div>
                       </div>
                       <span className="text-xs text-gray-400">{c.paymentTerms}</span>
                     </div>
@@ -257,28 +267,102 @@ export default function NewOrder() {
             </div>
 
             {/* SKU grid */}
-            <div className="grid grid-cols-2 gap-2 mb-5">
-              {skusInCategory.map(sku => (
-                <button
-                  key={sku.id}
-                  onClick={() => handleSelectSKU(sku)}
-                  className={`p-3 rounded-lg border text-left transition-colors ${
-                    selectedSKU?.id === sku.id
-                      ? 'border-indigo-500 bg-indigo-50'
-                      : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="text-sm font-medium text-gray-800">{sku.product}</div>
-                  <div className="text-xs text-gray-500">{sku.variant}</div>
-                  <div className="text-xs text-indigo-600 mt-1 font-semibold">
-                    {fmtINR(priceList[sku.id] ?? 0)} / {sku.unit}
+            {(() => {
+              const skuCard = (sku: ProductSKU) => {
+                const badge = packagingBadge(sku.variant);
+                // Split weight into number + unit, e.g. "500 gm" or "26 kg"
+                const parts = sku.variant.split(' ');
+                const weightNum  = parts[0];  // "26", "5", "500"
+                const weightUnit = parts[1];  // "kg", "gm"
+                const isSelected = selectedSKU?.id === sku.id;
+
+                const cardCls = badge.isPouch
+                  ? `p-3 rounded-lg border text-left transition-all ${
+                      isSelected
+                        ? 'border-purple-400 ring-2 ring-purple-300 bg-gradient-to-br from-purple-600 to-indigo-600'
+                        : 'border-purple-300 bg-gradient-to-br from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600'
+                    }`
+                  : `p-3 rounded-lg border text-left transition-colors ${
+                      isSelected
+                        ? 'border-indigo-500 bg-indigo-50'
+                        : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                    }`;
+
+                return (
+                  <button
+                    key={sku.id}
+                    onClick={() => handleSelectSKU(sku)}
+                    className={cardCls}
+                  >
+                    {/* Big weight number */}
+                    <div className="flex items-end gap-1 leading-none mb-2">
+                      <span className={`text-3xl font-extrabold leading-none ${ badge.isPouch ? 'text-white' : 'text-gray-800' }`}>{weightNum}</span>
+                      <span className={`text-base font-semibold mb-0.5 ${ badge.isPouch ? 'text-white/80' : 'text-gray-500' }`}>{weightUnit}</span>
+                    </div>
+                    {/* Packaging type — larger text */}
+                    <div className={`text-sm font-bold mt-1 ${ badge.isPouch ? 'text-white' : 'text-gray-700' }`}>
+                      {badge.label}
+                    </div>
+                    {/* Subtle badge dot for pouches */}
+                    {badge.isPouch && (
+                      <div className="text-[10px] font-semibold text-purple-200 mt-0.5 uppercase tracking-wide">Premium</div>
+                    )}
+                    {/* Price */}
+                    <div className={`text-xs mt-2 font-semibold ${ badge.isPouch ? 'text-white/90' : 'text-indigo-600' }`}>
+                      {fmtINR(priceList[sku.id] ?? 0)} / {sku.unit}
+                    </div>
+                    {addedSku === sku.id && (
+                      <div className={`text-xs font-medium mt-0.5 ${ badge.isPouch ? 'text-green-200' : 'text-green-600' }`}>✓ Added!</div>
+                    )}
+                  </button>
+                );
+              };
+
+              const bags    = skusInCategory.filter(s => s.variant.includes('Bag'));
+              const pouches = skusInCategory.filter(s => s.variant.includes('Pouch'));
+              const others  = skusInCategory.filter(s => !s.variant.includes('Bag') && !s.variant.includes('Pouch'));
+              const hasGroups = bags.length > 0 && pouches.length > 0;
+
+              if (!hasGroups) {
+                return (
+                  <div className="grid grid-cols-2 gap-2 mb-5">
+                    {skusInCategory.map(skuCard)}
                   </div>
-                  {addedSku === sku.id && (
-                    <div className="text-xs text-green-600 font-medium mt-0.5">✓ Added!</div>
+                );
+              }
+
+              return (
+                <div className="mb-5 space-y-4">
+                  {bags.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Bags</span>
+                        <div className="flex-1 h-px bg-gray-200" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">{bags.map(skuCard)}</div>
+                    </div>
                   )}
-                </button>
-              ))}
-            </div>
+                  {pouches.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Pouches</span>
+                        <div className="flex-1 h-px bg-gray-200" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">{pouches.map(skuCard)}</div>
+                    </div>
+                  )}
+                  {others.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Other</span>
+                        <div className="flex-1 h-px bg-gray-200" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">{others.map(skuCard)}</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Add form */}
             {selectedSKU && (
