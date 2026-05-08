@@ -268,7 +268,7 @@ def sheet_invoices(wb):
     )
     size_dv = DataValidation(
         type="list",
-        formula1='"26 kg Bag,5 kg Pouch,10 kg Pouch,5 kg Handle Bag,10 kg Handle Bag,40 kg Bag,500 gm Packet,50 kg Bag,25 kg Bag"',
+        formula1='"26 kg Bag,5 kg Pouch,10 kg Pouch,5 kg Handle Bag,10 kg Handle Bag,40 kg Bag,500 gm Packet"',
         allow_blank=False,
     )
     ws.add_data_validation(pmode_dv)
@@ -376,8 +376,7 @@ def sheet_packaging_stock(wb):
         "40 kg Bags – Shikharji Besan",
         "500 gm Packets – Shikharji Besan",
         "500 gm Packets – Shikharji Dalia",
-        "50 kg Bags – Shikharji Bran",
-        "25 kg Bags – Shikharji Bran",
+        "40 kg Bags – Shikharji Bran",
     ]
     for i, name in enumerate(materials, 3):
         ws.cell(row=i, column=1, value=name).fill = fixed_fill()
@@ -439,7 +438,7 @@ def sheet_ready_stock(wb):
     # Drop-down: pack sizes
     size_dv = DataValidation(
         type="list",
-        formula1='"26 kg Bag,5 kg Pouch,10 kg Pouch,5 kg Handle Bag,10 kg Handle Bag,40 kg Bag,500 gm Packet,50 kg Bag,25 kg Bag"',
+        formula1='"26 kg Bag,5 kg Pouch,10 kg Pouch,5 kg Handle Bag,10 kg Handle Bag,40 kg Bag,500 gm Packet"',
         allow_blank=False,
     )
     # Drop-down: entry type
@@ -497,8 +496,7 @@ def sheet_prices(wb):
         ("Shikharji Besan",        "40 kg Bag",        2400),
         ("Shikharji Besan",        "500 gm Packet",      35),
         ("Shikharji Dalia",       "500 gm Packet",      28),
-        ("Shikharji Bran",         "50 kg Bag",         600),
-        ("Shikharji Bran",         "25 kg Bag",         310),
+        ("Shikharji Bran",         "40 kg Bag",         480),
     ]
     for i, (product, size, default_rate) in enumerate(skus, 3):
         ws.cell(row=i, column=1, value=product).fill  = fixed_fill()
