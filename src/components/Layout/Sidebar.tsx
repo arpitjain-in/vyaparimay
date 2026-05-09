@@ -2,7 +2,7 @@ import React from 'react';
 import {
   LayoutDashboard, Users, ShoppingCart, FileText,
   PackageCheck, Box, IndianRupee, Settings,
-  FlaskConical, LogOut,
+  FlaskConical, LogOut, BarChart3,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { AppPage } from '../../types';
@@ -67,6 +67,12 @@ export default function Sidebar() {
         { label: 'Ready Stock', page: 'ready-stock', icon: <PackageCheck size={16} /> },
         { label: 'Packaging', page: 'packaging-stock', icon: <Box size={16} /> },
         { label: 'Production Log', page: 'production-entry', icon: <FlaskConical size={16} /> },
+      ],
+    },
+    {
+      heading: 'Reports',
+      items: [
+        { label: 'Reports', page: 'reports', icon: <BarChart3 size={16} /> },
       ],
     },
     {

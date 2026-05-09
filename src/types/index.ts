@@ -216,4 +216,5 @@ export type AppPage =
   | 'packaging-stock'
   | 'add-stock'
   | 'production-entry'
-  | 'price-list';
+  | 'price-list'
+  | 'reports';
