@@ -60,20 +60,31 @@ export function buildThermalText(invoice: Invoice, bp: BusinessProfile): string 
   if (c.gstin) lines.push(lr('GSTIN      :', c.gstin));
   lines.push(DLINE);
 
-  // Items header: ITEM(16) QTY(4) UNIT(5) RATE(6) AMT(7) = 16+1+4+1+5+1+6+1+7 = 42 ≠ 48
-  lines.push('ITEM           QTY    RATE      AMT');
-  lines.push(LINE);
+  lines.push(centre('I T E M S'));
+  lines.push(DLINE);
 
-  for (const item of invoice.items) {
-    const name  = trunc(item.product, 14).padEnd(14);
-    const qty   = String(item.quantity).padStart(4);
-    const rate  = `${item.rate.toFixed(0)}`.padStart(6);
-    const amt   = `${item.lineTotal.toFixed(0)}`.padStart(7);
-    lines.push(`${name} ${qty}  ${rate}  ${amt}`);
-    lines.push(`(${item.variant})`);
-  }
+  invoice.items.forEach((item, idx) => {
+    if (idx > 0) lines.push('');
 
-  lines.push(LINE);
+    const itemKg  = item.weight * item.quantity;
+    const perKg   = item.weight > 0 ? item.rate / item.weight : 0;
+    const wt      = itemKg % 1 === 0 ? itemKg.toFixed(0) : itemKg.toFixed(1);
+    const perKgStr  = `Rs.${perKg % 1 === 0 ? perKg.toFixed(0) : perKg.toFixed(2)}/kg`;
+    const bagRateStr = `Rs.${item.rate.toFixed(0)}/${item.unit.toLowerCase()}`;
+    const unitPlural  = item.quantity === 1 ? item.unit : item.unit + 's';
+
+    // Line 1: index + product name (left) + line total (right)
+    lines.push(lr(`${idx + 1}. ${trunc(item.product, 22)}`, `Rs.${item.lineTotal.toFixed(0)}`));
+    // Line 2: variant × qty
+    lines.push(`   ${item.variant}  x  ${item.quantity} ${unitPlural}`);
+    // Line 3: per-kg rate | per-bag rate | total weight
+    lines.push(`   ${perKgStr} | ${bagRateStr} | ${wt} kg`);
+  });
+
+  const totalWeightKg = invoice.items.reduce((sum, i) => sum + i.weight * i.quantity, 0);
+  lines.push(DLINE);
+  lines.push(lr('TOTAL WEIGHT', `${totalWeightKg % 1 === 0 ? totalWeightKg.toFixed(0) : totalWeightKg.toFixed(1)} kg`));
+  lines.push('');
   lines.push(lr('SUBTOTAL', `Rs.${invoice.subtotal.toFixed(2)}`));
 
   if (invoice.isInterState) {

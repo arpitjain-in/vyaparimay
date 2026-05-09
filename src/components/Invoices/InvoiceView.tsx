@@ -43,6 +43,7 @@ export default function InvoiceView() {
           padding: 0;
           font-family: 'Courier New', Courier, monospace;
           font-size: 12px;
+          font-weight: bold;
           line-height: 1.35;
           color: #000;
           background: #fff;
@@ -55,6 +56,7 @@ export default function InvoiceView() {
           overflow-wrap: break-word;
           margin: 0;
           width: 100%;
+          font-weight: bold;
         }
       </style>
     </head><body><pre>${escaped}</pre></body></html>`);
@@ -144,7 +146,7 @@ export default function InvoiceView() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  {['#', 'Product', 'HSN', 'Qty', 'Rate', 'Taxable', 'GST%', 'GST Amt', 'Total'].map(h => (
+                  {['#', 'Product', 'HSN', 'Qty / Weight', 'Rate', 'Taxable', 'GST Amt', 'Total'].map(h => (
                     <th key={h} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
                   ))}
                 </tr>
@@ -152,26 +154,36 @@ export default function InvoiceView() {
               <tbody className="divide-y divide-gray-100">
                 {invoice.items.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-6 text-center text-sm text-red-500 bg-red-50">
+                    <td colSpan={8} className="px-3 py-6 text-center text-sm text-red-500 bg-red-50">
                       ⚠️ No items found for this invoice. The item data may not have been saved to the database correctly. Please check with support or re-create this invoice.
                     </td>
                   </tr>
                 ) : invoice.items.map((item, i) => {
                   const gstAmt = item.cgst + item.sgst + item.igst;
+                  const totalKg = item.weight * item.quantity;
+                  const totalKgStr = totalKg % 1 === 0 ? totalKg.toFixed(0) : totalKg.toFixed(1);
+                  const perKg = item.weight > 0 ? item.rate / item.weight : 0;
+                  const perKgStr = perKg % 1 === 0 ? perKg.toFixed(0) : perKg.toFixed(2);
+                  const unitPlural = item.quantity === 1 ? item.unit : item.unit + 's';
                   return (
-                    <tr key={item.skuId}>
-                      <td className="px-3 py-3 text-gray-400">{i + 1}</td>
+                    <tr key={item.skuId} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-3 py-3 text-gray-400 text-center">{i + 1}</td>
                       <td className="px-3 py-3">
-                        <div className="font-medium">{item.product}</div>
-                        <div className="text-xs text-gray-400">{item.variant}</div>
+                        <div className="font-semibold text-gray-800">{item.product}</div>
+                        <div className="text-xs text-indigo-500 font-medium mt-0.5">{item.variant}</div>
                       </td>
-                      <td className="px-3 py-3 font-mono text-xs text-gray-500">{item.hsnCode}</td>
-                      <td className="px-3 py-3">{item.quantity} {item.unit}</td>
-                      <td className="px-3 py-3">{fmtINR(item.rate)}</td>
-                      <td className="px-3 py-3">{fmtINR(item.taxableValue)}</td>
-                      <td className="px-3 py-3 text-gray-500">{item.gstRate}%</td>
-                      <td className="px-3 py-3 text-gray-500">{fmtINR(gstAmt)}</td>
-                      <td className="px-3 py-3 font-semibold">{fmtINR(item.lineTotal)}</td>
+                      <td className="px-3 py-3 font-mono text-xs text-gray-400">{item.hsnCode}</td>
+                      <td className="px-3 py-3">
+                        <div className="font-medium text-gray-800">{item.quantity} {unitPlural}</div>
+                        <div className="text-xs text-gray-400 mt-0.5">{totalKgStr} kg total</div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="font-medium text-gray-800">{fmtINR(item.rate)}<span className="text-xs text-gray-400 font-normal">/{item.unit.toLowerCase()}</span></div>
+                        <div className="text-xs text-gray-400 mt-0.5">₹{perKgStr}/kg</div>
+                      </td>
+                      <td className="px-3 py-3 text-gray-700">{fmtINR(item.taxableValue)}</td>
+                      <td className="px-3 py-3 text-gray-500">{fmtINR(gstAmt)}<span className="text-xs text-gray-400 ml-1">@{item.gstRate}%</span></td>
+                      <td className="px-3 py-3 font-bold text-gray-800">{fmtINR(item.lineTotal)}</td>
                     </tr>
                   );
                 })}
@@ -208,6 +220,10 @@ export default function InvoiceView() {
                 <div className="flex justify-between font-bold text-gray-800 text-base border-t pt-2">
                   <span>Grand Total</span>
                   <span>{fmtINR(invoice.grandTotal)}</span>
+                </div>
+                <div className="flex justify-between text-gray-500 text-sm pt-1">
+                  <span>Total Weight</span>
+                  <span>{(() => { const kg = invoice.items.reduce((s, i) => s + i.weight * i.quantity, 0); return kg % 1 === 0 ? kg.toFixed(0) : kg.toFixed(1); })()} kg</span>
                 </div>
                 <div className="text-xs text-gray-500 italic pt-1">{invoice.amountInWords}</div>
               </div>

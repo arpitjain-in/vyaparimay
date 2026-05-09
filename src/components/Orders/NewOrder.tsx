@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Search, Plus, ShoppingCart, Trash2, AlertTriangle, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Search, Plus, ShoppingCart, Trash2, AlertTriangle, CheckCircle2, ChevronRight, Eye } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PACKAGING_MATERIALS, PRODUCT_CATEGORIES, getRawMaterialId } from '../../data/products';
 import { calcGST, isInterState } from '../../utils/gst';
-import { fmtINR } from '../../utils/format';
-import { ProductSKU } from '../../types';
+import { fmtINR, formatDate, formatTime, getFYFromDate } from '../../utils/format';
+import { numberToWords } from '../../utils/numberToWords';
+import { buildThermalText } from '../../utils/invoice';
+import { ProductSKU, OrderItem } from '../../types';
 import Layout from '../Layout/Layout';
 
 // ─── Packaging type badge ───────────────────────────────────────────────────
@@ -162,6 +164,68 @@ export default function NewOrder() {
   const handleGenerateInvoice = () => {
     const inv = generateInvoice(saleDate);
     if (!inv) alert('Failed to generate invoice. Please check order.');
+  };
+
+  const handlePrintPreview = () => {
+    if (!currentOrder || !businessProfile || !selectedCustomer) return;
+    const invoiceDateObj = saleDate
+      ? (() => { const [y, m, d] = saleDate.split('-').map(Number); return new Date(y, m - 1, d); })()
+      : new Date();
+    const fy = getFYFromDate(invoiceDateObj);
+    const now = new Date();
+    const items: OrderItem[] = currentOrder.items.map(cartItem => {
+      const sku = PRODUCTS.find(p => p.id === cartItem.skuId)!;
+      const taxableValue = cartItem.quantity * cartItem.rate;
+      const raw = gstEnabled ? calcGST(taxableValue, sku.gstRate, inter) : { cgst: 0, sgst: 0, igst: 0 };
+      const { cgst, sgst, igst } = raw;
+      return { ...cartItem, product: sku.product, variant: sku.variant, weight: sku.weight,
+        hsnCode: sku.hsnCode, gstRate: sku.gstRate, unit: sku.unit,
+        taxableValue, cgst, sgst, igst, lineTotal: taxableValue + cgst + sgst + igst };
+    });
+    const sub  = items.reduce((a, i) => a + i.taxableValue, 0);
+    const cgst = items.reduce((a, i) => a + i.cgst, 0);
+    const sgst = items.reduce((a, i) => a + i.sgst, 0);
+    const igst = items.reduce((a, i) => a + i.igst, 0);
+    const gTotal = Math.round(sub + cgst + sgst + igst);
+    const dummy = {
+      id: 'preview',
+      invoiceNo: `PREVIEW-${fy}`,
+      invoiceDate: formatDate(invoiceDateObj),
+      invoiceTime: formatTime(now),
+      customerId: selectedCustomer.id,
+      customerSnapshot: { ...selectedCustomer },
+      items,
+      subtotal: sub,
+      cgstTotal: cgst,
+      sgstTotal: sgst,
+      igstTotal: igst,
+      totalGST: cgst + sgst + igst,
+      roundOff: parseFloat((gTotal - (sub + cgst + sgst + igst)).toFixed(2)),
+      grandTotal: gTotal,
+      isInterState: inter,
+      paymentMode: currentOrder.paymentMode,
+      amountInWords: numberToWords(gTotal),
+      financialYear: fy,
+      cancelled: false,
+    };
+    const text = buildThermalText(dummy, businessProfile);
+    const w = window.open('', '_blank', 'width=302,height=600');
+    if (!w) return;
+    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    w.document.write(`<!DOCTYPE html><html><head>
+      <meta charset="utf-8" /><title>Preview – ${dummy.invoiceNo}</title>
+      <style>
+        @page { size: 80mm auto; margin: 3mm 3mm; }
+        * { box-sizing: border-box; }
+        html, body { width: 80mm; max-width: 80mm; margin: 0; padding: 0;
+          font-family: 'Courier New', Courier, monospace; font-size: 12px;
+          font-weight: bold; line-height: 1.35; color: #000; background: #fff; }
+        pre { white-space: pre; margin: 0; width: 100%; font-weight: bold; }
+      </style>
+    </head><body><pre>${escaped}</pre></body></html>`);
+    w.document.close();
+    w.focus();
+    w.onload = () => { w.print(); w.onafterprint = () => w.close(); };
   };
 
   return (
@@ -445,7 +509,7 @@ export default function NewOrder() {
                     <div key={item.skuId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex-1">
                         <div className="text-sm font-medium text-gray-800">{sku.product}</div>
-                        <div className="text-xs text-gray-500">{sku.variant} × {item.quantity}</div>
+                        <div className="text-xs text-gray-500">{sku.variant} × {item.quantity} &nbsp;·&nbsp; {(sku.weight * item.quantity) % 1 === 0 ? (sku.weight * item.quantity).toFixed(0) : (sku.weight * item.quantity).toFixed(1)} kg</div>
                         <div className="text-xs text-indigo-600 font-semibold">{fmtINR(item.quantity * item.rate)}</div>
                       </div>
                       <button
@@ -533,7 +597,7 @@ export default function NewOrder() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  {['Product', 'Variant', 'Qty', 'Rate', ...(gstEnabled ? ['Taxable', 'GST'] : []), 'Total'].map(h => (
+                  {['Product', 'Variant', 'Qty', 'Wt (kg)', 'Rate', ...(gstEnabled ? ['Taxable', 'GST'] : []), 'Total'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
                   ))}
                 </tr>
@@ -544,6 +608,7 @@ export default function NewOrder() {
                     <td className="px-4 py-3 font-medium">{item.sku.product}</td>
                     <td className="px-4 py-3 text-gray-500">{item.sku.variant}</td>
                     <td className="px-4 py-3">{item.quantity} {item.sku.unit}</td>
+                    <td className="px-4 py-3 text-gray-600">{(item.sku.weight * item.quantity) % 1 === 0 ? (item.sku.weight * item.quantity).toFixed(0) : (item.sku.weight * item.quantity).toFixed(1)} kg</td>
                     <td className="px-4 py-3">{fmtINR(item.rate)}</td>
                     {gstEnabled && <td className="px-4 py-3">{fmtINR(item.taxableValue)}</td>}
                     {gstEnabled && <td className="px-4 py-3 text-gray-500">{fmtINR(item.cgst + item.sgst + item.igst)}</td>}
@@ -577,6 +642,10 @@ export default function NewOrder() {
               )}
               <div className="flex justify-end gap-8 font-bold text-gray-800 border-t pt-2 text-base">
                 <span>Grand Total</span><span>{fmtINR(grandTotal)}</span>
+              </div>
+              <div className="flex justify-end gap-8 text-gray-500 text-sm pt-1">
+                <span>Total Weight</span>
+                <span>{(() => { const kg = (currentOrder?.items ?? []).reduce((s, ci) => { const sk = PRODUCTS.find(p => p.id === ci.skuId); return s + (sk?.weight ?? 0) * ci.quantity; }, 0); return kg % 1 === 0 ? kg.toFixed(0) : kg.toFixed(1); })()} kg</span>
               </div>
             </div>
           </div>
@@ -669,6 +738,14 @@ export default function NewOrder() {
           <div className="flex gap-3">
             <button onClick={() => setStep(2)} className="border border-gray-300 text-gray-600 px-5 py-2.5 rounded-lg text-sm hover:bg-gray-50">
               ← Edit Items
+            </button>
+            <button
+              onClick={handlePrintPreview}
+              disabled={!saleDateValid || !!saleDateError}
+              className="flex items-center justify-center gap-2 border border-gray-400 text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 rounded-lg text-sm font-medium"
+              title="Print preview – no entry saved"
+            >
+              <Eye size={16} /> Print Preview
             </button>
             <button
               onClick={handleGenerateInvoice}
