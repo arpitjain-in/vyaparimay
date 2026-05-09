@@ -739,14 +739,14 @@ export default function NewOrder() {
             <button onClick={() => setStep(2)} className="border border-gray-300 text-gray-600 px-5 py-2.5 rounded-lg text-sm hover:bg-gray-50">
               ← Edit Items
             </button>
-            <button
+            {/* <button
               onClick={handlePrintPreview}
               disabled={!saleDateValid || !!saleDateError}
               className="flex items-center justify-center gap-2 border border-gray-400 text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 rounded-lg text-sm font-medium"
               title="Print preview – no entry saved"
             >
               <Eye size={16} /> Print Preview
-            </button>
+            </button> */}
             <button
               onClick={handleGenerateInvoice}
               disabled={!saleDateValid || !!saleDateError}
