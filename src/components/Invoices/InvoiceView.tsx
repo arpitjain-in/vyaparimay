@@ -2,8 +2,9 @@ import React, { useRef } from 'react';
 import { ArrowLeft, Printer, Copy } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR } from '../../utils/format';
-import { buildThermalText, buildCustomerCopyText } from '../../utils/invoice';
+import { buildThermalText, buildCustomerCopyText, buildA4Html } from '../../utils/invoice';
 import Layout from '../Layout/Layout';
+import logoUrl from '../../assets/company-logo-v1.png';
 
 export default function InvoiceView() {
   const { selectedInvoiceId, invoices, businessProfile, navigate } = useStore();
@@ -68,6 +69,19 @@ export default function InvoiceView() {
     };
   };
 
+  const handleA4Print = (copyLabel?: string) => {
+    const html = buildA4Html(invoice, businessProfile, copyLabel, logoUrl);
+    const w = window.open('', '_blank', 'width=794,height=1123');
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.onload = () => {
+      w.print();
+      w.onafterprint = () => w.close();
+    };
+  };
+
   const handleCopy = () => {
     navigator.clipboard.writeText(thermalText).then(() => alert('Invoice text copied!'));
   };
@@ -95,13 +109,25 @@ export default function InvoiceView() {
             onClick={() => handlePrint(thermalText, invoice.invoiceNo)}
             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium"
           >
-            <Printer size={14} /> Print Original
+            <Printer size={14} /> 80mm Original
           </button>
           <button
             onClick={() => handlePrint(customerCopyText, invoice.invoiceNo + ' – Customer Copy')}
             className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium"
           >
-            <Printer size={14} /> Customer Copy
+            <Printer size={14} /> 80mm Copy
+          </button>
+          <button
+            onClick={() => handleA4Print()}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium"
+          >
+            <Printer size={14} /> A4 Original
+          </button>
+          <button
+            onClick={() => handleA4Print('CUSTOMER COPY')}
+            className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium"
+          >
+            <Printer size={14} /> A4 Copy
           </button>
         </div>
       }
@@ -215,6 +241,16 @@ export default function InvoiceView() {
                   <div className="flex justify-between text-gray-500">
                     <span>Round Off</span>
                     <span>{invoice.roundOff > 0 ? '+' : ''}{invoice.roundOff.toFixed(2)}</span>
+                  </div>
+                )}
+                {invoice.discountAmount != null && invoice.discountAmount > 0 && (
+                  <div className="flex justify-between text-green-700 font-medium">
+                    <span>
+                      Discount{invoice.discountType === 'percent'
+                        ? ` @ ${invoice.discountValue}%`
+                        : ' (Flat)'}
+                    </span>
+                    <span>– {fmtINR(invoice.discountAmount)}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-gray-800 text-base border-t pt-2">

@@ -9,7 +9,10 @@ import { PACKAGING_MATERIALS, PRODUCTS, DEFAULT_PRICES } from '../data/products'
 import { isInterState, calcGST } from '../utils/gst';
 import { numberToWords } from '../utils/numberToWords';
 import { formatDate, formatTime, getCurrentFY, getFYFromDate } from '../utils/format';
-import * as db from '../lib/db';
+import * as realDb from '../lib/db';
+import * as demoDb from '../lib/db.demo';
+
+const db = import.meta.env.VITE_DEMO_MODE === 'true' ? demoDb : realDb;
 
 // ─── State shape ─────────────────────────────────────────────────────────────
 
@@ -81,6 +84,7 @@ interface AppState {
   setOrderCustomer(customerId: string): void;
   setOrderPaymentMode(mode: 'Cash' | 'Credit'): void;
   setOrderGst(enabled: boolean): void;
+  setOrderDiscount(type: 'percent' | 'flat' | null, value: number): void;
   upsertCartItem(skuId: string, quantity: number, rate: number): void;
   removeCartItem(skuId: string): void;
   clearOrder(): void;
@@ -183,6 +187,10 @@ export const useStore = create<AppState>()(
         try {
           const userId = await db.initAuth();
           const orgId = await db.getOrCreateOrg(userId);
+
+          // Ensure all app-defined catalog entries (SKUs, packaging materials)
+          // exist in the database.  Silently a no-op for entries already present.
+          await db.initializeCatalog(orgId);
 
           const [
             businessProfile,
@@ -332,6 +340,14 @@ export const useStore = create<AppState>()(
         }));
       },
 
+      setOrderDiscount(type, value) {
+        set(s => ({
+          currentOrder: s.currentOrder
+            ? { ...s.currentOrder, discountType: type ?? undefined, discountValue: value > 0 ? value : undefined }
+            : null,
+        }));
+      },
+
       upsertCartItem(skuId, quantity, rate) {
         set(s => {
           if (!s.currentOrder) return {};
@@ -407,7 +423,16 @@ export const useStore = create<AppState>()(
         const sgstTotal   = items.reduce((a, i) => a + i.sgst, 0);
         const igstTotal   = items.reduce((a, i) => a + i.igst, 0);
         const totalGST    = cgstTotal + sgstTotal + igstTotal;
-        const beforeRound = subtotal + totalGST;
+        const preDiscount = subtotal + totalGST;
+
+        // Discount (optional)
+        const discountType  = currentOrder.discountType;
+        const discountValue = currentOrder.discountValue ?? 0;
+        const discountAmount = discountType && discountValue > 0
+          ? (discountType === 'percent' ? parseFloat((preDiscount * discountValue / 100).toFixed(2)) : discountValue)
+          : 0;
+
+        const beforeRound = preDiscount - discountAmount;
         const grandTotal  = Math.round(beforeRound);
         const roundOff    = parseFloat((grandTotal - beforeRound).toFixed(2));
 
@@ -424,6 +449,9 @@ export const useStore = create<AppState>()(
           sgstTotal,
           igstTotal,
           totalGST,
+          discountType:   discountType ?? undefined,
+          discountValue:  discountValue > 0 ? discountValue : undefined,
+          discountAmount: discountAmount > 0 ? discountAmount : undefined,
           roundOff,
           grandTotal,
           isInterState: inter,
@@ -523,7 +551,16 @@ export const useStore = create<AppState>()(
           };
         });
         const { orgId } = get();
-        if (orgId) db.savePackagingEntry(orgId, rec, newStock).catch(console.error);
+        if (orgId) {
+          db.savePackagingEntry(orgId, rec, newStock).catch((err) => {
+            console.error('[savePackagingEntry] DB save failed:', err);
+            alert(
+              `Packaging entry was recorded locally but could not be saved to the database.\n\n` +
+              `Error: ${err instanceof Error ? err.message : String(err)}\n\n` +
+              `Please check your connection and database setup, then retry.`
+            );
+          });
+        }
       },
 
       addProductionLog(log) {
@@ -637,8 +674,19 @@ export const useStore = create<AppState>()(
         });
         const { orgId } = get();
         if (orgId) {
-          db.saveReadyStockTransaction(orgId, txn).catch(console.error);
-          if (pkgEntry) db.savePackagingEntry(orgId, pkgEntry, newPkgStock).catch(console.error);
+          db.saveReadyStockTransaction(orgId, txn).catch((err) => {
+            console.error('[saveReadyStockTransaction] DB save failed:', err);
+            alert(
+              `Ready stock entry was recorded locally but could not be saved to the database.\n\n` +
+              `Error: ${err instanceof Error ? err.message : String(err)}\n\n` +
+              `Please check your connection and database setup, then retry.`
+            );
+          });
+          if (pkgEntry) {
+            db.savePackagingEntry(orgId, pkgEntry, newPkgStock).catch((err) => {
+              console.error('[savePackagingEntry/auto-deduct] DB save failed:', err);
+            });
+          }
         }
       },
 

@@ -85,7 +85,7 @@ export default function NewOrder() {
   const {
     customers, currentOrder, businessProfile,
     setOrderCustomer, setOrderPaymentMode,
-    upsertCartItem, removeCartItem, generateInvoice, setOrderGst,
+    upsertCartItem, removeCartItem, generateInvoice, setOrderGst, setOrderDiscount,
     rawMaterialStock, packagingStock, priceList, navigate,
   } = useStore();
 
@@ -157,7 +157,13 @@ export default function NewOrder() {
   const cgstTotal = cartWithCalc.reduce((a, i) => a + i.cgst, 0);
   const sgstTotal = cartWithCalc.reduce((a, i) => a + i.sgst, 0);
   const igstTotal = cartWithCalc.reduce((a, i) => a + i.igst, 0);
-  const grandTotal = Math.round(subtotal + cgstTotal + sgstTotal + igstTotal);
+  const preDiscount = subtotal + cgstTotal + sgstTotal + igstTotal;
+  const discountType  = currentOrder?.discountType;
+  const discountValue = currentOrder?.discountValue ?? 0;
+  const discountAmount = discountType && discountValue > 0
+    ? (discountType === 'percent' ? parseFloat((preDiscount * discountValue / 100).toFixed(2)) : discountValue)
+    : 0;
+  const grandTotal = Math.round(preDiscount - discountAmount);
 
   const stockAlerts = getStockAlerts(currentOrder?.items ?? [], rawMaterialStock, packagingStock);
 
@@ -186,7 +192,13 @@ export default function NewOrder() {
     const cgst = items.reduce((a, i) => a + i.cgst, 0);
     const sgst = items.reduce((a, i) => a + i.sgst, 0);
     const igst = items.reduce((a, i) => a + i.igst, 0);
-    const gTotal = Math.round(sub + cgst + sgst + igst);
+    const preDsc = sub + cgst + sgst + igst;
+    const dscType  = currentOrder.discountType;
+    const dscVal   = currentOrder.discountValue ?? 0;
+    const dscAmt   = dscType && dscVal > 0
+      ? (dscType === 'percent' ? parseFloat((preDsc * dscVal / 100).toFixed(2)) : dscVal)
+      : 0;
+    const gTotal = Math.round(preDsc - dscAmt);
     const dummy = {
       id: 'preview',
       invoiceNo: `PREVIEW-${fy}`,
@@ -200,7 +212,10 @@ export default function NewOrder() {
       sgstTotal: sgst,
       igstTotal: igst,
       totalGST: cgst + sgst + igst,
-      roundOff: parseFloat((gTotal - (sub + cgst + sgst + igst)).toFixed(2)),
+      discountType:   dscType ?? undefined,
+      discountValue:  dscVal > 0 ? dscVal : undefined,
+      discountAmount: dscAmt > 0 ? dscAmt : undefined,
+      roundOff: parseFloat((gTotal - (preDsc - dscAmt)).toFixed(2)),
       grandTotal: gTotal,
       isInterState: inter,
       paymentMode: currentOrder.paymentMode,
@@ -640,6 +655,12 @@ export default function NewOrder() {
                   </div>
                 </>
               )}
+              {discountAmount > 0 && (
+                <div className="flex justify-end gap-8 text-green-600">
+                  <span>Discount {discountType === 'percent' ? `(${discountValue}%)` : '(Flat)'}</span>
+                  <span>– {fmtINR(discountAmount)}</span>
+                </div>
+              )}
               <div className="flex justify-end gap-8 font-bold text-gray-800 border-t pt-2 text-base">
                 <span>Grand Total</span><span>{fmtINR(grandTotal)}</span>
               </div>
@@ -667,6 +688,50 @@ export default function NewOrder() {
 
           {/* Payment mode */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+            {/* Discount */}
+            <div className="mb-5 pb-5 border-b">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Discount <span className="text-xs text-gray-400">(optional)</span></label>
+              <div className="flex items-center gap-3">
+                <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+                  {(['flat', 'percent'] as const).map(t => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setOrderDiscount(t, discountValue)}
+                      className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                        (discountType ?? 'flat') === t
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {t === 'flat' ? '₹ Flat' : '% Percent'}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  step={discountType === 'percent' ? '0.01' : '1'}
+                  max={discountType === 'percent' ? 100 : undefined}
+                  placeholder={discountType === 'percent' ? 'e.g. 5' : 'e.g. 500'}
+                  value={discountValue || ''}
+                  onChange={e => setOrderDiscount(discountType ?? 'flat', parseFloat(e.target.value) || 0)}
+                  className="w-32 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                />
+                {discountValue > 0 && (
+                  <div className="text-sm text-green-700 font-semibold">
+                    – {fmtINR(discountAmount)}
+                  </div>
+                )}
+                {discountValue > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setOrderDiscount(null, 0)}
+                    className="text-xs text-red-400 hover:text-red-600"
+                  >Clear</button>
+                )}
+              </div>
+            </div>
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Sale Date <span className="text-xs text-gray-400">(= Invoice Date)</span></label>
               <input

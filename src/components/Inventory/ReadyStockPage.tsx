@@ -245,7 +245,7 @@ const CATEGORY_STYLE: Record<string, { border: string; header: string; badge: st
 export default function ReadyStockPage() {
   const {
     readyStock, readyStockTransactions, reorderLevels,
-    adjustReadyStock, getReadyStockStatus, editReadyStockTransaction, deleteReadyStockTransaction,
+    addReadyStockEntry, adjustReadyStock, getReadyStockStatus, editReadyStockTransaction, deleteReadyStockTransaction,
   } = useStore();
 
   const [panelSkuId, setPanelSkuId] = useState<string | null>(null);
@@ -269,7 +269,12 @@ export default function ReadyStockPage() {
     if (!panelSkuId || modifyQty <= 0) return;
     if (!isValidDDMMYYYY(modifyDate)) { setModifyDateError('Enter date in DD/MM/YYYY format'); return; }
     setModifyDateError('');
-    adjustReadyStock(panelSkuId, modifyMode === 'add' ? modifyQty : -modifyQty, modifyReason.trim() || undefined, modifyDate);
+    if (modifyMode === 'add') {
+      // addReadyStockEntry also auto-deducts the corresponding packaging material
+      addReadyStockEntry(panelSkuId, modifyQty, modifyReason.trim() || undefined, modifyDate);
+    } else {
+      adjustReadyStock(panelSkuId, -modifyQty, modifyReason.trim() || undefined, modifyDate);
+    }
     setModifyQty(0);
     setModifyReason('');
   };

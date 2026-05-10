@@ -113,6 +113,8 @@ export interface CurrentOrder {
   paymentMode: 'Cash' | 'Credit';
   notes?: string;
   gstEnabled?: boolean;
+  discountType?: 'percent' | 'flat';
+  discountValue?: number;  // % value or flat ₹ amount
 }
 
 // ─── Invoice ──────────────────────────────────────────────────────────────
@@ -143,6 +145,9 @@ export interface Invoice {
   sgstTotal: number;
   igstTotal: number;
   totalGST: number;
+  discountType?: 'percent' | 'flat';
+  discountValue?: number;
+  discountAmount?: number;  // computed ₹ deduction
   roundOff: number;
   grandTotal: number;
   isInterState: boolean;

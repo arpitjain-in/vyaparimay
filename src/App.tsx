@@ -3,6 +3,9 @@ import { Session } from '@supabase/supabase-js';
 import { useStore } from './store/useStore';
 import { supabase } from './lib/supabase';
 import AuthPage from './components/Auth/AuthPage';
+import DemoBanner from './components/common/DemoBanner';
+
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
 // Pages
 import BusinessSetup from './components/Business/BusinessSetup';
@@ -23,9 +26,17 @@ import ReportsPage from './components/Reports/ReportsPage';
 
 export default function App() {
   const { currentPage, businessProfile, isInitialized, initError, initializeApp } = useStore();
-  const [session, setSession] = useState<Session | null | 'loading'>('loading');
+  const [session, setSession] = useState<Session | null | 'loading'>(
+    DEMO_MODE ? ({} as Session) : 'loading',
+  );
 
   useEffect(() => {
+    if (DEMO_MODE) {
+      // Skip Supabase auth entirely in demo mode.
+      initializeApp();
+      return;
+    }
+
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
     });
@@ -42,14 +53,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (session && session !== 'loading') {
+    if (!DEMO_MODE && session && session !== 'loading') {
       initializeApp();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
-  // Checking auth
-  if (session === 'loading') {
+  // Checking auth (only in non-demo mode)
+  if (!DEMO_MODE && session === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-400" />
@@ -57,8 +68,8 @@ export default function App() {
     );
   }
 
-  // Not authenticated
-  if (!session) {
+  // Not authenticated (only in non-demo mode)
+  if (!DEMO_MODE && !session) {
     return <AuthPage />;
   }
 
@@ -75,25 +86,43 @@ export default function App() {
 
   // First-run: business profile not set
   if (!businessProfile && currentPage !== 'setup') {
-    return <BusinessSetup />;
+    return (
+      <>
+        {DEMO_MODE && <DemoBanner />}
+        <div className={DEMO_MODE ? 'pt-10' : ''}>
+          <BusinessSetup />
+        </div>
+      </>
+    );
   }
 
-  switch (currentPage) {
-    case 'setup':           return <BusinessSetup />;
-    case 'dashboard':       return <Dashboard />;
-    case 'customer-list':   return <CustomerList />;
-    case 'customer-form':   return <CustomerForm />;
-    case 'customer-ledger': return <CustomerLedger />;
-    case 'new-order':       return <NewOrder />;
-    case 'invoice-history': return <InvoiceHistory />;
-    case 'invoice-view':    return <InvoiceView />;
-    case 'stock-dashboard': return <ReadyStockPage />;
-    case 'ready-stock':     return <ReadyStockPage />;
-    case 'packaging-stock': return <PackagingStockPage />;
-    case 'add-stock':       return <AddStock />;
-    case 'production-entry': return <ProductionEntry />;
-    case 'price-list':      return <PriceList />;
-    case 'reports':         return <ReportsPage />;
-    default:                return <Dashboard />;
-  }
+  const pageContent = () => {
+    switch (currentPage) {
+      case 'setup':            return <BusinessSetup />;
+      case 'dashboard':        return <Dashboard />;
+      case 'customer-list':    return <CustomerList />;
+      case 'customer-form':    return <CustomerForm />;
+      case 'customer-ledger':  return <CustomerLedger />;
+      case 'new-order':        return <NewOrder />;
+      case 'invoice-history':  return <InvoiceHistory />;
+      case 'invoice-view':     return <InvoiceView />;
+      case 'stock-dashboard':  return <ReadyStockPage />;
+      case 'ready-stock':      return <ReadyStockPage />;
+      case 'packaging-stock':  return <PackagingStockPage />;
+      case 'add-stock':        return <AddStock />;
+      case 'production-entry': return <ProductionEntry />;
+      case 'price-list':       return <PriceList />;
+      case 'reports':          return <ReportsPage />;
+      default:                 return <Dashboard />;
+    }
+  };
+
+  return (
+    <>
+      {DEMO_MODE && <DemoBanner />}
+      <div className={DEMO_MODE ? 'pt-10' : ''}>
+        {pageContent()}
+      </div>
+    </>
+  );
 }

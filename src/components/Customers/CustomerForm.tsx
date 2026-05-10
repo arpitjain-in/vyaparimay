@@ -4,8 +4,6 @@ import { useStore } from '../../store/useStore';
 import { Customer, CustomerType, PaymentTerms } from '../../types';
 import { INDIAN_STATES } from '../../data/products';
 import Layout from '../Layout/Layout';
-import * as db from '../../lib/db';
-import { formatDate } from '../../utils/format';
 
 type FormData = Omit<Customer, 'id' | 'createdOn' | 'active'>;
 
@@ -51,22 +49,19 @@ function F({
 }
 
 export default function CustomerForm() {
-  const { orgId, editCustomerId, customers, navigate } = useStore();
+  const { editCustomerId, customers, navigate, addCustomer, updateCustomer } = useStore();
 
-  // Load existing customer from DB if editing
+  // Load existing customer from in-memory store (already synced on app init)
   const [existing, setExisting] = useState<Customer | null>(
     customers.find(c => c.id === editCustomerId) ?? null,
   );
-  const [loadingCustomer, setLoadingCustomer] = useState(!!editCustomerId && !existing);
+  const [loadingCustomer] = useState(false);
 
   useEffect(() => {
-    if (!editCustomerId || !orgId) return;
-    if (existing?.id === editCustomerId) return;
-    setLoadingCustomer(true);
-    db.loadCustomers(orgId).then(({ customers: all }) => {
-      setExisting(all.find(c => c.id === editCustomerId) ?? null);
-    }).catch(console.error).finally(() => setLoadingCustomer(false));
-  }, [editCustomerId, orgId]);
+    if (!editCustomerId) return;
+    const found = customers.find(c => c.id === editCustomerId) ?? null;
+    setExisting(found);
+  }, [editCustomerId, customers]);
 
   const [form, setForm] = useState<FormData>(EMPTY);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
@@ -107,29 +102,18 @@ export default function CustomerForm() {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validate() || !orgId) return;
+    if (!validate()) return;
     setSaving(true);
     setSubmitError(null);
     try {
       if (existing) {
-        await db.updateCustomerInDb(orgId, existing.id, form);
-        // Update in-memory store so other pages stay in sync
-        useStore.setState(s => ({
-          customers: s.customers.map(c => c.id === existing.id ? { ...c, ...form } : c),
-        }));
+        updateCustomer(existing.id, form);
         setSaved(true);
       } else {
-        // Get next seq from DB for consistent ID generation
-        const { seq: maxSeq } = await db.loadCustomers(orgId);
-        const seq = maxSeq + 1;
-        const id = `CUST-${String(seq).padStart(3, '0')}`;
-        const customer: Customer = {
+        addCustomer({
           ...form,
-          id,
-          createdOn: formatDate(new Date()),
-          active: true,
           firmName: form.firmName?.trim() || undefined,
           alternateMobile: form.alternateMobile?.trim() || undefined,
           address2: form.address2?.trim() || undefined,
@@ -137,13 +121,7 @@ export default function CustomerForm() {
           gstin: form.gstin?.trim() || undefined,
           fssai: form.fssai?.trim() || undefined,
           notes: form.notes?.trim() || undefined,
-        };
-        await db.saveCustomer(orgId, customer, seq);
-        // Update in-memory store
-        useStore.setState(s => ({
-          customers: [...s.customers, customer],
-          customerSeq: seq,
-        }));
+        });
         navigate('customer-list');
       }
     } catch (err) {

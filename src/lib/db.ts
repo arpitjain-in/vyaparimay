@@ -17,6 +17,7 @@ import type {
   StockTransaction,
   ReadyStockTransaction,
 } from '../types';
+import { PRODUCTS, PACKAGING_MATERIALS } from '../data/products';
 
 // ─── Date / Time helpers ──────────────────────────────────────────────────────
 
@@ -39,6 +40,48 @@ function fromDbTime(t: string): string {
 // Auth uses Supabase email OTP. RLS is disabled; a fixed org is shared.
 
 export const FIXED_ORG_ID = '00000000-0000-0000-0000-000000000001';
+
+/**
+ * Ensures every SKU and packaging material defined in the app's local catalog
+ * exists as a row in the database.  Uses ON CONFLICT DO NOTHING so existing
+ * global (org_id = null) rows are never overwritten — only genuinely missing
+ * rows are inserted (with org_id = orgId so the authenticated user's RLS
+ * policy allows the write).
+ *
+ * This is a safety net for catalog migrations that were added after the DB
+ * was first seeded (e.g. the Bran 40 kg bag added in May 2026).
+ */
+export async function initializeCatalog(orgId: string): Promise<void> {
+  // 1. Packaging materials — must be inserted before SKUs (FK dependency)
+  const pkgRows = PACKAGING_MATERIALS.map((m) => ({
+    id: m.id,
+    org_id: orgId,
+    name: m.name,
+    used_for: m.usedFor,
+  }));
+  const { error: pkgErr } = await supabase
+    .from('packaging_materials')
+    .upsert(pkgRows, { onConflict: 'id', ignoreDuplicates: true });
+  if (pkgErr) console.warn('[initializeCatalog] packaging_materials:', pkgErr.message);
+
+  // 2. Product SKUs
+  const skuRows = PRODUCTS.map((p) => ({
+    id: p.id,
+    org_id: orgId,
+    product: p.product,
+    product_id: p.productId,
+    variant: p.variant,
+    weight: p.weight,
+    packaging_id: p.packagingId,
+    hsn_code: p.hsnCode,
+    gst_rate: p.gstRate,
+    unit: p.unit,
+  }));
+  const { error: skuErr } = await supabase
+    .from('product_skus')
+    .upsert(skuRows, { onConflict: 'id', ignoreDuplicates: true });
+  if (skuErr) console.warn('[initializeCatalog] product_skus:', skuErr.message);
+}
 
 /** Returns the authenticated user's id, or throws if no session exists. */
 export async function initAuth(): Promise<string> {
@@ -266,6 +309,9 @@ function rowToInvoice(row: Record<string, unknown>): Invoice {
     sgstTotal: Number(row.sgst_total),
     igstTotal: Number(row.igst_total),
     totalGST: Number(row.total_gst),
+    discountType:   (row.discount_type as Invoice['discountType']) ?? undefined,
+    discountValue:  row.discount_value != null ? Number(row.discount_value) : undefined,
+    discountAmount: row.discount_amount != null ? Number(row.discount_amount) : undefined,
     roundOff: Number(row.round_off),
     grandTotal: Number(row.grand_total),
     isInterState: row.is_inter_state as boolean,
@@ -306,6 +352,9 @@ export async function saveInvoice(
     sgst_total: invoice.sgstTotal,
     igst_total: invoice.igstTotal,
     total_gst: invoice.totalGST,
+    discount_type:   invoice.discountType   ?? null,
+    discount_value:  invoice.discountValue  ?? null,
+    discount_amount: invoice.discountAmount ?? null,
     round_off: invoice.roundOff,
     grand_total: invoice.grandTotal,
     is_inter_state: invoice.isInterState,
