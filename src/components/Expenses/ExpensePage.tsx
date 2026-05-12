@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, AlertCircle } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { formatDate, formatTime } from '../../utils/format';
+import { formatDate, isValidDDMMYYYY } from '../../utils/format';
 import { supabase } from '../../lib/supabase';
 import Layout from '../Layout/Layout';
 import ExpensePasswordModal from './ExpensePasswordModal';
@@ -49,8 +49,8 @@ export default function ExpensePage() {
       return;
     }
 
-    if (!formData.date) {
-      alert('Please select a date');
+    if (!isValidDDMMYYYY(formData.date)) {
+      alert('Please enter a valid date in DD/MM/YYYY format');
       return;
     }
 
@@ -134,12 +134,11 @@ export default function ExpensePage() {
                   Date <span className="text-red-500">*</span>
                 </label>
                 <input
-                  type="date"
-                  value={formData.date.split('/').reverse().join('-')}
-                  onChange={e => {
-                    const [yyyy, mm, dd] = e.target.value.split('-');
-                    setFormData({ ...formData, date: `${dd}/${mm}/${yyyy}` });
-                  }}
+                  type="text"
+                  placeholder="DD/MM/YYYY"
+                  pattern="\d{2}/\d{2}/\d{4}"
+                  value={formData.date}
+                  onChange={e => setFormData({ ...formData, date: e.target.value })}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                 />
               </div>

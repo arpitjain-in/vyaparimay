@@ -3,7 +3,7 @@ import { X, CheckCircle, AlertTriangle, XCircle, Package, Upload, ShieldAlert, R
 import { useStore } from '../../store/useStore';
 import { PACKAGING_MATERIALS, PRODUCTS } from '../../data/products';
 import Layout from '../Layout/Layout';
-import { formatDate, parseDDMMYYYY } from '../../utils/format';
+import { formatDate, parseDDMMYYYY, isValidDDMMYYYY } from '../../utils/format';
 
 function StatusBadge({ status }: { status: 'adequate' | 'low' | 'out' }) {
   if (status === 'out') return <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Out</span>;
@@ -85,7 +85,7 @@ export default function PackagingStockPage() {
   const [bulkError, setBulkError] = useState('');
   const [bulkDate, setBulkDate] = useState(() => {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
   });
 
   // PIN gate state
@@ -134,12 +134,13 @@ export default function PackagingStockPage() {
       setBulkError('Enter at least one quantity.');
       return;
     }
-    // Convert YYYY-MM-DD → DD/MM/YYYY
-    const [yr, mo, dy] = bulkDate.split('-');
-    const dateStr = `${dy}/${mo}/${yr}`;
+    if (!isValidDDMMYYYY(bulkDate)) {
+      setBulkError('Enter a valid date in DD/MM/YYYY format.');
+      return;
+    }
     entries.forEach(mat => {
       addPackagingEntry({
-        date: dateStr,
+        date: bulkDate,
         materialId: mat.id,
         materialName: mat.name,
         entryType: 'purchase',
@@ -482,7 +483,9 @@ export default function PackagingStockPage() {
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Date</label>
                 <input
-                  type="date"
+                  type="text"
+                  placeholder="DD/MM/YYYY"
+                  pattern="\d{2}/\d{2}/\d{4}"
                   value={bulkDate}
                   onChange={e => setBulkDate(e.target.value)}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
