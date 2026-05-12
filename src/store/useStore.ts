@@ -118,7 +118,7 @@ interface AppState {
   updatePrice(skuId: string, rate: number): void;
 
   // Expenses
-  addExpense(amount: number, date: string, time: string, notes: string | undefined, createdBy: string): void;
+  addExpense(amount: number, date: string, time: string, notes: string, createdBy: string): void;
   deleteExpense(id: string): void;
 
   // Computed helpers (not persisted)
@@ -825,12 +825,7 @@ export const useStore = create<AppState>()(
 
       addExpense(amount, date, time, notes, createdBy) {
         const expense: Expense = {
-          id: crypto.randomUUID(),
-          amount,
-          date,
-          time,
-          notes,
-          createdBy,
+          id: crypto.randomUUID(), amount, date, time, notes, createdBy,
           createdAt: new Date().toISOString(),
         };
         set(s => ({ expenses: [...s.expenses, expense] }));

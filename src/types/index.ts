@@ -213,7 +213,7 @@ export interface Expense {
   amount: number;
   date: string;        // DD/MM/YYYY
   time: string;        // HH:MM
-  notes?: string;
+  notes: string;
   createdBy: string;   // user ID from auth
   createdAt: string;   // timestamp when created
 }

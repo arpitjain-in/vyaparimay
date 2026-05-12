@@ -886,7 +886,7 @@ export async function loadExpenses(orgId: string): Promise<Expense[]> {
     amount: Number(r.amount),
     date: fromDbDate(r.date as string),
     time: fromDbTime(r.time as string),
-    notes: r.notes as string | undefined,
+    notes: (r.notes as string) ?? '',
     createdBy: r.created_by as string,
     createdAt: r.created_at as string,
   }));
@@ -897,7 +897,7 @@ export async function saveExpense(
   amount: number,
   date: string,
   time: string,
-  notes: string | undefined,
+  notes: string,
   createdBy: string,
 ): Promise<Expense> {
   const id = crypto.randomUUID();
@@ -907,7 +907,7 @@ export async function saveExpense(
     amount,
     date: toDbDate(date),
     time: `${time}:00`,
-    notes: notes ?? null,
+    notes,
     created_by: createdBy,
   });
   if (error) throw error;

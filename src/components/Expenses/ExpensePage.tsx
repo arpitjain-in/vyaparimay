@@ -54,6 +54,11 @@ export default function ExpensePage() {
       return;
     }
 
+    if (!formData.notes.trim()) {
+      alert('Please enter a description for this expense');
+      return;
+    }
+
     if (!userId) {
       alert('Unable to determine current user. Please refresh and try again.');
       return;
@@ -63,7 +68,7 @@ export default function ExpensePage() {
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    addExpense(amount, formData.date, time, formData.notes || undefined, userId);
+    addExpense(amount, formData.date, time, formData.notes.trim(), userId);
 
     // Reset form
     setFormData({
@@ -142,11 +147,12 @@ export default function ExpensePage() {
               {/* Notes */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Notes
+                  Notes <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="Optional notes"
+                  placeholder="Describe this expense"
+                  required
                   value={formData.notes}
                   onChange={e => setFormData({ ...formData, notes: e.target.value })}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"

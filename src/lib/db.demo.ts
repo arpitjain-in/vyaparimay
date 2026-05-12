@@ -456,7 +456,7 @@ export async function saveExpense(
   amount: number,
   date: string,
   time: string,
-  notes: string | undefined,
+  notes: string,
   createdBy: string,
 ): Promise<Expense> {
   const expenses = lsGet<Expense[]>('expenses', []);
