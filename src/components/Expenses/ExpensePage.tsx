@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { formatDate, isValidDDMMYYYY } from '../../utils/format';
 import { supabase } from '../../lib/supabase';
@@ -14,6 +14,7 @@ export default function ExpensePage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedExpenseId, setSelectedExpenseId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -22,63 +23,53 @@ export default function ExpensePage() {
     notes: '',
   });
 
+  // Inline validation errors
+  const [errors, setErrors] = useState({ amount: '', date: '', notes: '' });
+
   useEffect(() => {
-    // Get current user ID from auth session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user?.id) {
-        setUserId(session.user.id);
-      }
+      if (session?.user?.id) setUserId(session.user.id);
     });
   }, []);
 
-  const handlePasswordConfirm = () => {
-    setPasswordVerified(true);
-  };
-
-  const handlePasswordCancel = () => {
-    // Navigate back to dashboard
-    useStore.getState().navigate('dashboard');
-  };
+  const handlePasswordConfirm = () => setPasswordVerified(true);
+  const handlePasswordCancel = () => useStore.getState().navigate('dashboard');
 
   const handleAddExpense = (e: React.FormEvent) => {
     e.preventDefault();
 
     const amount = parseFloat(formData.amount);
-    if (!amount || amount <= 0) {
-      alert('Please enter a valid expense amount');
-      return;
-    }
+    const newErrors = { amount: '', date: '', notes: '' };
 
-    if (!isValidDDMMYYYY(formData.date)) {
-      alert('Please enter a valid date in DD/MM/YYYY format');
-      return;
-    }
+    if (!formData.amount || isNaN(amount) || amount <= 0)
+      newErrors.amount = 'Enter a valid amount greater than 0';
 
-    if (!formData.notes.trim()) {
-      alert('Please enter a description for this expense');
+    if (!isValidDDMMYYYY(formData.date))
+      newErrors.date = 'Enter a valid date in DD/MM/YYYY format';
+
+    if (!formData.notes.trim())
+      newErrors.notes = 'Description is required';
+
+    if (newErrors.amount || newErrors.date || newErrors.notes) {
+      setErrors(newErrors);
       return;
     }
 
     if (!userId) {
-      alert('Unable to determine current user. Please refresh and try again.');
+      setErrors({ ...newErrors, amount: 'Session expired — please refresh and try again' });
       return;
     }
 
-    // Format time as HH:MM
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
     addExpense(amount, formData.date, time, formData.notes.trim(), userId);
 
-    // Reset form
-    setFormData({
-      amount: '',
-      date: formatDate(new Date()),
-      notes: '',
-    });
+    setFormData({ amount: '', date: formatDate(new Date()), notes: '' });
+    setErrors({ amount: '', date: '', notes: '' });
     setShowForm(false);
-
-    alert('Expense added successfully!');
+    setSuccessMsg('Expense saved successfully');
+    setTimeout(() => setSuccessMsg(''), 3000);
   };
 
   const handleDeleteClick = (id: string) => {
@@ -106,11 +97,19 @@ export default function ExpensePage() {
 
   return (
     <Layout title="Expense Log" subtitle="Password Protected">
+      {/* Success banner */}
+      {successMsg && (
+        <div className="flex items-center gap-2 mb-4 px-4 py-3 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm font-medium">
+          <CheckCircle size={16} />
+          {successMsg}
+        </div>
+      )}
+
       {/* Add Expense Form */}
       {showForm && (
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">New Expense</h2>
-          <form onSubmit={handleAddExpense} className="space-y-4">
+          <form onSubmit={handleAddExpense} noValidate className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Amount */}
               <div>
@@ -123,9 +122,13 @@ export default function ExpensePage() {
                   min="0"
                   placeholder="Enter amount"
                   value={formData.amount}
-                  onChange={e => setFormData({ ...formData, amount: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  onChange={e => {
+                    setFormData({ ...formData, amount: e.target.value });
+                    if (errors.amount) setErrors({ ...errors, amount: '' });
+                  }}
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none ${errors.amount ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
                 />
+                {errors.amount && <p className="mt-1 text-xs text-red-600">{errors.amount}</p>}
               </div>
 
               {/* Date */}
@@ -136,26 +139,32 @@ export default function ExpensePage() {
                 <input
                   type="text"
                   placeholder="DD/MM/YYYY"
-                  pattern="\d{2}/\d{2}/\d{4}"
                   value={formData.date}
-                  onChange={e => setFormData({ ...formData, date: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  onChange={e => {
+                    setFormData({ ...formData, date: e.target.value });
+                    if (errors.date) setErrors({ ...errors, date: '' });
+                  }}
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none ${errors.date ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
                 />
+                {errors.date && <p className="mt-1 text-xs text-red-600">{errors.date}</p>}
               </div>
 
               {/* Notes */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Notes <span className="text-rose-500">*</span>
+                  Notes <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   placeholder="Describe this expense"
-                  required
                   value={formData.notes}
-                  onChange={e => setFormData({ ...formData, notes: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  onChange={e => {
+                    setFormData({ ...formData, notes: e.target.value });
+                    if (errors.notes) setErrors({ ...errors, notes: '' });
+                  }}
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none ${errors.notes ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
                 />
+                {errors.notes && <p className="mt-1 text-xs text-red-600">{errors.notes}</p>}
               </div>
             </div>
 
@@ -168,7 +177,7 @@ export default function ExpensePage() {
               </button>
               <button
                 type="button"
-                onClick={() => setShowForm(false)}
+                onClick={() => { setShowForm(false); setErrors({ amount: '', date: '', notes: '' }); }}
                 className="px-6 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition-colors"
               >
                 Cancel
