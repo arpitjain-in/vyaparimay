@@ -894,13 +894,13 @@ export async function loadExpenses(orgId: string): Promise<Expense[]> {
 
 export async function saveExpense(
   orgId: string,
+  id: string,
   amount: number,
   date: string,
   time: string,
   notes: string,
   createdBy: string,
-): Promise<Expense> {
-  const id = crypto.randomUUID();
+): Promise<void> {
   const { error } = await supabase.from('expenses').insert({
     id,
     org_id: orgId,
@@ -911,7 +911,6 @@ export async function saveExpense(
     created_by: createdBy,
   });
   if (error) throw error;
-  return { id, amount, date, time, notes, createdBy, createdAt: new Date().toISOString() };
 }
 
 export async function deleteExpense(id: string): Promise<void> {

@@ -830,7 +830,7 @@ export const useStore = create<AppState>()(
         };
         set(s => ({ expenses: [...s.expenses, expense] }));
         const { orgId } = get();
-        if (orgId) db.saveExpense(orgId, amount, date, time, notes, createdBy).catch(console.error);
+        if (orgId) db.saveExpense(orgId, expense.id, amount, date, time, notes, createdBy).catch(console.error);
       },
 
       deleteExpense(id) {

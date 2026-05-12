@@ -240,26 +240,27 @@ export default function ExpensePage() {
       </div>
 
       {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <Modal
-          title="Delete Expense"
-          onClose={() => setShowDeleteConfirm(false)}
-          actions={[
-            {
-              label: 'Cancel',
-              onClick: () => setShowDeleteConfirm(false),
-              variant: 'secondary',
-            },
-            {
-              label: 'Delete',
-              onClick: handleConfirmDelete,
-              variant: 'danger',
-            },
-          ]}
-        >
-          <p className="text-slate-600">Are you sure you want to delete this expense? This action cannot be undone.</p>
-        </Modal>
-      )}
+      <Modal
+        open={showDeleteConfirm}
+        title="Delete Expense"
+        onClose={() => setShowDeleteConfirm(false)}
+      >
+        <p className="text-slate-600">Are you sure you want to delete this expense? This action cannot be undone.</p>
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={() => setShowDeleteConfirm(false)}
+            className="flex-1 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirmDelete}
+            className="flex-1 px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </Modal>
     </Layout>
   );
 }
