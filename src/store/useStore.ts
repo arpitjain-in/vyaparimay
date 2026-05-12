@@ -198,9 +198,14 @@ export const useStore = create<AppState>()(
           const userId = await db.initAuth();
           const orgId = await db.getOrCreateOrg(userId);
 
-          // Ensure all app-defined catalog entries (SKUs, packaging materials)
-          // exist in the database.  Silently a no-op for entries already present.
-          await db.initializeCatalog(orgId);
+          // Seed catalog entries (SKUs, packaging materials) on first login or after
+          // a catalog update. Bump CATALOG_VERSION whenever src/data/products.ts changes.
+          const CATALOG_VERSION = 'v5';
+          const catalogKey = `catalog_seeded_${orgId}`;
+          if (localStorage.getItem(catalogKey) !== CATALOG_VERSION) {
+            await db.initializeCatalog(orgId);
+            localStorage.setItem(catalogKey, CATALOG_VERSION);
+          }
 
           const [
             businessProfile,
@@ -512,11 +517,15 @@ export const useStore = create<AppState>()(
         if (orgId) {
           db.saveInvoice(orgId, invoice, items, newReadyTxns, newReady)
             .catch((err) => {
+              // Revert the invoice counter so the next attempt reuses the same sequence number.
+              set(cur => ({
+                invoiceCounters: { ...cur.invoiceCounters, [fy]: s.invoiceCounters[fy] ?? 0 },
+              }));
               console.error('[saveInvoice] Failed to save invoice items:', err);
               alert(
                 `Invoice ${invoiceNo} was created but could not be saved to the database.\n\n` +
                 `Error: ${err instanceof Error ? err.message : String(err)}\n\n` +
-                `Please note down the items and contact support, or re-create the invoice after checking your connection.`
+                `Please note down the items and contact support, or re-create the invoice after checking your connection.`,
               );
             });
         }
@@ -535,7 +544,9 @@ export const useStore = create<AppState>()(
       // ─── Payment Receipts ────────────────────────────────────────────
 
       addPaymentReceipt(data) {
-        const seq = get().receiptSeq + 1;
+        const prevReceipts = get().paymentReceipts;
+        const prevSeq = get().receiptSeq;
+        const seq = prevSeq + 1;
         const id = `REC-${String(seq).padStart(4, '0')}`;
         const rec: PaymentReceipt = { ...data, id, time: formatTime(new Date()) };
         set(s => ({
@@ -543,7 +554,16 @@ export const useStore = create<AppState>()(
           receiptSeq: seq,
         }));
         const { orgId } = get();
-        if (orgId) db.savePaymentReceipt(orgId, rec).catch(console.error);
+        if (orgId) {
+          db.savePaymentReceipt(orgId, rec).catch((err) => {
+            set({ paymentReceipts: prevReceipts, receiptSeq: prevSeq });
+            alert(
+              `Payment ${id} was recorded locally but could NOT be saved to the database.\n\n` +
+              `Error: ${err instanceof Error ? err.message : String(err)}\n\n` +
+              `Please check your connection and re-enter this payment after reconnecting.`,
+            );
+          });
+        }
       },
 
       // ─── Stock ───────────────────────────────────────────────────────
@@ -577,11 +597,21 @@ export const useStore = create<AppState>()(
       },
 
       addProductionLog(log) {
+        const prevLogs = get().productionLogs;
         const now = new Date();
         const rec: ProductionLog = { ...log, id: crypto.randomUUID(), time: formatTime(now) };
         set(s => ({ productionLogs: [...s.productionLogs, rec] }));
         const { orgId } = get();
-        if (orgId) db.saveProductionLog(orgId, rec).catch(console.error);
+        if (orgId) {
+          db.saveProductionLog(orgId, rec).catch((err) => {
+            set({ productionLogs: prevLogs });
+            alert(
+              `Production log was recorded locally but could NOT be saved to the database.\n\n` +
+              `Error: ${err instanceof Error ? err.message : String(err)}\n\n` +
+              `Please check your connection and re-enter this entry after reconnecting.`,
+            );
+          });
+        }
       },
 
       adjustStock(type, id, qty, reason) {

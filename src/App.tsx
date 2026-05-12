@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { useStore } from './store/useStore';
 import { supabase } from './lib/supabase';
@@ -7,23 +7,33 @@ import DemoBanner from './components/common/DemoBanner';
 
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
-// Pages
+// Eagerly loaded — render immediately on every session
 import BusinessSetup from './components/Business/BusinessSetup';
 import Dashboard from './components/Dashboard/Dashboard';
-import CustomerList from './components/Customers/CustomerList';
-import CustomerForm from './components/Customers/CustomerForm';
-import CustomerLedger from './components/Customers/CustomerLedger';
-import NewOrder from './components/Orders/NewOrder';
-import InvoiceHistory from './components/Invoices/InvoiceHistory';
-import InvoiceView from './components/Invoices/InvoiceView';
-import StockDashboard from './components/Inventory/StockDashboard';
-import ReadyStockPage from './components/Inventory/ReadyStockPage';
-import PackagingStockPage from './components/Inventory/PackagingStockPage';
-import AddStock from './components/Inventory/AddStock';
-import ProductionEntry from './components/Inventory/ProductionEntry';
-import PriceList from './components/Pricing/PriceList';
-import ReportsPage from './components/Reports/ReportsPage';
-import ExpensePage from './components/Expenses/ExpensePage';
+
+// Lazy-loaded — only fetched when the user navigates to that page
+const CustomerList     = lazy(() => import('./components/Customers/CustomerList'));
+const CustomerForm     = lazy(() => import('./components/Customers/CustomerForm'));
+const CustomerLedger   = lazy(() => import('./components/Customers/CustomerLedger'));
+const NewOrder         = lazy(() => import('./components/Orders/NewOrder'));
+const InvoiceHistory   = lazy(() => import('./components/Invoices/InvoiceHistory'));
+const InvoiceView      = lazy(() => import('./components/Invoices/InvoiceView'));
+const StockDashboard   = lazy(() => import('./components/Inventory/StockDashboard'));
+const ReadyStockPage   = lazy(() => import('./components/Inventory/ReadyStockPage'));
+const PackagingStockPage = lazy(() => import('./components/Inventory/PackagingStockPage'));
+const AddStock         = lazy(() => import('./components/Inventory/AddStock'));
+const ProductionEntry  = lazy(() => import('./components/Inventory/ProductionEntry'));
+const PriceList        = lazy(() => import('./components/Pricing/PriceList'));
+const ReportsPage      = lazy(() => import('./components/Reports/ReportsPage'));
+const ExpensePage      = lazy(() => import('./components/Expenses/ExpensePage'));
+
+function PageLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500" />
+    </div>
+  );
+}
 
 export default function App() {
   const { currentPage, businessProfile, isInitialized, initError, initializeApp } = useStore();
@@ -123,7 +133,9 @@ export default function App() {
     <>
       {DEMO_MODE && <DemoBanner />}
       <div className={DEMO_MODE ? 'pt-10' : ''}>
-        {pageContent()}
+        <Suspense fallback={<PageLoader />}>
+          {pageContent()}
+        </Suspense>
       </div>
     </>
   );

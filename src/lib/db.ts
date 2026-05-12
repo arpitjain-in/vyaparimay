@@ -203,7 +203,9 @@ export async function loadCustomers(
 
   const customers = (data ?? []).map(rowToCustomer);
   const seq =
-    data && data.length > 0 ? Math.max(...data.map((r) => r.seq as number)) : 0;
+    data && data.length > 0
+      ? data.reduce((max, r) => Math.max(max, r.seq as number), 0)
+      : 0;
   return { customers, seq };
 }
 
@@ -461,10 +463,9 @@ export async function loadPaymentReceipts(
   const receipts = (data ?? []).map(rowToReceipt);
   const seq =
     data && data.length > 0
-      ? Math.max(
-          ...data.map(
-            (r) => parseInt((r.id as string).replace('REC-', ''), 10) || 0,
-          ),
+      ? data.reduce(
+          (max, r) => Math.max(max, parseInt((r.id as string).replace('REC-', ''), 10) || 0),
+          0,
         )
       : 0;
   return { receipts, seq };

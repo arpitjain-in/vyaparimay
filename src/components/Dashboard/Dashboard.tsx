@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   ShoppingCart, TrendingUp, FlaskConical, PackageCheck,
   AlertTriangle, ArrowRight, Users, IndianRupee,
@@ -7,8 +7,6 @@ import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/products';
 import { fmtINR, formatDate } from '../../utils/format';
 import Layout from '../Layout/Layout';
-
-const TODAY = formatDate(new Date());
 
 function KpiCard({
   label, value, sub, icon, accent, onClick,
@@ -32,83 +30,120 @@ function KpiCard({
 }
 
 export default function Dashboard() {
-  const {
-    customers, invoices, packagingStock, packagingEntries, reorderLevels,
-    navigate, startNewOrder, businessProfile,
-    productionLogs, readyStock, readyStockTransactions, getReadyStockStatus,
-  } = useStore();
+  // Actions don't trigger re-renders — keep destructured together.
+  const { navigate, startNewOrder, getReadyStockStatus } = useStore();
+  // Data slices — each selector means this component only re-renders when that slice changes.
+  const invoices               = useStore(s => s.invoices);
+  const packagingStock         = useStore(s => s.packagingStock);
+  const packagingEntries       = useStore(s => s.packagingEntries);
+  const reorderLevels          = useStore(s => s.reorderLevels);
+  const businessProfile        = useStore(s => s.businessProfile);
+  const productionLogs         = useStore(s => s.productionLogs);
+  const readyStock             = useStore(s => s.readyStock);
+  const readyStockTransactions = useStore(s => s.readyStockTransactions);
+
+  // Computed once per mount, refreshed when the component remounts (e.g. next day).
+  const TODAY = useMemo(() => formatDate(new Date()), []);
+  const dayLabel = useMemo(
+    () => new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' }),
+    [],
+  );
 
   // ── Today's figures ──────────────────────────────────────────────
-  const todayInvoices = invoices.filter(i => !i.cancelled && i.invoiceDate === TODAY);
-  const todayRevenue  = todayInvoices.reduce((s, i) => s + i.grandTotal, 0);
-  const todayCash     = todayInvoices.filter(i => i.paymentMode === 'Cash').reduce((s, i) => s + i.grandTotal, 0);
-  const todayCredit   = todayInvoices.filter(i => i.paymentMode === 'Credit').reduce((s, i) => s + i.grandTotal, 0);
+  const todayInvoices = useMemo(
+    () => invoices.filter(i => !i.cancelled && i.invoiceDate === TODAY),
+    [invoices, TODAY],
+  );
+  const todayRevenue = useMemo(
+    () => todayInvoices.reduce((s, i) => s + i.grandTotal, 0),
+    [todayInvoices],
+  );
+  const todayCash = useMemo(
+    () => todayInvoices.filter(i => i.paymentMode === 'Cash').reduce((s, i) => s + i.grandTotal, 0),
+    [todayInvoices],
+  );
+  const todayCredit = useMemo(
+    () => todayInvoices.filter(i => i.paymentMode === 'Credit').reduce((s, i) => s + i.grandTotal, 0),
+    [todayInvoices],
+  );
 
   // ── Today's production ───────────────────────────────────────────
-  const todayLogs = productionLogs.filter(l => l.date === TODAY);
-  const todayProduction: Record<string, number> = {};
-  for (const log of todayLogs) {
-    todayProduction[log.productName] = (todayProduction[log.productName] ?? 0) + log.quantityProduced;
-  }
-  const todayTotalKg = Object.values(todayProduction).reduce((s, v) => s + v, 0);
+  const { todayLogs, todayProduction, todayTotalKg } = useMemo(() => {
+    const logs = productionLogs.filter(l => l.date === TODAY);
+    const production: Record<string, number> = {};
+    for (const log of logs) {
+      production[log.productName] = (production[log.productName] ?? 0) + log.quantityProduced;
+    }
+    return {
+      todayLogs: logs,
+      todayProduction: production,
+      todayTotalKg: Object.values(production).reduce((s, v) => s + v, 0),
+    };
+  }, [productionLogs, TODAY]);
 
   // ── Weekly rolling (last 7 days) ──────────────────────────────────
-  const week = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    return formatDate(d);
-  });
-  const weekRevenue = invoices
-    .filter(i => !i.cancelled && week.includes(i.invoiceDate))
-    .reduce((s, i) => s + i.grandTotal, 0);
-  const weekProduction = productionLogs
-    .filter(l => week.includes(l.date))
-    .reduce((s, l) => s + l.quantityProduced, 0);
+  const { weekRevenue, weekProduction } = useMemo(() => {
+    const week = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      return formatDate(d);
+    });
+    return {
+      weekRevenue: invoices
+        .filter(i => !i.cancelled && week.includes(i.invoiceDate))
+        .reduce((s, i) => s + i.grandTotal, 0),
+      weekProduction: productionLogs
+        .filter(l => week.includes(l.date))
+        .reduce((s, l) => s + l.quantityProduced, 0),
+    };
+  }, [invoices, productionLogs]);
 
   // ── Ready stock alerts ────────────────────────────────────────────
-  // Pre-compute which SKUs / packaging materials have ever been actively managed
-  const activatedSkuIds = new Set(readyStockTransactions.map(t => t.skuId));
-  const activatedPkgIds = new Set(packagingEntries.map(e => e.materialId));
+  const { lowReadyItems, lowPkgItems } = useMemo(() => {
+    const activatedSkuIds = new Set(readyStockTransactions.map(t => t.skuId));
+    const activatedPkgIds = new Set(packagingEntries.map(e => e.materialId));
 
-  const lowReadyItems = PRODUCTS.filter(p => {
-    const status = getReadyStockStatus(p.id);
-    // 'low' → reorder level configured and stock at/below it
-    if (status === 'low') return true;
-    // 'out' → only alert if this SKU has been actively managed (not just default 0)
-    if (status === 'out' && activatedSkuIds.has(p.id)) return true;
-    return false;
-  });
-  const lowPkgItems = PACKAGING_MATERIALS.filter(pm => {
-    const stock = packagingStock[pm.id] ?? 0;
-    const reorder = reorderLevels.packaging[pm.id] ?? 0;
-    // reorder level configured and stock at/below it
-    if (reorder > 0 && stock <= reorder) return true;
-    // completely out, but only if it has ever been purchased/used
-    if (stock === 0 && activatedPkgIds.has(pm.id)) return true;
-    return false;
-  });
+    return {
+      lowReadyItems: PRODUCTS.filter(p => {
+        const status = getReadyStockStatus(p.id);
+        if (status === 'low') return true;
+        if (status === 'out' && activatedSkuIds.has(p.id)) return true;
+        return false;
+      }),
+      lowPkgItems: PACKAGING_MATERIALS.filter(pm => {
+        const stock = packagingStock[pm.id] ?? 0;
+        const reorder = reorderLevels.packaging[pm.id] ?? 0;
+        if (reorder > 0 && stock <= reorder) return true;
+        if (stock === 0 && activatedPkgIds.has(pm.id)) return true;
+        return false;
+      }),
+    };
+  }, [readyStockTransactions, packagingEntries, packagingStock, reorderLevels, getReadyStockStatus]);
 
   // ── Today's sales by SKU ──────────────────────────────────────────
-  const todaySkuSales: Record<string, { name: string; qty: number; amount: number }> = {};
-  for (const inv of todayInvoices) {
-    for (const item of inv.items) {
-      if (!todaySkuSales[item.skuId]) {
-        const sku = PRODUCTS.find(p => p.id === item.skuId);
-        todaySkuSales[item.skuId] = { name: sku ? `${sku.product} – ${sku.variant}` : item.skuId, qty: 0, amount: 0 };
+  const skuSalesList = useMemo(() => {
+    const todaySkuSales: Record<string, { name: string; qty: number; amount: number }> = {};
+    for (const inv of todayInvoices) {
+      for (const item of inv.items) {
+        if (!todaySkuSales[item.skuId]) {
+          const sku = PRODUCTS.find(p => p.id === item.skuId);
+          todaySkuSales[item.skuId] = { name: sku ? `${sku.product} – ${sku.variant}` : item.skuId, qty: 0, amount: 0 };
+        }
+        todaySkuSales[item.skuId].qty += item.quantity;
+        todaySkuSales[item.skuId].amount += item.quantity * item.rate;
       }
-      todaySkuSales[item.skuId].qty += item.quantity;
-      todaySkuSales[item.skuId].amount += item.quantity * item.rate;
     }
-  }
-  const skuSalesList = Object.values(todaySkuSales).sort((a, b) => b.amount - a.amount);
+    return Object.values(todaySkuSales).sort((a, b) => b.amount - a.amount);
+  }, [todayInvoices]);
 
   // ── Recent invoices (last 5) ──────────────────────────────────────
-  const recentInvoices = [...invoices]
-    .filter(i => !i.cancelled)
-    .sort((a, b) => b.invoiceNo.localeCompare(a.invoiceNo))
-    .slice(0, 5);
-
-  const dayLabel = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+  const recentInvoices = useMemo(
+    () => [...invoices]
+      .filter(i => !i.cancelled)
+      .sort((a, b) => b.invoiceNo.localeCompare(a.invoiceNo))
+      .slice(0, 5),
+    [invoices],
+  );
 
   return (
     <Layout
@@ -193,7 +228,7 @@ export default function Dashboard() {
                 ))}
                 <div className="flex items-center gap-4 px-5 py-3 bg-slate-50">
                   <div className="flex-1 text-sm font-bold text-slate-700">Total</div>
-                  <div className="text-sm text-slate-500">{Object.values(todaySkuSales).reduce((s, v) => s + v.qty, 0)} units</div>
+                  <div className="text-sm text-slate-500">{skuSalesList.reduce((s, v) => s + v.qty, 0)} units</div>
                   <div className="text-sm font-bold text-slate-800 w-28 text-right">{fmtINR(todayRevenue)}</div>
                 </div>
               </div>
