@@ -23,6 +23,7 @@ import AddStock from './components/Inventory/AddStock';
 import ProductionEntry from './components/Inventory/ProductionEntry';
 import PriceList from './components/Pricing/PriceList';
 import ReportsPage from './components/Reports/ReportsPage';
+import ExpensePage from './components/Expenses/ExpensePage';
 
 export default function App() {
   const { currentPage, businessProfile, isInitialized, initError, initializeApp } = useStore();
@@ -113,6 +114,7 @@ export default function App() {
       case 'production-entry': return <ProductionEntry />;
       case 'price-list':       return <PriceList />;
       case 'reports':          return <ReportsPage />;
+      case 'expense':          return <ExpensePage />;
       default:                 return <Dashboard />;
     }
   };

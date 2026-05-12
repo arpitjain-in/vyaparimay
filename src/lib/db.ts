@@ -16,6 +16,7 @@ import type {
   ProductionLog,
   StockTransaction,
   ReadyStockTransaction,
+  Expense,
 } from '../types';
 import { PRODUCTS, PACKAGING_MATERIALS } from '../data/products';
 
@@ -867,5 +868,52 @@ export async function saveReorderLevel(
       { org_id: orgId, category, item_id: itemId, level },
       { onConflict: 'org_id,category,item_id' },
     );
+  if (error) throw error;
+}
+
+// ─── Expenses ──────────────────────────────────────────────────────────────────
+
+export async function loadExpenses(orgId: string): Promise<Expense[]> {
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('date', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    id: r.id as string,
+    amount: Number(r.amount),
+    date: fromDbDate(r.date as string),
+    time: fromDbTime(r.time as string),
+    notes: r.notes as string | undefined,
+    createdBy: r.created_by as string,
+    createdAt: r.created_at as string,
+  }));
+}
+
+export async function saveExpense(
+  orgId: string,
+  amount: number,
+  date: string,
+  time: string,
+  notes: string | undefined,
+  createdBy: string,
+): Promise<Expense> {
+  const id = crypto.randomUUID();
+  const { error } = await supabase.from('expenses').insert({
+    id,
+    org_id: orgId,
+    amount,
+    date: toDbDate(date),
+    time: `${time}:00`,
+    notes: notes ?? null,
+    created_by: createdBy,
+  });
+  if (error) throw error;
+  return { id, amount, date, time, notes, createdBy, createdAt: new Date().toISOString() };
+}
+
+export async function deleteExpense(id: string): Promise<void> {
+  const { error } = await supabase.from('expenses').delete().eq('id', id);
   if (error) throw error;
 }

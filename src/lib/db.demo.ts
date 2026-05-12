@@ -13,6 +13,7 @@ import type {
   ProductionLog,
   StockTransaction,
   ReadyStockTransaction,
+  Expense,
 } from '../types';
 import { DEFAULT_PRICES, PACKAGING_MATERIALS, PRODUCTS } from '../data/products';
 
@@ -442,6 +443,45 @@ export async function saveReorderLevel(
   }>('reorder_levels', { raw: {}, packaging: {}, ready: {} });
   levels[category][itemId] = level;
   lsSet('reorder_levels', levels);
+}
+
+// ─── Expenses ──────────────────────────────────────────────────────────────────
+
+export async function loadExpenses(_orgId: string): Promise<Expense[]> {
+  return lsGet('expenses', []);
+}
+
+export async function saveExpense(
+  _orgId: string,
+  amount: number,
+  date: string,
+  time: string,
+  notes: string | undefined,
+  createdBy: string,
+): Promise<Expense> {
+  const expenses = lsGet<Expense[]>('expenses', []);
+  const id = 'exp_' + Date.now();
+  const expense: Expense = {
+    id,
+    amount,
+    date,
+    time,
+    notes,
+    createdBy,
+    createdAt: new Date().toISOString(),
+  };
+  expenses.push(expense);
+  lsSet('expenses', expenses);
+  return expense;
+}
+
+export async function deleteExpense(id: string): Promise<void> {
+  const expenses = lsGet<Expense[]>('expenses', []);
+  const index = expenses.findIndex((e) => e.id === id);
+  if (index >= 0) {
+    expenses.splice(index, 1);
+    lsSet('expenses', expenses);
+  }
 }
 
 // ─── Unused by demo but referenced generically ────────────────────────────────

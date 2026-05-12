@@ -206,6 +206,18 @@ export interface ReadyStockTransaction {
   invoiceNo?: string;
 }
 
+// ─── Expense ──────────────────────────────────────────────────────────────
+// Independent expense tracking system (password protected)
+export interface Expense {
+  id: string;
+  amount: number;
+  date: string;        // DD/MM/YYYY
+  time: string;        // HH:MM
+  notes?: string;
+  createdBy: string;   // user ID from auth
+  createdAt: string;   // timestamp when created
+}
+
 // ─── Navigation ──────────────────────────────────────────────────────────
 export type AppPage =
   | 'setup'
@@ -222,4 +234,5 @@ export type AppPage =
   | 'add-stock'
   | 'production-entry'
   | 'price-list'
-  | 'reports';
+  | 'reports'
+  | 'expense';

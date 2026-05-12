@@ -3,7 +3,7 @@ import {
   AppPage, BusinessProfile, CartItem, CurrentOrder,
   Customer, Invoice, OrderItem, StockTransaction,
   PackagingEntry, ProductionLog, PaymentReceipt,
-  ReadyStockTransaction, StockStatus,
+  ReadyStockTransaction, StockStatus, Expense,
 } from '../types';
 import { PACKAGING_MATERIALS, PRODUCTS, DEFAULT_PRICES } from '../data/products';
 import { isInterState, calcGST } from '../utils/gst';
@@ -64,6 +64,9 @@ interface AppState {
   // Pricing
   priceList: Record<string, number>; // skuId -> rate
 
+  // Expenses
+  expenses: Expense[];
+
   // ─── Actions ───────────────────────────────────────────────────────
 
   // Init
@@ -113,6 +116,10 @@ interface AppState {
 
   // Pricing
   updatePrice(skuId: string, rate: number): void;
+
+  // Expenses
+  addExpense(amount: number, date: string, time: string, notes: string | undefined, createdBy: string): void;
+  deleteExpense(id: string): void;
 
   // Computed helpers (not persisted)
   getCustomerInvoices(customerId: string): Invoice[];
@@ -181,6 +188,9 @@ export const useStore = create<AppState>()(
       // Pricing
       priceList: { ...DEFAULT_PRICES },
 
+      // Expenses
+      expenses: [],
+
       // ─── Init ────────────────────────────────────────────────────────
 
       async initializeApp() {
@@ -202,6 +212,7 @@ export const useStore = create<AppState>()(
             stockData,
             dbPriceList,
             dbReorderLevels,
+            expenses,
           ] = await Promise.all([
             db.loadBusinessProfile(orgId),
             db.loadCustomers(orgId),
@@ -212,6 +223,7 @@ export const useStore = create<AppState>()(
             db.loadStockData(orgId),
             db.loadPriceList(orgId),
             db.loadReorderLevels(orgId),
+            db.loadExpenses(orgId),
           ]);
 
           // Derive invoice counters from loaded invoices
@@ -250,6 +262,7 @@ export const useStore = create<AppState>()(
               },
               ready: { ...s.reorderLevels.ready, ...dbReorderLevels.ready },
             },
+            expenses,
             currentPage: get().isInitialized ? get().currentPage : (businessProfile ? 'dashboard' : 'setup'),
           });
         } catch (err) {
@@ -776,6 +789,29 @@ export const useStore = create<AppState>()(
         set(s => ({ priceList: { ...s.priceList, [skuId]: rate } }));
         const { orgId } = get();
         if (orgId) db.savePrice(orgId, skuId, rate).catch(console.error);
+      },
+
+      // ─── Expenses ────────────────────────────────────────────────────
+
+      addExpense(amount, date, time, notes, createdBy) {
+        const expense: Expense = {
+          id: crypto.randomUUID(),
+          amount,
+          date,
+          time,
+          notes,
+          createdBy,
+          createdAt: new Date().toISOString(),
+        };
+        set(s => ({ expenses: [...s.expenses, expense] }));
+        const { orgId } = get();
+        if (orgId) db.saveExpense(orgId, amount, date, time, notes, createdBy).catch(console.error);
+      },
+
+      deleteExpense(id) {
+        set(s => ({ expenses: s.expenses.filter(e => e.id !== id) }));
+        const { orgId } = get();
+        if (orgId) db.deleteExpense(id).catch(console.error);
       },
 
       // ─── Computed helpers ────────────────────────────────────────────
