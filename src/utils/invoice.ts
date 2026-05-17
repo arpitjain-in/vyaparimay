@@ -253,7 +253,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
   body {
     font-family: 'Segoe UI', Arial, sans-serif;
     font-size: 10pt;
-    color: #111;
+    color: #000;
     background: #fff;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
@@ -262,10 +262,10 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
   /* ── Copy banner ── */
   .copy-banner {
     text-align: center;
-    font-size: 9pt;
+    font-size: 9.5pt;
     font-weight: bold;
     letter-spacing: 2px;
-    color: #555;
+    color: #000;
     border-bottom: 1px dashed #aaa;
     padding-bottom: 4px;
     margin-bottom: 8px;
@@ -286,7 +286,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     color: #1a3a6b;
     letter-spacing: 0.5px;
   }
-  .biz-meta { font-size: 8.5pt; color: #444; line-height: 1.6; margin-top: 3px; }
+  .biz-meta { font-size: 9pt; color: #000; line-height: 1.6; margin-top: 3px; }
   .inv-box {
     text-align: right;
   }
@@ -302,7 +302,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     color: #d14;
     margin-top: 2px;
   }
-  .inv-meta { font-size: 8.5pt; color: #555; line-height: 1.7; margin-top: 4px; }
+  .inv-meta { font-size: 9pt; color: #000; line-height: 1.7; margin-top: 4px; }
 
   /* ── Cancelled ── */
   .cancelled-stamp {
@@ -342,8 +342,8 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     margin-bottom: 5px;
   }
   .party-name { font-size: 10.5pt; font-weight: 700; }
-  .party-firm { font-size: 9pt; color: #333; margin-top: 1px; }
-  .party-detail { font-size: 8.5pt; color: #555; line-height: 1.6; margin-top: 2px; }
+  .party-firm { font-size: 9pt; color: #000; margin-top: 1px; }
+  .party-detail { font-size: 9pt; color: #000; line-height: 1.6; margin-top: 2px; }
   .gstin-tag {
     display: inline-block;
     font-size: 7.5pt;
@@ -395,9 +395,9 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
   .items-table td.right { text-align: right; }
   .items-table td.bold { font-weight: 700; }
   .items-table td.mono { font-family: monospace; font-size: 8pt; }
-  .product-name { font-weight: 600; color: #111; }
+  .product-name { font-weight: 600; color: #000; }
   .variant { font-size: 8pt; color: #5b6ee1; }
-  .sub { font-size: 7.5pt; color: #888; }
+  .sub { font-size: 8.5pt; color: #000; }
 
   /* ── Totals Row ── */
   .totals-section {
@@ -421,7 +421,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     border-bottom: 2px solid #1a3a6b;
     padding: 5px 6px;
   }
-  .summary-table tr.weight-row td { color: #555; font-size: 8.5pt; }
+  .summary-table tr.weight-row td { color: #000; font-size: 9pt; }
   .summary-table tr.subtotal-row td { border-top: 1px solid #e5e7eb; }
 
   /* ── Amount in words ── */
@@ -435,7 +435,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     color: #3730a3;
     font-style: italic;
   }
-  .amt-words strong { font-style: normal; color: #111; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.5px; }
+  .amt-words strong { font-style: normal; color: #000; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.5px; }
 
   /* ── Bank & Payment ── */
   .bank-section {
@@ -443,9 +443,9 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     border: 1px solid #d0d8e8;
     border-radius: 4px;
     padding: 7px 10px;
-    font-size: 8.5pt;
+    font-size: 9pt;
     line-height: 1.8;
-    color: #333;
+    color: #000;
   }
   .bank-title {
     font-size: 7.5pt;
@@ -464,8 +464,8 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     margin-top: 14px;
     padding-top: 8px;
     border-top: 1px solid #d0d8e8;
-    font-size: 8.5pt;
-    color: #555;
+    font-size: 9pt;
+    color: #000;
   }
   .declaration { max-width: 60%; line-height: 1.6; }
   .signatory { text-align: right; }
@@ -482,8 +482,8 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
   }
   .payment-mode-row {
     margin-top: 6px;
-    font-size: 8.5pt;
-    color: #333;
+    font-size: 9pt;
+    color: #000;
   }
 
   /* ── Watermark ── */
@@ -566,7 +566,7 @@ ${cancelledBanner}
         ${invoice.isInterState ? 'IGST &ndash; Inter-State' : 'CGST + SGST &ndash; Intra-State'}
       </span>
     </div>
-    <div class="party-detail" style="margin-top: 10px; color: #666;">
+    <div class="party-detail" style="margin-top: 10px; color: #000;">
       Customer Type: ${esc(c.customerType)}<br/>
       Payment Terms: ${esc(c.paymentTerms)}
     </div>
