@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
-import { BarChart3, PackageCheck, Box, FileDown, TrendingUp, Banknote, CreditCard } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { BarChart3, PackageCheck, Box, FileDown, Weight } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/products';
 import Layout from '../Layout/Layout';
 import { fmtINR, formatDate } from '../../utils/format';
-import type { Invoice, ReadyStockTransaction, PackagingEntry } from '../../types';
+import type { Invoice, PackagingEntry, PaymentReceipt } from '../../types';
+import { useState } from 'react';
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -17,54 +18,165 @@ function dateStr(d: Date): string {
   return formatDate(d);
 }
 
-// ─── Rolling period ───────────────────────────────────────────────────────────
-
-type RollingPeriod = 'today' | '1w' | '2w' | '1m';
-
-const PERIOD_LABELS: Record<RollingPeriod, string> = {
-  today: 'Today',
-  '1w':  '1 Week',
-  '2w':  '2 Weeks',
-  '1m':  '1 Month',
-};
-
-function getRollingRange(period: RollingPeriod): { start: string; end: string } {
-  const today = new Date();
-  const end = dateStr(today);
-  const startD = new Date(today);
-  switch (period) {
-    case 'today': break;
-    case '1w':  startD.setDate(today.getDate() - 6);  break;
-    case '2w':  startD.setDate(today.getDate() - 13); break;
-    case '1m':  startD.setDate(today.getDate() - 29); break;
-  }
-  return { start: dateStr(startD), end };
+function fmtKg(kg: number): string {
+  if (kg === 0) return '0 kg';
+  if (kg % 1 === 0) return `${kg.toLocaleString('en-IN')} kg`;
+  return `${kg.toFixed(1)} kg`;
 }
 
-function PeriodPicker({
-  value,
-  onChange,
-}: {
-  value: RollingPeriod;
-  onChange: (p: RollingPeriod) => void;
-}) {
-  return (
-    <div className="flex rounded-xl overflow-hidden border border-slate-200 bg-white shadow-sm self-start">
-      {(Object.keys(PERIOD_LABELS) as RollingPeriod[]).map(p => (
-        <button
-          key={p}
-          onClick={() => onChange(p)}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-            value === p
-              ? 'bg-indigo-600 text-white'
-              : 'text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          {PERIOD_LABELS[p]}
-        </button>
-      ))}
-    </div>
-  );
+// ─── Period definitions ───────────────────────────────────────────────────────
+
+interface PeriodDef {
+  label: string;
+  sublabel: string;
+  startOrd: number;
+  endOrd: number;
+}
+
+function monthName(d: Date): string {
+  return d.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+}
+
+/** Summary table rows: month-2, month-1, current month, this week, today */
+function getFixedPeriods(): PeriodDef[] {
+  const today = new Date();
+  const todayS   = dateStr(today);
+  const todayOrd = toOrd(todayS);
+
+  // This week: Monday → today
+  const weekStartD = new Date(today);
+  const dow = weekStartD.getDay();
+  weekStartD.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+  const weekStartS = dateStr(weekStartD);
+
+  // Month helpers
+  const m = (offset: number) => new Date(today.getFullYear(), today.getMonth() + offset, 1);
+
+  const currStart  = m(0);
+  const prevStart  = m(-1);
+  const prev2Start = m(-2);
+  const prevEnd    = new Date(today.getFullYear(), today.getMonth(), 0);    // last day of last month
+  const prev2End   = new Date(today.getFullYear(), today.getMonth() - 1, 0); // last day of month-2
+
+  return [
+    {
+      label:    monthName(prev2Start),
+      sublabel: `${dateStr(prev2Start)} – ${dateStr(prev2End)}`,
+      startOrd: toOrd(dateStr(prev2Start)),
+      endOrd:   toOrd(dateStr(prev2End)),
+    },
+    {
+      label:    monthName(prevStart),
+      sublabel: `${dateStr(prevStart)} – ${dateStr(prevEnd)}`,
+      startOrd: toOrd(dateStr(prevStart)),
+      endOrd:   toOrd(dateStr(prevEnd)),
+    },
+    {
+      label:    `${monthName(currStart)} (Current)`,
+      sublabel: `${dateStr(currStart)} – ${todayS}`,
+      startOrd: toOrd(dateStr(currStart)),
+      endOrd:   todayOrd,
+    },
+    {
+      label:    'This Week',
+      sublabel: weekStartS === todayS ? todayS : `${weekStartS} – ${todayS}`,
+      startOrd: toOrd(weekStartS),
+      endOrd:   todayOrd,
+    },
+    {
+      label:    'Yesterday',
+      sublabel: dateStr(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)),
+      startOrd: toOrd(dateStr(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1))),
+      endOrd:   toOrd(dateStr(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1))),
+    },
+    {
+      label:    'Today',
+      sublabel: todayS,
+      startOrd: todayOrd,
+      endOrd:   todayOrd,
+    },
+  ];
+}
+
+/** The 3 calendar months used for the SKU breakdown */
+function getMonthlyPeriods(): PeriodDef[] {
+  const today = new Date();
+  const todayS   = dateStr(today);
+  const todayOrd = toOrd(todayS);
+  const m = (offset: number) => new Date(today.getFullYear(), today.getMonth() + offset, 1);
+
+  const currStart  = m(0);
+  const prevStart  = m(-1);
+  const prev2Start = m(-2);
+  const prevEnd    = new Date(today.getFullYear(), today.getMonth(), 0);
+  const prev2End   = new Date(today.getFullYear(), today.getMonth() - 1, 0);
+
+  return [
+    {
+      label:    monthName(prev2Start),
+      sublabel: dateStr(prev2Start),
+      startOrd: toOrd(dateStr(prev2Start)),
+      endOrd:   toOrd(dateStr(prev2End)),
+    },
+    {
+      label:    monthName(prevStart),
+      sublabel: dateStr(prevStart),
+      startOrd: toOrd(dateStr(prevStart)),
+      endOrd:   toOrd(dateStr(prevEnd)),
+    },
+    {
+      label:    `${monthName(currStart)} (Current)`,
+      sublabel: dateStr(currStart),
+      startOrd: toOrd(dateStr(currStart)),
+      endOrd:   todayOrd,
+    },
+  ];
+}
+
+// ─── Period stats calculator ──────────────────────────────────────────────────
+
+interface PeriodStats {
+  invoiceCount: number;
+  invoiceTotal: number;
+  moneyReceived: number;
+  totalUnits: number;
+  totalWeightKg: number;
+}
+
+function calcPeriodStats(
+  invoices: Invoice[],
+  receipts: PaymentReceipt[],
+  startOrd: number,
+  endOrd: number,
+): PeriodStats {
+  const filtered = invoices.filter(inv => {
+    if (inv.cancelled) return false;
+    const ord = toOrd(inv.invoiceDate);
+    return ord >= startOrd && ord <= endOrd;
+  });
+
+  const invoiceTotal = filtered.reduce((s, i) => s + i.grandTotal, 0);
+  const cashTotal    = filtered.filter(i => i.paymentMode === 'Cash').reduce((s, i) => s + i.grandTotal, 0);
+  const receiptsTotal = receipts
+    .filter(r => { const o = toOrd(r.date); return o >= startOrd && o <= endOrd; })
+    .reduce((s, r) => s + r.amount, 0);
+
+  let totalUnits = 0;
+  let totalWeightKg = 0;
+  for (const inv of filtered) {
+    for (const item of inv.items) {
+      totalUnits     += item.quantity;
+      totalWeightKg  += item.quantity * item.weight;
+    }
+  }
+
+  return {
+    invoiceCount: filtered.length,
+    invoiceTotal,
+    moneyReceived: cashTotal + receiptsTotal,
+    totalUnits,
+    totalWeightKg,
+  };
 }
 
 // ─── PDF helpers ─────────────────────────────────────────────────────────────
@@ -77,33 +189,26 @@ const PDF_STYLES = `
   .biz-name { font-size: 17px; font-weight: 700; color: #312e81; }
   .report-title { font-size: 12px; font-weight: 600; color: #4f46e5; margin-top: 3px; }
   .report-meta { font-size: 9px; color: #64748b; margin-top: 2px; }
-  .section { margin-bottom: 16px; }
+  .section-heading { font-size: 13px; font-weight: 700; margin: 18px 0 8px; padding-bottom: 5px; border-bottom: 1px solid #e2e8f0; }
+  .section-heading.indigo { color: #312e81; }
+  .section-heading.emerald { color: #065f46; }
+  .section { margin-bottom: 14px; }
   .cat-header { background: #f1f5f9; padding: 5px 10px; border-radius: 6px 6px 0 0; display: flex; justify-content: space-between; align-items: center; border: 1px solid #e2e8f0; border-bottom: none; }
   .cat-name { font-weight: 700; font-size: 11px; color: #334155; }
   .cat-total { font-weight: 700; font-size: 11px; color: #4f46e5; }
-  .pills { background: #eef2ff; padding: 5px 10px; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
-  .pill { display: inline-block; background: #e0e7ff; color: #3730a3; font-size: 9px; font-weight: 600; padding: 1px 7px; border-radius: 10px; margin-right: 4px; }
   table { width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; }
   thead tr { background: #f8fafc; }
-  th { padding: 5px 10px; font-size: 9px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
+  th { padding: 6px 10px; font-size: 9px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
   th.right, td.right { text-align: right; }
   th.center, td.center { text-align: center; }
-  td { padding: 5px 10px; font-size: 10px; border-top: 1px solid #f1f5f9; color: #334155; }
-  .amt { color: #4f46e5; font-weight: 600; }
+  td { padding: 6px 10px; font-size: 10px; border-top: 1px solid #f1f5f9; color: #334155; }
+  .amt  { color: #4f46e5; font-weight: 600; }
   .green { color: #059669; font-weight: 600; }
-  .red { color: #e11d48; font-weight: 600; }
   .amber { color: #d97706; font-weight: 600; }
   .bold { font-weight: 700; }
-  .summary-grid { display: flex; gap: 10px; margin-bottom: 16px; }
-  .summary-card { flex: 1; padding: 10px 14px; border-radius: 8px; }
-  .summary-card.indigo { background: #eef2ff; }
-  .summary-card.emerald { background: #f0fdf4; }
-  .summary-card.amber { background: #fffbeb; }
-  .summary-label { font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-bottom: 3px; }
-  .summary-value { font-size: 15px; font-weight: 700; }
-  .summary-card.indigo .summary-value { color: #4338ca; }
-  .summary-card.emerald .summary-value { color: #15803d; }
-  .summary-card.amber .summary-value { color: #b45309; }
+  .muted { color: #94a3b8; }
+  .period-label { font-weight: 700; font-size: 10px; }
+  .period-sub { font-size: 8px; color: #64748b; }
   .footer { font-size: 8px; color: #94a3b8; text-align: right; margin-top: 20px; padding-top: 8px; border-top: 1px solid #e2e8f0; }
 `;
 
@@ -114,48 +219,11 @@ function wrapPdfHtml(body: string): string {
 
 function buildOverviewPdfHtml(
   bizName: string,
-  salesPeriod: RollingPeriod,
-  stockPeriod: RollingPeriod,
   invoices: Invoice[],
-  txns: ReadyStockTransaction[],
+  receipts: PaymentReceipt[],
+  readyStock: Record<string, number>,
 ): string {
-  const salesRange = getRollingRange(salesPeriod);
-  const stockRange = getRollingRange(stockPeriod);
-  const salesStartOrd = toOrd(salesRange.start);
-  const salesEndOrd   = toOrd(salesRange.end);
-  const stockStartOrd = toOrd(stockRange.start);
-  const stockEndOrd   = toOrd(stockRange.end);
-
-  const salesLabel = salesPeriod === 'today' ? salesRange.start : `${salesRange.start} – ${salesRange.end}`;
-  const stockLabel = stockPeriod === 'today' ? stockRange.start : `${stockRange.start} – ${stockRange.end}`;
-
-  // ── Sales data ──
-  const filtered = invoices.filter(inv => {
-    if (inv.cancelled) return false;
-    const ord = toOrd(inv.invoiceDate);
-    return ord >= salesStartOrd && ord <= salesEndOrd;
-  });
-  const skuTotals: Record<string, { qty: number; amount: number }> = {};
-  for (const inv of filtered) {
-    for (const item of inv.items) {
-      if (!skuTotals[item.skuId]) skuTotals[item.skuId] = { qty: 0, amount: 0 };
-      skuTotals[item.skuId].qty    += item.quantity;
-      skuTotals[item.skuId].amount += item.lineTotal;
-    }
-  }
-  const totalRevenue  = filtered.reduce((s, i) => s + i.grandTotal, 0);
-  const cashTotal     = filtered.filter(i => i.paymentMode === 'Cash').reduce((s, i) => s + i.grandTotal, 0);
-  const creditTotal   = filtered.filter(i => i.paymentMode === 'Credit').reduce((s, i) => s + i.grandTotal, 0);
-  const totalInvoices = filtered.length;
-
-  // ── Ready stock sold data ──
-  const skuSold: Record<string, number> = {};
-  for (const t of txns) {
-    if (t.type !== 'DEDUCT') continue;
-    const ord = toOrd(t.date);
-    if (ord < stockStartOrd || ord > stockEndOrd) continue;
-    skuSold[t.skuId] = (skuSold[t.skuId] ?? 0) + t.quantity;
-  }
+  const periods = getFixedPeriods();
 
   const now = new Date();
   const ts  = `${formatDate(now)} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -166,73 +234,109 @@ function buildOverviewPdfHtml(
     <div class="report-meta">Generated: ${ts}</div>
   </div>`;
 
-  // ── Sales section ──
-  body += `<div style="font-size:13px;font-weight:700;color:#312e81;margin-bottom:10px;padding-bottom:5px;border-bottom:1px solid #e2e8f0;">
-    Sales &nbsp;<span style="font-size:9px;font-weight:400;color:#64748b;">${PERIOD_LABELS[salesPeriod]} &nbsp;(${salesLabel})</span>
-  </div>`;
+  // ── Sales summary table ──
+  body += `<div class="section-heading indigo">Sales Summary</div>`;
 
-  if (totalInvoices === 0) {
-    body += '<p style="color:#94a3b8;padding:12px 0 20px">No sales in this period.</p>';
-  } else {
-    body += `<div class="summary-grid" style="margin-bottom:12px;">
-      <div class="summary-card indigo">
-        <div class="summary-label">Total Sales</div>
-        <div class="summary-value">${fmtINR(totalRevenue)}</div>
-        <div style="font-size:9px;color:#4338ca;margin-top:2px">${totalInvoices} invoice${totalInvoices !== 1 ? 's' : ''}</div>
-      </div>
-      <div class="summary-card emerald">
-        <div class="summary-label">Cash Collected</div>
-        <div class="summary-value">${fmtINR(cashTotal)}</div>
-      </div>
-      <div class="summary-card amber">
-        <div class="summary-label">On Credit</div>
-        <div class="summary-value">${fmtINR(creditTotal)}</div>
-      </div>
-    </div>`;
+  const activePeriods = getFixedPeriods().filter(p => {
+    if (p.label === 'This Week' || p.label === 'Today' || p.label === 'Yesterday') return true;
+    return invoices.some(inv => {
+      if (inv.cancelled) return false;
+      const ord = toOrd(inv.invoiceDate);
+      return ord >= p.startOrd && ord <= p.endOrd;
+    });
+  });
 
-    for (const cat of PRODUCT_CATEGORIES) {
-      const catSkus = PRODUCTS.filter(p => p.product === cat && skuTotals[p.id]);
-      if (catSkus.length === 0) continue;
-      const catTotal = catSkus.reduce((s, p) => s + (skuTotals[p.id]?.amount ?? 0), 0);
-      const catQty   = catSkus.reduce((s, p) => s + (skuTotals[p.id]?.qty ?? 0), 0);
-      const byUnit: Record<string, number> = {};
-      for (const sku of catSkus) byUnit[sku.unit] = (byUnit[sku.unit] ?? 0) + (skuTotals[sku.id]?.qty ?? 0);
-      const pills = Object.entries(byUnit).map(([unit, qty]) =>
-        `<span class="pill">${qty} ${unit}${qty !== 1 ? 's' : ''}</span>`).join('');
-      const rows = catSkus.map(sku => {
-        const t = skuTotals[sku.id];
-        return `<tr><td class="bold">${sku.variant}</td><td class="center">${sku.unit}</td><td class="right bold">${t.qty}</td><td class="right amt">${fmtINR(t.amount)}</td></tr>`;
-      }).join('');
-      body += `<div class="section">
-        <div class="cat-header"><span class="cat-name">${cat}</span><span class="cat-total">${fmtINR(catTotal)} &nbsp;&middot;&nbsp; ${catQty} units</span></div>
-        <div class="pills">${pills}</div>
-        <table><thead><tr><th>Variant</th><th class="center">Unit</th><th class="right">Qty Sold</th><th class="right">Amount</th></tr></thead><tbody>${rows}</tbody></table>
-      </div>`;
+  const summaryRows = activePeriods.map(p => {
+    const s = calcPeriodStats(invoices, receipts, p.startOrd, p.endOrd);
+    const e = s.invoiceCount === 0;
+    return `<tr>
+      <td><div class="period-label">${p.label}</div><div class="period-sub">${p.sublabel}</div></td>
+      <td class="right ${e ? 'muted' : 'bold'}">${e ? '—' : s.invoiceCount}</td>
+      <td class="right ${e ? 'muted' : 'amt'}">${e ? '—' : fmtINR(s.invoiceTotal)}</td>
+      <td class="right ${e ? 'muted' : 'green'}">${e ? '—' : fmtINR(s.moneyReceived)}</td>
+      <td class="right ${e ? 'muted' : ''}">${e ? '—' : s.totalUnits.toLocaleString('en-IN')}</td>
+      <td class="right ${e ? 'muted' : ''}">${e ? '—' : fmtKg(s.totalWeightKg)}</td>
+    </tr>`;
+  }).join('');
+
+  body += `<table>
+    <thead><tr>
+      <th>Period</th><th class="right">Invoices</th><th class="right">Invoice Total</th>
+      <th class="right">Money Received</th><th class="right">Units</th><th class="right">Weight</th>
+    </tr></thead>
+    <tbody>${summaryRows}</tbody>
+  </table>`;
+
+  // ── SKU breakdown by month (only months with sales) ──
+  const monthlyPeriods = getMonthlyPeriods().filter(mp =>
+    invoices.some(inv => {
+      if (inv.cancelled) return false;
+      const ord = toOrd(inv.invoiceDate);
+      return ord >= mp.startOrd && ord <= mp.endOrd;
+    })
+  );
+
+  // skuMonthly[skuId][monthIndex] = { qty, weightKg }
+  const skuMonthly: Record<string, { qty: number; weightKg: number }[]> = {};
+  for (const inv of invoices) {
+    if (inv.cancelled) continue;
+    const ord = toOrd(inv.invoiceDate);
+    for (let mi = 0; mi < monthlyPeriods.length; mi++) {
+      const mp = monthlyPeriods[mi];
+      if (ord < mp.startOrd || ord > mp.endOrd) continue;
+      for (const item of inv.items) {
+        if (!skuMonthly[item.skuId]) skuMonthly[item.skuId] = monthlyPeriods.map(() => ({ qty: 0, weightKg: 0 }));
+        skuMonthly[item.skuId][mi].qty      += item.quantity;
+        skuMonthly[item.skuId][mi].weightKg += item.quantity * item.weight;
+      }
     }
   }
 
-  // ── Ready stock sold section ──
-  body += `<div style="font-size:13px;font-weight:700;color:#065f46;margin:20px 0 10px;padding-bottom:5px;border-bottom:1px solid #e2e8f0;">
-    Ready Stock Sold &nbsp;<span style="font-size:9px;font-weight:400;color:#64748b;">${PERIOD_LABELS[stockPeriod]} &nbsp;(${stockLabel})</span>
-  </div>`;
+  const monthHeaders = monthlyPeriods.map(p =>
+    `<th class="right" colspan="2">${p.label}</th>`).join('');
+  const monthSubHeaders = monthlyPeriods.map(() =>
+    `<th class="right">Units</th><th class="right">Weight</th>`).join('');
 
-  let hasStockContent = false;
+  body += `<div class="section-heading indigo" style="margin-top:18px">SKU Sales by Month</div>`;
+
   for (const cat of PRODUCT_CATEGORIES) {
-    const catSkus = PRODUCTS.filter(p => p.product === cat && skuSold[p.id]);
+    const catSkus = PRODUCTS.filter(p => p.product === cat && skuMonthly[p.id]);
     if (catSkus.length === 0) continue;
-    hasStockContent = true;
-    const totalSold = catSkus.reduce((s, p) => s + (skuSold[p.id] ?? 0), 0);
-    const rows = catSkus.map(sku => {
-      const qty = skuSold[sku.id] ?? 0;
-      return `<tr><td class="bold">${sku.variant}</td><td class="center">${sku.unit}</td><td class="right red bold">${qty}</td></tr>`;
+    const skuRows = catSkus.map(sku => {
+      const months = skuMonthly[sku.id];
+      const cells = months.map(m =>
+        `<td class="right bold">${m.qty > 0 ? m.qty : '—'}</td><td class="right">${m.qty > 0 ? fmtKg(m.weightKg) : '—'}</td>`
+      ).join('');
+      return `<tr><td class="bold">${sku.variant}</td><td class="center">${sku.unit}</td>${cells}</tr>`;
     }).join('');
     body += `<div class="section">
-      <div class="cat-header"><span class="cat-name">${cat}</span><span class="cat-total" style="color:#059669">${totalSold} units sold</span></div>
-      <table><thead><tr><th>Variant</th><th class="center">Unit</th><th class="right" style="color:#e11d48">Units Sold</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="cat-header"><span class="cat-name">${cat}</span></div>
+      <table>
+        <thead>
+          <tr><th rowspan="2">Variant</th><th class="center" rowspan="2">Unit</th>${monthHeaders}</tr>
+          <tr>${monthSubHeaders}</tr>
+        </thead>
+        <tbody>${skuRows}</tbody>
+      </table>
     </div>`;
   }
-  if (!hasStockContent) {
-    body += '<p style="color:#94a3b8;padding:12px 0">No ready stock sold in this period.</p>';
+
+  // ── Ready stock availability ──
+  body += `<div class="section-heading emerald">Ready Stock Availability &nbsp;<span style="font-size:9px;font-weight:400;color:#64748b">as of today</span></div>`;
+
+  for (const cat of PRODUCT_CATEGORIES) {
+    const catSkus = PRODUCTS.filter(p => p.product === cat);
+    if (catSkus.length === 0) continue;
+    const totalAvailable = catSkus.reduce((s, p) => s + (readyStock[p.id] ?? 0), 0);
+    const rows = catSkus.map(sku => {
+      const qty = readyStock[sku.id] ?? 0;
+      const cls = qty === 0 ? 'muted' : qty <= 5 ? 'amber' : 'green';
+      return `<tr><td class="bold">${sku.variant}</td><td class="center">${sku.unit}</td><td class="right ${cls} bold">${qty}</td></tr>`;
+    }).join('');
+    body += `<div class="section">
+      <div class="cat-header"><span class="cat-name">${cat}</span><span class="cat-total" style="color:#059669">${totalAvailable} units</span></div>
+      <table><thead><tr><th>Variant</th><th class="center">Unit</th><th class="right" style="color:#059669">Available</th></tr></thead><tbody>${rows}</tbody></table>
+    </div>`;
   }
 
   return wrapPdfHtml(body);
@@ -250,7 +354,6 @@ function buildPackagingPdfHtml(
     if (e.entryType === 'used')     stats[e.materialId].used     += e.quantity;
     if (e.entryType === 'damaged')  stats[e.materialId].damaged  += e.quantity;
   }
-
   const active = PACKAGING_MATERIALS.filter(m => (packagingStock[m.id] ?? 0) > 0 || stats[m.id]);
   const now = new Date();
   const ts  = `${formatDate(now)} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -268,7 +371,7 @@ function buildPackagingPdfHtml(
       return `<tr>
         <td class="bold">${mat.name}</td>
         <td class="right green">${purchased > 0 ? purchased.toLocaleString('en-IN') : '—'}</td>
-        <td class="right red">${used > 0 ? used.toLocaleString('en-IN') : '—'}</td>
+        <td class="right" style="color:#e11d48;font-weight:600">${used > 0 ? used.toLocaleString('en-IN') : '—'}</td>
         <td class="right amber">${damaged > 0 ? damaged.toLocaleString('en-IN') : '—'}</td>
         <td class="right bold">${balance.toLocaleString('en-IN')}</td>
       </tr>`;
@@ -290,134 +393,158 @@ function openPdfWindow(html: string): void {
   setTimeout(() => w.print(), 400);
 }
 
-// ─── Sales Section ────────────────────────────────────────────────────────────
+// ─── Sales Summary Table ──────────────────────────────────────────────────────
 
-function SalesSection({ period }: { period: RollingPeriod }) {
-  const { invoices } = useStore();
-  const { start, end } = getRollingRange(period);
-  const startOrd = toOrd(start);
-  const endOrd = toOrd(end);
+function SalesSummaryTable() {
+  const { invoices, paymentReceipts } = useStore();
 
-  const filtered = useMemo(
-    () => invoices.filter(inv => {
-      if (inv.cancelled) return false;
-      const ord = toOrd(inv.invoiceDate);
-      return ord >= startOrd && ord <= endOrd;
+  // Filter out the individual month rows that have zero sales (keep week/today rows always)
+  const periods = useMemo(
+    () => getFixedPeriods().filter(p => {
+      // "This Week" and "Today" always shown; month rows only if they have sales
+      if (p.label === 'This Week' || p.label === 'Today' || p.label === 'Yesterday') return true;
+      return invoices.some(inv => {
+        if (inv.cancelled) return false;
+        const ord = toOrd(inv.invoiceDate);
+        return ord >= p.startOrd && ord <= p.endOrd;
+      });
     }),
-    [invoices, startOrd, endOrd],
+    [invoices],
+  );
+  // Only include months that have at least one sale
+  const monthlyPeriods = useMemo(
+    () => getMonthlyPeriods().filter(mp =>
+      invoices.some(inv => {
+        if (inv.cancelled) return false;
+        const ord = toOrd(inv.invoiceDate);
+        return ord >= mp.startOrd && ord <= mp.endOrd;
+      })
+    ),
+    [invoices],
   );
 
-  const skuTotals = useMemo(() => {
-    const map: Record<string, { qty: number; amount: number }> = {};
-    for (const inv of filtered) {
-      for (const item of inv.items) {
-        if (!map[item.skuId]) map[item.skuId] = { qty: 0, amount: 0 };
-        map[item.skuId].qty += item.quantity;
-        map[item.skuId].amount += item.lineTotal;
+  const rows = useMemo(
+    () => periods.map(p => ({ ...p, stats: calcPeriodStats(invoices, paymentReceipts, p.startOrd, p.endOrd) })),
+    [invoices, paymentReceipts, periods],
+  );
+
+  // skuMonthly[skuId][monthIndex] = { qty, weightKg }
+  const skuMonthly = useMemo(() => {
+    const map: Record<string, { qty: number; weightKg: number }[]> = {};
+    for (const inv of invoices) {
+      if (inv.cancelled) continue;
+      const ord = toOrd(inv.invoiceDate);
+      for (let mi = 0; mi < monthlyPeriods.length; mi++) {
+        const mp = monthlyPeriods[mi];
+        if (ord < mp.startOrd || ord > mp.endOrd) continue;
+        for (const item of inv.items) {
+          if (!map[item.skuId]) map[item.skuId] = monthlyPeriods.map(() => ({ qty: 0, weightKg: 0 }));
+          map[item.skuId][mi].qty      += item.quantity;
+          map[item.skuId][mi].weightKg += item.quantity * item.weight;
+        }
       }
     }
     return map;
-  }, [filtered]);
-
-  const totalRevenue = filtered.reduce((s, i) => s + i.grandTotal, 0);
-  const cashTotal    = filtered.filter(i => i.paymentMode === 'Cash').reduce((s, i) => s + i.grandTotal, 0);
-  const creditTotal  = filtered.filter(i => i.paymentMode === 'Credit').reduce((s, i) => s + i.grandTotal, 0);
-  const totalInvoices = filtered.length;
-
-  if (filtered.length === 0) {
-    return (
-      <div className="text-center py-10 text-slate-400">
-        <BarChart3 size={32} className="mx-auto mb-2 opacity-30" />
-        <p className="text-sm">No sales in this period</p>
-      </div>
-    );
-  }
+  }, [invoices, monthlyPeriods]);
 
   return (
-    <div className="space-y-4">
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-indigo-50 rounded-xl p-4 col-span-1">
-          <div className="flex items-center gap-1.5 mb-1">
-            <TrendingUp size={13} className="text-indigo-500" />
-            <span className="text-xs text-indigo-500 font-medium">Total Sales</span>
-          </div>
-          <div className="text-xl font-bold text-indigo-700">{fmtINR(totalRevenue)}</div>
-          <div className="text-xs text-indigo-400 mt-0.5">{totalInvoices} invoice{totalInvoices !== 1 ? 's' : ''}</div>
-        </div>
-        <div className="bg-emerald-50 rounded-xl p-4">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Banknote size={13} className="text-emerald-600" />
-            <span className="text-xs text-emerald-600 font-medium">Cash Collected</span>
-          </div>
-          <div className="text-xl font-bold text-emerald-700">{fmtINR(cashTotal)}</div>
-          <div className="text-xs text-emerald-400 mt-0.5">{filtered.filter(i => i.paymentMode === 'Cash').length} invoices</div>
-        </div>
-        <div className="bg-amber-50 rounded-xl p-4">
-          <div className="flex items-center gap-1.5 mb-1">
-            <CreditCard size={13} className="text-amber-600" />
-            <span className="text-xs text-amber-600 font-medium">On Credit</span>
-          </div>
-          <div className="text-xl font-bold text-amber-700">{fmtINR(creditTotal)}</div>
-          <div className="text-xs text-amber-400 mt-0.5">{filtered.filter(i => i.paymentMode === 'Credit').length} invoices</div>
-        </div>
+    <div className="space-y-6">
+      {/* ── Summary table ── */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-slate-400 border-b border-slate-100 bg-slate-50">
+              <th className="text-left px-5 py-3 font-medium">Period</th>
+              <th className="text-right px-3 py-3 font-medium">Invoices</th>
+              <th className="text-right px-3 py-3 font-medium">Invoice Total</th>
+              <th className="text-right px-3 py-3 font-medium text-emerald-600">Money Received</th>
+              <th className="text-right px-3 py-3 font-medium">Units</th>
+              <th className="text-right px-5 py-3 font-medium">Weight</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ label, sublabel, stats: s }) => {
+              const empty = s.invoiceCount === 0;
+              return (
+                <tr key={label} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
+                  <td className="px-5 py-3">
+                    <div className="font-semibold text-slate-800">{label}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{sublabel}</div>
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {empty ? <span className="text-slate-300">—</span> : <span className="font-semibold text-slate-700">{s.invoiceCount}</span>}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {empty ? <span className="text-slate-300">—</span> : <span className="font-bold text-indigo-600">{fmtINR(s.invoiceTotal)}</span>}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {empty ? <span className="text-slate-300">—</span> : <span className="font-bold text-emerald-600">{fmtINR(s.moneyReceived)}</span>}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {empty ? <span className="text-slate-300">—</span> : <span className="font-semibold text-slate-700">{s.totalUnits.toLocaleString('en-IN')}</span>}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    {empty ? <span className="text-slate-300">—</span> : <span className="font-semibold text-slate-600">{fmtKg(s.totalWeightKg)}</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
-      {/* Per-category breakdown */}
+      {/* ── SKU breakdown by month ── */}
       {PRODUCT_CATEGORIES.map(cat => {
-        const catSkus = PRODUCTS.filter(p => p.product === cat && skuTotals[p.id]);
+        const catSkus = PRODUCTS.filter(p => p.product === cat && skuMonthly[p.id]);
         if (catSkus.length === 0) return null;
-
-        const catTotal = catSkus.reduce((s, p) => s + (skuTotals[p.id]?.amount ?? 0), 0);
-        const catQty   = catSkus.reduce((s, p) => s + (skuTotals[p.id]?.qty ?? 0), 0);
-
-        const byUnit: Record<string, number> = {};
-        for (const sku of catSkus) {
-          byUnit[sku.unit] = (byUnit[sku.unit] ?? 0) + (skuTotals[sku.id]?.qty ?? 0);
-        }
-
         return (
           <div key={cat} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-              <span className="font-semibold text-slate-700">{cat}</span>
-              <div className="flex items-center gap-4">
-                <span className="text-xs text-slate-500">{catQty} units</span>
-                <span className="text-sm font-bold text-indigo-600">{fmtINR(catTotal)}</span>
-              </div>
+            <div className="px-5 py-3 bg-slate-50 border-b border-slate-100">
+              <span className="font-semibold text-slate-700">{cat} — SKU Sales by Month</span>
             </div>
-            <div className="px-5 py-2.5 flex flex-wrap gap-2 border-b border-slate-50 bg-indigo-50/30">
-              {Object.entries(byUnit).map(([unit, qty]) => (
-                <span key={unit} className="bg-indigo-50 text-indigo-700 text-xs font-semibold px-3 py-1 rounded-full">
-                  {qty} {unit}{qty !== 1 ? 's' : ''}
-                </span>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-slate-400 border-b border-slate-100 bg-slate-50/50">
+                    <th className="text-left px-5 py-2.5 font-medium">Variant</th>
+                    {monthlyPeriods.map(mp => (
+                      <th key={mp.label} className="text-right px-4 py-2.5 font-medium" colSpan={2}>
+                        {mp.label}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr className="text-xs text-slate-300 border-b border-slate-50 bg-slate-50/30">
+                    <th className="px-5 py-1.5" />
+                    {monthlyPeriods.map(mp => (
+                      <React.Fragment key={mp.label}>
+                        <th className="text-right px-3 py-1.5 font-medium">Units</th>
+                        <th className="text-right px-4 py-1.5 font-medium">Weight</th>
+                      </React.Fragment>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {catSkus.map(sku => {
+                    const months = skuMonthly[sku.id];
+                    return (
+                      <tr key={sku.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
+                        <td className="px-5 py-2.5 font-medium text-slate-700">{sku.variant}</td>
+                        {months.map((m, mi) => (
+                          <React.Fragment key={mi}>
+                            <td className="px-3 py-2.5 text-right font-semibold text-slate-800">
+                              {m.qty > 0 ? m.qty : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-4 py-2.5 text-right text-slate-500 text-xs">
+                              {m.qty > 0 ? fmtKg(m.weightKg) : <span className="text-slate-300">—</span>}
+                            </td>
+                          </React.Fragment>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-slate-400 border-b border-slate-50">
-                  <th className="text-left px-5 py-2 font-medium">Variant</th>
-                  <th className="text-center px-3 py-2 font-medium">Unit</th>
-                  <th className="text-right px-3 py-2 font-medium">Qty Sold</th>
-                  <th className="text-right px-5 py-2 font-medium">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {catSkus.map(sku => {
-                  const t = skuTotals[sku.id];
-                  if (!t) return null;
-                  return (
-                    <tr key={sku.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
-                      <td className="px-5 py-2.5 text-slate-700 font-medium">{sku.variant}</td>
-                      <td className="px-3 py-2.5 text-center">
-                        <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{sku.unit}</span>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-800">{t.qty}</td>
-                      <td className="px-5 py-2.5 text-right text-indigo-600 font-medium">{fmtINR(t.amount)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
           </div>
         );
       })}
@@ -425,59 +552,37 @@ function SalesSection({ period }: { period: RollingPeriod }) {
   );
 }
 
-// ─── Ready Stock Section ──────────────────────────────────────────────────────
+// ─── Ready Stock Availability ─────────────────────────────────────────────────
 
-function ReadyStockSection({ period }: { period: RollingPeriod }) {
-  const { readyStockTransactions } = useStore();
-  const { start, end } = getRollingRange(period);
-  const startOrd = toOrd(start);
-  const endOrd = toOrd(end);
-
-  // Only show SKUs that were DEDUCT-ed (sold) in the period
-  const skuSold = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const t of readyStockTransactions) {
-      if (t.type !== 'DEDUCT') continue;
-      const ord = toOrd(t.date);
-      if (ord < startOrd || ord > endOrd) continue;
-      map[t.skuId] = (map[t.skuId] ?? 0) + t.quantity;
-    }
-    return map;
-  }, [readyStockTransactions, startOrd, endOrd]);
-
-  const hasData = Object.keys(skuSold).length > 0;
-
-  if (!hasData) {
-    return (
-      <div className="text-center py-10 text-slate-400">
-        <PackageCheck size={32} className="mx-auto mb-2 opacity-30" />
-        <p className="text-sm">No ready stock sold in this period</p>
-      </div>
-    );
-  }
+function ReadyStockSection() {
+  const { readyStock } = useStore();
 
   return (
     <div className="space-y-4">
       {PRODUCT_CATEGORIES.map(cat => {
-        const catSkus = PRODUCTS.filter(p => p.product === cat && skuSold[p.id]);
+        const catSkus = PRODUCTS.filter(p => p.product === cat);
         if (catSkus.length === 0) return null;
-
-        const totalSold = catSkus.reduce((s, p) => s + (skuSold[p.id] ?? 0), 0);
+        const totalAvailable = catSkus.reduce((s, p) => s + (readyStock[p.id] ?? 0), 0);
 
         return (
           <div key={cat} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
               <span className="font-semibold text-slate-700">{cat}</span>
-              <span className="text-xs text-slate-500">{totalSold} units sold</span>
+              <span className="text-xs text-slate-500">{totalAvailable} units available</span>
             </div>
-            {/* SKU pills */}
             <div className="px-5 py-3 flex flex-wrap gap-2">
               {catSkus.map(sku => {
-                const qty = skuSold[sku.id] ?? 0;
+                const qty = readyStock[sku.id] ?? 0;
+                const containerCls = qty === 0
+                  ? 'bg-slate-50 border-slate-200'
+                  : qty <= 5 ? 'bg-amber-50 border-amber-100' : 'bg-emerald-50 border-emerald-100';
+                const badgeCls = qty === 0
+                  ? 'bg-slate-100 text-slate-400'
+                  : qty <= 5 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
                 return (
-                  <div key={sku.id} className="flex items-center gap-2 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
+                  <div key={sku.id} className={`flex items-center gap-2 border rounded-xl px-3 py-2 ${containerCls}`}>
                     <span className="text-sm font-medium text-slate-700">{sku.variant}</span>
-                    <span className="text-xs bg-rose-100 text-rose-700 font-bold px-2 py-0.5 rounded-full">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${badgeCls}`}>
                       {qty} {sku.unit}{qty !== 1 ? 's' : ''}
                     </span>
                   </div>
@@ -542,7 +647,6 @@ function PackagingInventory() {
             const purchased = s?.purchased ?? 0;
             const used      = s?.used ?? 0;
             const damaged   = s?.damaged ?? 0;
-
             return (
               <tr key={mat.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
                 <td className="px-5 py-2.5 text-slate-700 font-medium">{mat.name}</td>
@@ -575,20 +679,13 @@ type Tab = 'overview' | 'packaging';
 
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
-  const [salesPeriod, setSalesPeriod] = useState<RollingPeriod>('1m');
-  const [stockPeriod, setStockPeriod] = useState<RollingPeriod>('today');
 
-  const {
-    businessProfile, invoices,
-    readyStock, readyStockTransactions,
-    packagingStock, packagingEntries,
-  } = useStore();
-
+  const { businessProfile, invoices, readyStock, packagingStock, packagingEntries, paymentReceipts } = useStore();
   const bizName = businessProfile?.name ?? 'Vyaparimay';
 
   const handleDownloadPdf = () => {
     const html = activeTab === 'overview'
-      ? buildOverviewPdfHtml(bizName, salesPeriod, stockPeriod, invoices, readyStockTransactions)
+      ? buildOverviewPdfHtml(bizName, invoices, paymentReceipts, readyStock)
       : buildPackagingPdfHtml(bizName, packagingStock, packagingEntries);
     openPdfWindow(html);
   };
@@ -606,14 +703,13 @@ export default function ReportsPage() {
   return (
     <Layout title="Reports" subtitle="Sales, ready stock and packaging inventory summaries" actions={pdfButton}>
       <div className="max-w-5xl mx-auto space-y-5">
+
         {/* Tab bar */}
         <div className="flex items-center gap-2 bg-white rounded-2xl border border-slate-100 shadow-sm p-1.5">
           <button
             onClick={() => setActiveTab('overview')}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all ${
-              activeTab === 'overview'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-600 hover:bg-slate-100'
+              activeTab === 'overview' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             <BarChart3 size={15} />
@@ -622,9 +718,7 @@ export default function ReportsPage() {
           <button
             onClick={() => setActiveTab('packaging')}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all ${
-              activeTab === 'packaging'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-600 hover:bg-slate-100'
+              activeTab === 'packaging' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             <Box size={15} />
@@ -634,16 +728,14 @@ export default function ReportsPage() {
 
         {activeTab === 'overview' && (
           <div className="space-y-8">
+
             {/* ── Sales ── */}
             <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                  <BarChart3 size={16} className="text-indigo-500" />
-                  Sales
-                </h2>
-                <PeriodPicker value={salesPeriod} onChange={setSalesPeriod} />
-              </div>
-              <SalesSection period={salesPeriod} />
+              <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <BarChart3 size={16} className="text-indigo-500" />
+                Sales
+              </h2>
+              <SalesSummaryTable />
             </section>
 
             {/* ── Ready Stock ── */}
@@ -651,12 +743,13 @@ export default function ReportsPage() {
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
                   <PackageCheck size={16} className="text-emerald-500" />
-                  Ready Stock Sold
+                  Ready Stock Availability
                 </h2>
-                <PeriodPicker value={stockPeriod} onChange={setStockPeriod} />
+                <span className="text-xs text-slate-400">as of today</span>
               </div>
-              <ReadyStockSection period={stockPeriod} />
+              <ReadyStockSection />
             </section>
+
           </div>
         )}
 
