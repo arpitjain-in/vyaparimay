@@ -87,7 +87,7 @@ export default function CustomerList() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name, mobile, city or Customer ID..."
+            placeholder="Search by name, firm name, mobile, city or Customer ID..."
             className="w-full border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
           />
         </div>
