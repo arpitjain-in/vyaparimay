@@ -435,6 +435,19 @@ export async function cancelInvoiceInDb(
   if (error) throw error;
 }
 
+export async function updateInvoicePaymentModeInDb(
+  orgId: string,
+  invoiceId: string,
+  paymentMode: 'Cash' | 'Credit',
+): Promise<void> {
+  const { error } = await supabase
+    .from('invoices')
+    .update({ payment_mode: paymentMode })
+    .eq('id', invoiceId)
+    .eq('org_id', orgId);
+  if (error) throw error;
+}
+
 // ─── Payment Receipts ─────────────────────────────────────────────────────────
 
 function rowToReceipt(row: Record<string, unknown>): PaymentReceipt {
@@ -486,6 +499,19 @@ export async function savePaymentReceipt(
     reference_no: receipt.referenceNo ?? null,
     notes: receipt.notes ?? null,
   });
+  if (error) throw error;
+}
+
+export async function updatePaymentReceiptInDb(
+  orgId: string,
+  receiptId: string,
+  amount: number,
+): Promise<void> {
+  const { error } = await supabase
+    .from('payment_receipts')
+    .update({ amount })
+    .eq('id', receiptId)
+    .eq('org_id', orgId);
   if (error) throw error;
 }
 

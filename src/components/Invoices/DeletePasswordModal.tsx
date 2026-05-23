@@ -5,11 +5,13 @@ interface DeletePasswordModalProps {
   invoiceNo: string;
   onConfirm: () => void;
   onCancel: () => void;
+  title?: string;
+  description?: string;
 }
 
 const PASSWORD = import.meta.env.VITE_INVOICE_DELETE_PASSWORD as string;
 
-export default function DeletePasswordModal({ invoiceNo, onConfirm, onCancel }: DeletePasswordModalProps) {
+export default function DeletePasswordModal({ invoiceNo, onConfirm, onCancel, title, description }: DeletePasswordModalProps) {
   const [digits, setDigits] = useState(['', '', '', '']);
   const [error, setError] = useState('');
   const inputRefs = [
@@ -55,19 +57,21 @@ export default function DeletePasswordModal({ invoiceNo, onConfirm, onCancel }: 
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2 text-red-600">
             <ShieldAlert size={20} />
-            <span className="font-semibold text-base">Cancel Invoice</span>
+            <span className="font-semibold text-base">{title ?? 'Cancel Invoice'}</span>
           </div>
           <button onClick={onCancel} className="text-slate-400 hover:text-slate-600 transition-colors">
             <X size={18} />
           </button>
         </div>
 
-        <p className="text-sm text-slate-500 mb-1">
-          You are about to cancel invoice{' '}
-          <span className="font-semibold text-slate-700">{invoiceNo}</span>.
-        </p>
         <p className="text-sm text-slate-500 mb-6">
-          Enter the 4-digit password to confirm.
+          {description ?? (
+            <>
+              You are about to cancel invoice{' '}
+              <span className="font-semibold text-slate-700">{invoiceNo}</span>.{' '}
+              Enter the 4-digit password to confirm.
+            </>
+          )}
         </p>
 
         {/* PIN inputs */}

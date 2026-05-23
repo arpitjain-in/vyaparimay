@@ -95,9 +95,11 @@ interface AppState {
   // Invoice
   generateInvoice(saleDate?: string): Invoice | null;
   cancelInvoice(id: string): void;
+  updateInvoicePaymentMode(id: string, mode: 'Cash' | 'Credit'): void;
 
   // Payments
   addPaymentReceipt(data: Omit<PaymentReceipt, 'id' | 'time'>): void;
+  updatePaymentReceipt(id: string, amount: number): void;
 
   // Stock
   addPackagingEntry(entry: Omit<PackagingEntry, 'id' | 'time'>): void;
@@ -541,7 +543,24 @@ export const useStore = create<AppState>()(
         if (orgId) db.cancelInvoiceInDb(orgId, id).catch(console.error);
       },
 
+      updateInvoicePaymentMode(id, mode) {
+        set(s => ({
+          invoices: s.invoices.map(inv => inv.id === id ? { ...inv, paymentMode: mode } : inv),
+        }));
+        const { orgId } = get();
+        if (orgId) db.updateInvoicePaymentModeInDb(orgId, id, mode).catch(console.error);
+      },
+
+
       // ─── Payment Receipts ────────────────────────────────────────────
+
+      updatePaymentReceipt(id, amount) {
+        set(s => ({
+          paymentReceipts: s.paymentReceipts.map(r => r.id === id ? { ...r, amount } : r),
+        }));
+        const { orgId } = get();
+        if (orgId) db.updatePaymentReceiptInDb(orgId, id, amount).catch(console.error);
+      },
 
       addPaymentReceipt(data) {
         const prevReceipts = get().paymentReceipts;

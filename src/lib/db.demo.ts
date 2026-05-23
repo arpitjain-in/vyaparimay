@@ -265,6 +265,18 @@ export async function cancelInvoiceInDb(
   lsSet('invoices', invoices);
 }
 
+export async function updateInvoicePaymentModeInDb(
+  _orgId: string,
+  invoiceId: string,
+  paymentMode: 'Cash' | 'Credit',
+): Promise<void> {
+  const invoices = lsGet<Invoice[]>('invoices', []);
+  const idx = invoices.findIndex((inv) => inv.id === invoiceId);
+  if (idx >= 0) invoices[idx] = { ...invoices[idx], paymentMode };
+  lsSet('invoices', invoices);
+}
+
+
 // ─── Payment Receipts ─────────────────────────────────────────────────────────
 
 export async function loadPaymentReceipts(
@@ -286,6 +298,17 @@ export async function savePaymentReceipt(
   const seq = parseInt(receipt.id.replace('REC-', ''), 10) || 0;
   const prev = lsGet<number>('receipt_seq', 0);
   lsSet('receipt_seq', Math.max(prev, seq));
+}
+
+export async function updatePaymentReceiptInDb(
+  _orgId: string,
+  receiptId: string,
+  amount: number,
+): Promise<void> {
+  const receipts = lsGet<PaymentReceipt[]>('payment_receipts', []);
+  const idx = receipts.findIndex(r => r.id === receiptId);
+  if (idx >= 0) receipts[idx] = { ...receipts[idx], amount };
+  lsSet('payment_receipts', receipts);
 }
 
 // ─── Packaging Entries ────────────────────────────────────────────────────────

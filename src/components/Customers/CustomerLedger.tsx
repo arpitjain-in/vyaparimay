@@ -1,19 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Phone, MapPin, Building2, PlusCircle, TrendingUp, TrendingDown, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Phone, MapPin, Building2, PlusCircle, TrendingUp, TrendingDown, Loader2, AlertCircle, Pencil, Check, X } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR } from '../../utils/format';
 import Layout from '../Layout/Layout';
 import AddPaymentModal from '../common/AddPaymentModal';
+import DeletePasswordModal from '../Invoices/DeletePasswordModal';
 import * as db from '../../lib/db';
 import type { Customer } from '../../types';
 
 // ─── Main Ledger ─────────────────────────────────────────────────────────────
 export default function CustomerLedger() {
-  const { selectedCustomerId, orgId, invoices, paymentReceipts, navigate } = useStore();
+  const { selectedCustomerId, orgId, invoices, paymentReceipts, navigate, updatePaymentReceipt } = useStore();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddPayment, setShowAddPayment] = useState(false);
+  const [pendingEditReceiptId, setPendingEditReceiptId] = useState<string | null>(null);
+  const [pendingEditAmount, setPendingEditAmount] = useState(0);
+  const [editingReceiptId, setEditingReceiptId] = useState<string | null>(null);
+  const [editingAmount, setEditingAmount] = useState('');
+
+  function startEditReceipt(receiptId: string, currentAmount: number) {
+    setPendingEditReceiptId(receiptId);
+    setPendingEditAmount(currentAmount);
+  }
+
+  function saveEditReceipt() {
+    const amt = parseFloat(editingAmount);
+    if (!isNaN(amt) && amt > 0 && editingReceiptId) {
+      updatePaymentReceipt(editingReceiptId, amt);
+    }
+    setEditingReceiptId(null);
+  }
 
   useEffect(() => {
     if (!selectedCustomerId || !orgId) return;
@@ -123,6 +141,20 @@ export default function CustomerLedger() {
     >
       {showAddPayment && (
         <AddPaymentModal customerId={customer.id} onClose={() => setShowAddPayment(false)} />
+      )}
+
+      {pendingEditReceiptId && (
+        <DeletePasswordModal
+          invoiceNo={pendingEditReceiptId}
+          title="Edit Payment Amount"
+          description={`You are about to edit payment ${pendingEditReceiptId} (current: ${fmtINR(pendingEditAmount)}). Enter the 4-digit password to continue.`}
+          onConfirm={() => {
+            setEditingReceiptId(pendingEditReceiptId);
+            setEditingAmount(String(pendingEditAmount));
+            setPendingEditReceiptId(null);
+          }}
+          onCancel={() => setPendingEditReceiptId(null)}
+        />
       )}
 
       {/* Customer Profile Card */}
@@ -239,7 +271,40 @@ export default function CustomerLedger() {
                     {row.debit > 0 ? fmtINR(row.debit) : '—'}
                   </td>
                   <td className="px-4 py-3 text-green-600 font-medium">
-                    {row.credit > 0 ? fmtINR(row.credit) : '—'}
+                    {row.kind === 'payment' ? (
+                      editingReceiptId === row.receiptId ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-gray-400">₹</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={editingAmount}
+                            onChange={e => setEditingAmount(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') saveEditReceipt();
+                              if (e.key === 'Escape') setEditingReceiptId(null);
+                            }}
+                            className="w-28 border border-green-400 rounded-lg px-2 py-0.5 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-green-500"
+                            autoFocus
+                          />
+                          <button onClick={saveEditReceipt} className="text-green-600 hover:text-green-800" title="Save"><Check size={14} /></button>
+                          <button onClick={() => setEditingReceiptId(null)} className="text-gray-400 hover:text-gray-600" title="Cancel"><X size={14} /></button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          {fmtINR(row.credit)}
+                          <button
+                            onClick={() => startEditReceipt(row.receiptId, row.credit)}
+                            className="text-gray-300 hover:text-green-600 transition-colors"
+                            title="Edit amount"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        </div>
+                      )
+                    ) : (
+                      row.credit > 0 ? fmtINR(row.credit) : '—'
+                    )}
                   </td>
                   <td className={`px-4 py-3 font-bold ${row.balance > 0 ? 'text-amber-700' : row.balance < 0 ? 'text-green-700' : 'text-gray-500'}`}>
                     {fmtINR(Math.abs(row.balance))}

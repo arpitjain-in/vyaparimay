@@ -1,20 +1,24 @@
 import React, { useState } from 'react';
-import { Search, FileText, XCircle } from 'lucide-react';
+import { Search, FileText, XCircle, ArrowLeftRight } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR, parseDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
 import DeletePasswordModal from './DeletePasswordModal';
 
 export default function InvoiceHistory() {
-  const { invoices, navigate, cancelInvoice } = useStore();
+  const { invoices, navigate, cancelInvoice, updateInvoicePaymentMode } = useStore();
   const [search, setSearch] = useState('');
   const [showCancelled, setShowCancelled] = useState(false);
+  const [paymentFilter, setPaymentFilter] = useState<'All' | 'Cash' | 'Credit'>('All');
   const [pendingCancelId, setPendingCancelId] = useState<string | null>(null);
+  const [pendingPaymentModeId, setPendingPaymentModeId] = useState<string | null>(null);
 
   const pendingInvoice = pendingCancelId ? invoices.find(i => i.id === pendingCancelId) : null;
+  const pendingPaymentModeInvoice = pendingPaymentModeId ? invoices.find(i => i.id === pendingPaymentModeId) : null;
 
   const filtered = [...invoices]
     .filter(inv => showCancelled || !inv.cancelled)
+    .filter(inv => paymentFilter === 'All' || inv.paymentMode === paymentFilter)
     .filter(inv => {
       const q = search.toLowerCase();
       return (
@@ -52,6 +56,21 @@ export default function InvoiceHistory() {
             placeholder="Search by invoice no, customer name, mobile or date..."
             className="w-full border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
           />
+        </div>
+        <div className="flex rounded-xl border border-slate-200 overflow-hidden text-sm">
+          {(['All', 'Cash', 'Credit'] as const).map(mode => (
+            <button
+              key={mode}
+              onClick={() => setPaymentFilter(mode)}
+              className={`px-3 py-2 whitespace-nowrap transition-colors ${
+                paymentFilter === mode
+                  ? 'bg-indigo-500 text-white font-medium'
+                  : 'bg-white text-slate-500 hover:bg-slate-50'
+              }`}
+            >
+              {mode}
+            </button>
+          ))}
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-500 cursor-pointer whitespace-nowrap">
           <input
@@ -97,9 +116,20 @@ export default function InvoiceHistory() {
                   <td className="px-4 py-3 text-slate-400">{fmtINR(inv.totalGST)}</td>
                   <td className="px-4 py-3 font-bold text-slate-800">{fmtINR(inv.grandTotal)}</td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                      inv.paymentMode === 'Cash' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                    }`}>{inv.paymentMode}</span>
+                    <div className="flex items-center gap-1">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        inv.paymentMode === 'Cash' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                      }`}>{inv.paymentMode}</span>
+                      {!inv.cancelled && (
+                        <button
+                          onClick={() => setPendingPaymentModeId(inv.id)}
+                          className="text-slate-300 hover:text-slate-500 transition-colors"
+                          title={`Switch to ${inv.paymentMode === 'Cash' ? 'Credit' : 'Cash'}`}
+                        >
+                          <ArrowLeftRight size={12} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     {inv.cancelled ? (
@@ -143,6 +173,21 @@ export default function InvoiceHistory() {
           setPendingCancelId(null);
         }}
         onCancel={() => setPendingCancelId(null)}
+      />
+    )}
+
+    {pendingPaymentModeInvoice && (
+      <DeletePasswordModal
+        invoiceNo={pendingPaymentModeInvoice.invoiceNo}
+        title="Change Payment Mode"
+        description={
+          `Switch invoice ${pendingPaymentModeInvoice.invoiceNo} from ${pendingPaymentModeInvoice.paymentMode} to ${pendingPaymentModeInvoice.paymentMode === 'Cash' ? 'Credit' : 'Cash'}. Enter the 4-digit password to confirm.`
+        }
+        onConfirm={() => {
+          updateInvoicePaymentMode(pendingPaymentModeInvoice.id, pendingPaymentModeInvoice.paymentMode === 'Cash' ? 'Credit' : 'Cash');
+          setPendingPaymentModeId(null);
+        }}
+        onCancel={() => setPendingPaymentModeId(null)}
       />
     )}
     </>
