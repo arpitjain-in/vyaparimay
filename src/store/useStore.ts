@@ -14,6 +14,16 @@ import * as demoDb from '../lib/db.demo';
 
 const db = import.meta.env.VITE_DEMO_MODE === 'true' ? demoDb : realDb;
 
+// Supabase errors are plain objects {message, details, hint, code}, not Error instances.
+function fmtErr(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object') {
+    const e = err as Record<string, unknown>;
+    return [e.message, e.details, e.hint].filter(Boolean).join(' — ') || JSON.stringify(err);
+  }
+  return String(err);
+}
+
 // ─── State shape ─────────────────────────────────────────────────────────────
 
 interface AppState {
@@ -202,11 +212,15 @@ export const useStore = create<AppState>()(
 
           // Seed catalog entries (SKUs, packaging materials) on first login or after
           // a catalog update. Bump CATALOG_VERSION whenever src/data/products.ts changes.
-          const CATALOG_VERSION = 'v5';
+          const CATALOG_VERSION = 'v6';
           const catalogKey = `catalog_seeded_${orgId}`;
           if (localStorage.getItem(catalogKey) !== CATALOG_VERSION) {
-            await db.initializeCatalog(orgId);
-            localStorage.setItem(catalogKey, CATALOG_VERSION);
+            try {
+              await db.initializeCatalog(orgId);
+              localStorage.setItem(catalogKey, CATALOG_VERSION);
+            } catch (catErr) {
+              console.warn('[initializeCatalog] Failed to seed catalog, will retry on next startup:', catErr);
+            }
           }
 
           const [
@@ -273,7 +287,7 @@ export const useStore = create<AppState>()(
             currentPage: get().isInitialized ? get().currentPage : (businessProfile ? 'dashboard' : 'setup'),
           });
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
+          const msg = fmtErr(err);
           console.error('[initializeApp] Failed to connect to database:', msg);
           set({ isInitialized: true, initError: msg, orgId: db.FIXED_ORG_ID });
         }
@@ -526,7 +540,7 @@ export const useStore = create<AppState>()(
               console.error('[saveInvoice] Failed to save invoice items:', err);
               alert(
                 `Invoice ${invoiceNo} was created but could not be saved to the database.\n\n` +
-                `Error: ${err instanceof Error ? err.message : String(err)}\n\n` +
+                `Error: ${fmtErr(err)}\n\n` +
                 `Please note down the items and contact support, or re-create the invoice after checking your connection.`,
               );
             });
@@ -578,7 +592,7 @@ export const useStore = create<AppState>()(
             set({ paymentReceipts: prevReceipts, receiptSeq: prevSeq });
             alert(
               `Payment ${id} was recorded locally but could NOT be saved to the database.\n\n` +
-              `Error: ${err instanceof Error ? err.message : String(err)}\n\n` +
+              `Error: ${fmtErr(err)}\n\n` +
               `Please check your connection and re-enter this payment after reconnecting.`,
             );
           });
@@ -608,7 +622,7 @@ export const useStore = create<AppState>()(
             console.error('[savePackagingEntry] DB save failed:', err);
             alert(
               `Packaging entry was recorded locally but could not be saved to the database.\n\n` +
-              `Error: ${err instanceof Error ? err.message : String(err)}\n\n` +
+              `Error: ${fmtErr(err)}\n\n` +
               `Please check your connection and database setup, then retry.`
             );
           });
@@ -626,7 +640,7 @@ export const useStore = create<AppState>()(
             set({ productionLogs: prevLogs });
             alert(
               `Production log was recorded locally but could NOT be saved to the database.\n\n` +
-              `Error: ${err instanceof Error ? err.message : String(err)}\n\n` +
+              `Error: ${fmtErr(err)}\n\n` +
               `Please check your connection and re-enter this entry after reconnecting.`,
             );
           });
@@ -740,7 +754,7 @@ export const useStore = create<AppState>()(
             console.error('[saveReadyStockTransaction] DB save failed:', err);
             alert(
               `Ready stock entry was recorded locally but could not be saved to the database.\n\n` +
-              `Error: ${err instanceof Error ? err.message : String(err)}\n\n` +
+              `Error: ${fmtErr(err)}\n\n` +
               `Please check your connection and database setup, then retry.`
             );
           });

@@ -63,7 +63,7 @@ export async function initializeCatalog(orgId: string): Promise<void> {
   const { error: pkgErr } = await supabase
     .from('packaging_materials')
     .upsert(pkgRows, { onConflict: 'id', ignoreDuplicates: true });
-  if (pkgErr) console.warn('[initializeCatalog] packaging_materials:', pkgErr.message);
+  if (pkgErr) throw pkgErr;
 
   // 2. Product SKUs
   const skuRows = PRODUCTS.map((p) => ({
@@ -81,7 +81,7 @@ export async function initializeCatalog(orgId: string): Promise<void> {
   const { error: skuErr } = await supabase
     .from('product_skus')
     .upsert(skuRows, { onConflict: 'id', ignoreDuplicates: true });
-  if (skuErr) console.warn('[initializeCatalog] product_skus:', skuErr.message);
+  if (skuErr) throw skuErr;
 }
 
 /** Returns the authenticated user's id, or throws if no session exists. */
@@ -368,58 +368,66 @@ export async function saveInvoice(
   });
   if (invErr) throw invErr;
 
-  const itemRows = items.map((item) => ({
-    invoice_id: invoice.id,
-    sku_id: item.skuId,
-    product: item.product,
-    variant: item.variant,
-    weight: item.weight,
-    hsn_code: item.hsnCode,
-    gst_rate: item.gstRate,
-    quantity: item.quantity,
-    rate: item.rate,
-    taxable_value: item.taxableValue,
-    cgst: item.cgst,
-    sgst: item.sgst,
-    igst: item.igst,
-    line_total: item.lineTotal,
-    unit: item.unit,
-  }));
-  const { error: itemsErr } = await supabase
-    .from('invoice_items')
-    .insert(itemRows);
-  if (itemsErr) throw itemsErr;
-
-  // Record ready stock deductions
-  if (readyStockTxns.length > 0) {
-    const txnRows = readyStockTxns.map((t) => ({
-      id: t.id,
-      org_id: orgId,
-      date: toDbDate(t.date),
-      time: `${t.time}:00`,
-      sku_id: t.skuId,
-      sku_name: t.skuName,
-      type: t.type,
-      quantity: t.quantity,
-      previous_stock: t.previousStock,
-      new_stock: t.newStock,
-      reason: t.reason,
+  // If any step below fails, delete the invoice header so the invoice number can
+  // be reused on retry instead of hitting a unique-constraint collision.
+  try {
+    const itemRows = items.map((item) => ({
+      invoice_id: invoice.id,
+      sku_id: item.skuId,
+      product: item.product,
+      variant: item.variant,
+      weight: item.weight,
+      hsn_code: item.hsnCode,
+      gst_rate: item.gstRate,
+      quantity: item.quantity,
+      rate: item.rate,
+      taxable_value: item.taxableValue,
+      cgst: item.cgst,
+      sgst: item.sgst,
+      igst: item.igst,
+      line_total: item.lineTotal,
+      unit: item.unit,
     }));
-    const { error: txnErr } = await supabase
-      .from('ready_stock_transactions')
-      .insert(txnRows);
-    if (txnErr) throw txnErr;
-  }
+    const { error: itemsErr } = await supabase
+      .from('invoice_items')
+      .insert(itemRows);
+    if (itemsErr) throw itemsErr;
 
-  // Update ready_stock balance snapshots
-  const readyStockUpserts = Object.entries(newReadyStock).map(
-    ([skuId, quantity]) => ({ org_id: orgId, sku_id: skuId, quantity }),
-  );
-  if (readyStockUpserts.length > 0) {
-    const { error: stockErr } = await supabase
-      .from('ready_stock')
-      .upsert(readyStockUpserts, { onConflict: 'org_id,sku_id' });
-    if (stockErr) throw stockErr;
+    // Record ready stock deductions
+    if (readyStockTxns.length > 0) {
+      const txnRows = readyStockTxns.map((t) => ({
+        id: t.id,
+        org_id: orgId,
+        date: toDbDate(t.date),
+        time: `${t.time}:00`,
+        sku_id: t.skuId,
+        sku_name: t.skuName,
+        type: t.type,
+        quantity: t.quantity,
+        previous_stock: t.previousStock,
+        new_stock: t.newStock,
+        reason: t.reason,
+      }));
+      const { error: txnErr } = await supabase
+        .from('ready_stock_transactions')
+        .insert(txnRows);
+      if (txnErr) throw txnErr;
+    }
+
+    // Update ready_stock balance snapshots
+    const readyStockUpserts = Object.entries(newReadyStock).map(
+      ([skuId, quantity]) => ({ org_id: orgId, sku_id: skuId, quantity }),
+    );
+    if (readyStockUpserts.length > 0) {
+      const { error: stockErr } = await supabase
+        .from('ready_stock')
+        .upsert(readyStockUpserts, { onConflict: 'org_id,sku_id' });
+      if (stockErr) throw stockErr;
+    }
+  } catch (err) {
+    // Remove the orphan invoice header so the invoice number is free to reuse.
+    await supabase.from('invoices').delete().eq('id', invoice.id).eq('org_id', orgId);
+    throw err;
   }
 }
 
