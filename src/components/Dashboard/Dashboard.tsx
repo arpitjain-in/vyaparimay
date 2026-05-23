@@ -1,10 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  ShoppingCart, TrendingUp, FlaskConical, PackageCheck,
+  ShoppingCart, TrendingUp, PackageCheck, FlaskConical,
   AlertTriangle, ArrowRight, Users, IndianRupee,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/products';
+import { PRODUCTS, PACKAGING_MATERIALS } from '../../data/products';
 import { fmtINR, formatDate } from '../../utils/format';
 import Layout from '../Layout/Layout';
 
@@ -29,16 +29,90 @@ function KpiCard({
   );
 }
 
+function SalesBarChart({ data }: { data: { date: string; label: string; revenue: number }[] }) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const maxRevenue = Math.max(...data.map(d => d.revenue), 1);
+  const totalRevenue = data.reduce((s, d) => s + d.revenue, 0);
+  const activeDays = data.filter(d => d.revenue > 0).length;
+
+  // Show x-axis label every 5 bars; always show today (last bar)
+  const showLabel = (i: number) => i % 5 === 0 || i === data.length - 1;
+  // Clamp tooltip so it doesn't overflow left/right edges
+  const tooltipAlign = (i: number) =>
+    i < 3 ? 'left-0' : i > data.length - 4 ? 'right-0' : 'left-1/2 -translate-x-1/2';
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+        <div className="flex items-center gap-2">
+          <TrendingUp size={15} className="text-indigo-500" />
+          <span className="font-semibold text-slate-700">Last 30 Days Sales</span>
+        </div>
+        <div className="flex items-center gap-4 text-xs text-slate-500">
+          <span>{activeDays} active day{activeDays !== 1 ? 's' : ''}</span>
+          <span className="font-semibold text-slate-700">{fmtINR(totalRevenue)}</span>
+        </div>
+      </div>
+      <div className="px-5 pt-5 pb-3">
+        {/* Bars — wrapper stretches to h-28; bar is absolute from bottom */}
+        <div className="flex gap-[3px] h-28">
+          {data.map((d, i) => {
+            const heightPct = d.revenue > 0 ? Math.max(3, (d.revenue / maxRevenue) * 100) : 1.5;
+            const isToday = i === data.length - 1;
+            const isHovered = hoveredIndex === i;
+            return (
+              <div
+                key={d.date}
+                className="relative flex-1"
+                onMouseEnter={() => setHoveredIndex(i)}
+                onMouseLeave={() => setHoveredIndex(null)}
+              >
+                {isHovered && (
+                  <div className={`absolute bottom-full mb-2 z-10 bg-slate-800 text-white rounded-lg px-2.5 py-1.5 pointer-events-none shadow-lg whitespace-nowrap ${tooltipAlign(i)}`}>
+                    <div className="text-[10px] font-semibold">{d.label}</div>
+                    <div className="text-[11px]">{d.revenue > 0 ? fmtINR(d.revenue) : 'No sales'}</div>
+                  </div>
+                )}
+                <div
+                  style={{ height: `${heightPct}%` }}
+                  className={`absolute bottom-0 left-0 right-0 rounded-sm transition-colors duration-75 ${
+                    isHovered       ? 'bg-indigo-600'
+                    : isToday       ? 'bg-indigo-500'
+                    : d.revenue > 0 ? 'bg-indigo-300'
+                    : 'bg-slate-100'
+                  }`}
+                />
+              </div>
+            );
+          })}
+        </div>
+        {/* X-axis labels */}
+        <div className="flex gap-[3px] mt-1.5">
+          {data.map((d, i) => (
+            <div key={d.date} className="relative flex-1 h-4">
+              {showLabel(i) && (
+                <span className={`absolute top-0 text-[9px] text-slate-400 whitespace-nowrap ${
+                  i === 0 ? 'left-0' : i === data.length - 1 ? 'right-0' : 'left-1/2 -translate-x-1/2'
+                }`}>
+                  {d.label}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   // Actions don't trigger re-renders — keep destructured together.
   const { navigate, startNewOrder, getReadyStockStatus } = useStore();
-  // Data slices — each selector means this component only re-renders when that slice changes.
   const invoices               = useStore(s => s.invoices);
   const packagingStock         = useStore(s => s.packagingStock);
   const packagingEntries       = useStore(s => s.packagingEntries);
   const reorderLevels          = useStore(s => s.reorderLevels);
   const businessProfile        = useStore(s => s.businessProfile);
-  const productionLogs         = useStore(s => s.productionLogs);
   const readyStock             = useStore(s => s.readyStock);
   const readyStockTransactions = useStore(s => s.readyStockTransactions);
 
@@ -67,36 +141,32 @@ export default function Dashboard() {
     [todayInvoices],
   );
 
-  // ── Today's production ───────────────────────────────────────────
-  const { todayLogs, todayProduction, todayTotalKg } = useMemo(() => {
-    const logs = productionLogs.filter(l => l.date === TODAY);
-    const production: Record<string, number> = {};
-    for (const log of logs) {
-      production[log.productName] = (production[log.productName] ?? 0) + log.quantityProduced;
-    }
-    return {
-      todayLogs: logs,
-      todayProduction: production,
-      todayTotalKg: Object.values(production).reduce((s, v) => s + v, 0),
-    };
-  }, [productionLogs, TODAY]);
-
   // ── Weekly rolling (last 7 days) ──────────────────────────────────
-  const { weekRevenue, weekProduction } = useMemo(() => {
+  const weekRevenue = useMemo(() => {
     const week = Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - i);
       return formatDate(d);
     });
-    return {
-      weekRevenue: invoices
-        .filter(i => !i.cancelled && week.includes(i.invoiceDate))
-        .reduce((s, i) => s + i.grandTotal, 0),
-      weekProduction: productionLogs
-        .filter(l => week.includes(l.date))
-        .reduce((s, l) => s + l.quantityProduced, 0),
-    };
-  }, [invoices, productionLogs]);
+    return invoices
+      .filter(i => !i.cancelled && week.includes(i.invoiceDate))
+      .reduce((s, i) => s + i.grandTotal, 0);
+  }, [invoices]);
+
+  // ── Last 30 days sales chart data ─────────────────────────────────
+  const last30DaysSales = useMemo(() => {
+    const days = Array.from({ length: 30 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (29 - i));
+      return { date: formatDate(d), label: d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }), revenue: 0 };
+    });
+    for (const inv of invoices) {
+      if (inv.cancelled) continue;
+      const day = days.find(d => d.date === inv.invoiceDate);
+      if (day) day.revenue += inv.grandTotal;
+    }
+    return days;
+  }, [invoices]);
 
   // ── Ready stock alerts ────────────────────────────────────────────
   const { lowReadyItems, lowPkgItems } = useMemo(() => {
@@ -159,7 +229,7 @@ export default function Dashboard() {
       }
     >
       {/* ── KPI row ────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-3 gap-4 mb-6">
         <KpiCard
           label="Today's Revenue"
           value={fmtINR(todayRevenue)}
@@ -169,17 +239,9 @@ export default function Dashboard() {
           onClick={() => navigate('invoice-history')}
         />
         <KpiCard
-          label="Today's Production"
-          value={`${todayTotalKg.toFixed(1)} kg`}
-          sub={todayLogs.length > 0 ? Object.entries(todayProduction).map(([k, v]) => `${k}: ${v}kg`).join(', ') : 'No entries today'}
-          icon={<FlaskConical size={18} className="text-amber-600" />}
-          accent="bg-amber-50"
-          onClick={() => navigate('production-entry')}
-        />
-        <KpiCard
           label="7-Day Revenue"
           value={fmtINR(weekRevenue)}
-          sub={`${weekProduction.toFixed(0)} kg produced`}
+          sub="Rolling last 7 days"
           icon={<TrendingUp size={18} className="text-indigo-600" />}
           accent="bg-indigo-50"
         />
@@ -194,7 +256,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-12 gap-5">
-        {/* ── Left: Today's Sales + Production ─────────────────────── */}
+        {/* ── Left: Today's Sales + 30-Day Chart + Invoices ────────── */}
         <div className="col-span-8 space-y-5">
 
           {/* Today's Sales Breakdown */}
@@ -235,37 +297,8 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Today's Production */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <FlaskConical size={15} className="text-amber-500" />
-                <span className="font-semibold text-slate-700">Today's Production</span>
-              </div>
-              <button onClick={() => navigate('production-entry')} className="text-indigo-500 text-xs hover:underline flex items-center gap-0.5">
-                Log production <ArrowRight size={12} />
-              </button>
-            </div>
-            {todayLogs.length === 0 ? (
-              <div className="py-8 text-center text-slate-400 text-sm">
-                No production logged today.{' '}
-                <button onClick={() => navigate('production-entry')} className="text-indigo-500 hover:underline">Log now →</button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-4 gap-0 divide-x divide-slate-100">
-                {PRODUCT_CATEGORIES.map(cat => {
-                  const kg = todayProduction[cat] ?? 0;
-                  return (
-                    <div key={cat} className={`px-5 py-4 text-center ${kg > 0 ? '' : 'opacity-40'}`}>
-                      <div className="text-xl font-bold text-slate-800">{kg > 0 ? kg.toFixed(1) : '—'}</div>
-                      <div className="text-xs text-slate-500 mt-1">{cat}</div>
-                      {kg > 0 && <div className="text-xs text-amber-600 mt-0.5">kg</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          {/* Last 30 Days Sales Bar Chart */}
+          <SalesBarChart data={last30DaysSales} />
 
           {/* Recent Invoices (compact) */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
