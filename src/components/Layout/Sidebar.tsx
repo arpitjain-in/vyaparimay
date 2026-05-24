@@ -2,7 +2,7 @@ import React from 'react';
 import {
   LayoutDashboard, Users, ShoppingCart, FileText,
   PackageCheck, Box, IndianRupee, Settings,
-  FlaskConical, LogOut, BarChart3, Wallet,
+  FlaskConical, LogOut, BarChart3, Wallet, UserCheck,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { AppPage } from '../../types';
@@ -79,6 +79,7 @@ export default function Sidebar() {
       heading: 'Finance',
       items: [
         { label: 'Expenses', page: 'expense', icon: <Wallet size={16} /> },
+        { label: 'Salary', page: 'salary-list', icon: <UserCheck size={16} /> },
       ],
     },
     {

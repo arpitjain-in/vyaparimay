@@ -17,6 +17,10 @@ import type {
   StockTransaction,
   ReadyStockTransaction,
   Expense,
+  Employee,
+  EmployeeLeave,
+  EmployeeAdvance,
+  SalaryRecord,
 } from '../types';
 import { PRODUCTS, PACKAGING_MATERIALS } from '../data/products';
 
@@ -434,6 +438,8 @@ export async function saveInvoice(
 export async function cancelInvoiceInDb(
   orgId: string,
   invoiceId: string,
+  restorationTxns: ReadyStockTransaction[],
+  newReadyStock: Record<string, number>,
 ): Promise<void> {
   const { error } = await supabase
     .from('invoices')
@@ -441,6 +447,34 @@ export async function cancelInvoiceInDb(
     .eq('id', invoiceId)
     .eq('org_id', orgId);
   if (error) throw error;
+
+  if (restorationTxns.length > 0) {
+    const txnRows = restorationTxns.map((t) => ({
+      id: t.id,
+      org_id: orgId,
+      date: toDbDate(t.date),
+      time: `${t.time}:00`,
+      sku_id: t.skuId,
+      sku_name: t.skuName,
+      type: t.type,
+      quantity: t.quantity,
+      previous_stock: t.previousStock,
+      new_stock: t.newStock,
+      reason: t.reason ?? null,
+    }));
+    const { error: txnErr } = await supabase
+      .from('ready_stock_transactions')
+      .insert(txnRows);
+    if (txnErr) throw txnErr;
+
+    const readyStockUpserts = Object.entries(newReadyStock).map(
+      ([skuId, quantity]) => ({ org_id: orgId, sku_id: skuId, quantity }),
+    );
+    const { error: stockErr } = await supabase
+      .from('ready_stock')
+      .upsert(readyStockUpserts, { onConflict: 'org_id,sku_id' });
+    if (stockErr) throw stockErr;
+  }
 }
 
 export async function updateInvoicePaymentModeInDb(
@@ -949,5 +983,175 @@ export async function saveExpense(
 
 export async function deleteExpense(id: string): Promise<void> {
   const { error } = await supabase.from('expenses').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ─── Employees ────────────────────────────────────────────────────────────────
+
+export async function loadEmployees(orgId: string): Promise<Employee[]> {
+  const { data, error } = await supabase
+    .from('employees')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(r => ({
+    id: r.id as string,
+    name: r.name as string,
+    role: (r.role as string) ?? '',
+    monthlySalary: Number(r.monthly_salary),
+    employmentStartDate: fromDbDate(r.employment_start_date as string),
+    isActive: r.is_active as boolean,
+    createdBy: (r.created_by as string) ?? '',
+    createdAt: r.created_at as string,
+  }));
+}
+
+export async function saveEmployee(orgId: string, employee: Employee): Promise<void> {
+  const { error } = await supabase.from('employees').insert({
+    id: employee.id,
+    org_id: orgId,
+    name: employee.name,
+    role: employee.role,
+    monthly_salary: employee.monthlySalary,
+    employment_start_date: toDbDate(employee.employmentStartDate),
+    is_active: employee.isActive,
+    created_by: employee.createdBy || null,
+  });
+  if (error) throw error;
+}
+
+export async function updateEmployee(
+  id: string,
+  data: Partial<Pick<Employee, 'name' | 'role' | 'monthlySalary' | 'isActive'>>,
+): Promise<void> {
+  const update: Record<string, unknown> = {};
+  if (data.name !== undefined) update.name = data.name;
+  if (data.role !== undefined) update.role = data.role;
+  if (data.monthlySalary !== undefined) update.monthly_salary = data.monthlySalary;
+  if (data.isActive !== undefined) update.is_active = data.isActive;
+  const { error } = await supabase.from('employees').update(update).eq('id', id);
+  if (error) throw error;
+}
+
+// ─── Employee Leaves ──────────────────────────────────────────────────────────
+
+export async function loadEmployeeLeaves(orgId: string): Promise<EmployeeLeave[]> {
+  const { data, error } = await supabase
+    .from('employee_leaves')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('date', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(r => ({
+    id: r.id as string,
+    employeeId: r.employee_id as string,
+    date: fromDbDate(r.date as string),
+    isHalfDay: r.is_half_day as boolean,
+    notes: (r.notes as string) ?? '',
+    createdAt: r.created_at as string,
+  }));
+}
+
+export async function saveEmployeeLeave(orgId: string, leave: EmployeeLeave): Promise<void> {
+  const { error } = await supabase.from('employee_leaves').insert({
+    id: leave.id,
+    org_id: orgId,
+    employee_id: leave.employeeId,
+    date: toDbDate(leave.date),
+    is_half_day: leave.isHalfDay,
+    notes: leave.notes,
+  });
+  if (error) throw error;
+}
+
+export async function deleteEmployeeLeave(id: string): Promise<void> {
+  const { error } = await supabase.from('employee_leaves').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ─── Employee Advances ────────────────────────────────────────────────────────
+
+export async function loadEmployeeAdvances(orgId: string): Promise<EmployeeAdvance[]> {
+  const { data, error } = await supabase
+    .from('employee_advances')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('date', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(r => ({
+    id: r.id as string,
+    employeeId: r.employee_id as string,
+    amount: Number(r.amount),
+    date: fromDbDate(r.date as string),
+    notes: (r.notes as string) ?? '',
+    createdAt: r.created_at as string,
+  }));
+}
+
+export async function saveEmployeeAdvance(orgId: string, advance: EmployeeAdvance): Promise<void> {
+  const { error } = await supabase.from('employee_advances').insert({
+    id: advance.id,
+    org_id: orgId,
+    employee_id: advance.employeeId,
+    amount: advance.amount,
+    date: toDbDate(advance.date),
+    notes: advance.notes,
+  });
+  if (error) throw error;
+}
+
+export async function deleteEmployeeAdvance(id: string): Promise<void> {
+  const { error } = await supabase.from('employee_advances').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ─── Salary Records ───────────────────────────────────────────────────────────
+
+export async function loadSalaryRecords(orgId: string): Promise<SalaryRecord[]> {
+  const { data, error } = await supabase
+    .from('salary_records')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('month', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(r => ({
+    id: r.id as string,
+    employeeId: r.employee_id as string,
+    month: r.month as string,
+    grossSalary: Number(r.gross_salary),
+    workingDays: Number(r.working_days),
+    leaveDays: Number(r.leave_days),
+    leaveDeduction: Number(r.leave_deduction),
+    advanceDeducted: Number(r.advance_deducted),
+    bonusAmount: Number(r.bonus_amount),
+    netPayable: Number(r.net_payable),
+    amountPaid: Number(r.amount_paid),
+    notes: (r.notes as string) ?? '',
+    createdAt: r.created_at as string,
+    updatedAt: r.updated_at as string,
+  }));
+}
+
+export async function upsertSalaryRecord(orgId: string, record: SalaryRecord): Promise<void> {
+  const { error } = await supabase.from('salary_records').upsert(
+    {
+      id: record.id,
+      org_id: orgId,
+      employee_id: record.employeeId,
+      month: record.month,
+      gross_salary: record.grossSalary,
+      working_days: record.workingDays,
+      leave_days: record.leaveDays,
+      leave_deduction: record.leaveDeduction,
+      advance_deducted: record.advanceDeducted,
+      bonus_amount: record.bonusAmount,
+      net_payable: record.netPayable,
+      amount_paid: record.amountPaid,
+      notes: record.notes,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'employee_id,month' },
+  );
   if (error) throw error;
 }

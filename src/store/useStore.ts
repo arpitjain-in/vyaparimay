@@ -4,6 +4,7 @@ import {
   Customer, Invoice, OrderItem, StockTransaction,
   PackagingEntry, ProductionLog, PaymentReceipt,
   ReadyStockTransaction, StockStatus, Expense,
+  Employee, EmployeeLeave, EmployeeAdvance, SalaryRecord,
 } from '../types';
 import { PACKAGING_MATERIALS, PRODUCTS, DEFAULT_PRICES } from '../data/products';
 import { isInterState, calcGST } from '../utils/gst';
@@ -37,6 +38,7 @@ interface AppState {
   selectedCustomerId: string | null;
   selectedInvoiceId: string | null;
   editCustomerId: string | null;
+  selectedEmployeeId: string | null;
 
   // Business
   businessProfile: BusinessProfile | null;
@@ -77,12 +79,18 @@ interface AppState {
   // Expenses
   expenses: Expense[];
 
+  // Salary
+  employees: Employee[];
+  employeeLeaves: EmployeeLeave[];
+  employeeAdvances: EmployeeAdvance[];
+  salaryRecords: SalaryRecord[];
+
   // ─── Actions ───────────────────────────────────────────────────────
 
   // Init
   initializeApp(): Promise<void>;
   // Navigation
-  navigate(page: AppPage, params?: { customerId?: string; invoiceId?: string; editCustomerId?: string }): void;
+  navigate(page: AppPage, params?: { customerId?: string; invoiceId?: string; editCustomerId?: string; employeeId?: string }): void;
 
   // Business
   setBusinessProfile(profile: BusinessProfile): void;
@@ -133,6 +141,15 @@ interface AppState {
   addExpense(amount: number, date: string, time: string, notes: string, createdBy: string): void;
   deleteExpense(id: string): void;
 
+  // Salary
+  addEmployee(data: Omit<Employee, 'id' | 'createdAt'>): void;
+  updateEmployee(id: string, data: Partial<Pick<Employee, 'name' | 'role' | 'monthlySalary' | 'isActive'>>): void;
+  addEmployeeLeave(employeeId: string, date: string, isHalfDay: boolean, notes: string): void;
+  deleteEmployeeLeave(id: string): void;
+  addEmployeeAdvance(employeeId: string, amount: number, date: string, notes: string): void;
+  deleteEmployeeAdvance(id: string): void;
+  upsertSalaryRecord(record: Omit<SalaryRecord, 'id' | 'createdAt' | 'updatedAt'>): void;
+
   // Computed helpers (not persisted)
   getCustomerInvoices(customerId: string): Invoice[];
   getStockStatus(type: 'raw' | 'packaging', id: string): 'adequate' | 'low' | 'out';
@@ -167,6 +184,7 @@ export const useStore = create<AppState>()(
       selectedCustomerId: null,
       selectedInvoiceId: null,
       editCustomerId: null,
+      selectedEmployeeId: null,
 
       // Business
       businessProfile: null,
@@ -203,6 +221,12 @@ export const useStore = create<AppState>()(
       // Expenses
       expenses: [],
 
+      // Salary
+      employees: [],
+      employeeLeaves: [],
+      employeeAdvances: [],
+      salaryRecords: [],
+
       // ─── Init ────────────────────────────────────────────────────────
 
       async initializeApp() {
@@ -234,6 +258,10 @@ export const useStore = create<AppState>()(
             dbPriceList,
             dbReorderLevels,
             expenses,
+            employees,
+            employeeLeaves,
+            employeeAdvances,
+            salaryRecords,
           ] = await Promise.all([
             db.loadBusinessProfile(orgId),
             db.loadCustomers(orgId),
@@ -245,6 +273,10 @@ export const useStore = create<AppState>()(
             db.loadPriceList(orgId),
             db.loadReorderLevels(orgId),
             db.loadExpenses(orgId),
+            db.loadEmployees(orgId),
+            db.loadEmployeeLeaves(orgId),
+            db.loadEmployeeAdvances(orgId),
+            db.loadSalaryRecords(orgId),
           ]);
 
           // Derive invoice counters from loaded invoices
@@ -284,6 +316,10 @@ export const useStore = create<AppState>()(
               ready: { ...s.reorderLevels.ready, ...dbReorderLevels.ready },
             },
             expenses,
+            employees,
+            employeeLeaves,
+            employeeAdvances,
+            salaryRecords,
             currentPage: get().isInitialized ? get().currentPage : (businessProfile ? 'dashboard' : 'setup'),
           });
         } catch (err) {
@@ -301,6 +337,7 @@ export const useStore = create<AppState>()(
           selectedCustomerId: params.customerId ?? get().selectedCustomerId,
           selectedInvoiceId: params.invoiceId ?? get().selectedInvoiceId,
           editCustomerId: params.editCustomerId ?? null,
+          selectedEmployeeId: params.employeeId ?? get().selectedEmployeeId,
         });
       },
 
@@ -505,7 +542,7 @@ export const useStore = create<AppState>()(
           const sku = PRODUCTS.find(p => p.id === item.skuId)!;
           const skuName = `${sku.product} – ${sku.variant}`;
           const prevReady = newReady[item.skuId] ?? 0;
-          newReady[item.skuId] = Math.max(0, prevReady - item.quantity);
+          newReady[item.skuId] = prevReady - item.quantity;
           newReadyTxns.push({
             id: crypto.randomUUID(),
             date: dateStr, time: timeStr,
@@ -550,11 +587,42 @@ export const useStore = create<AppState>()(
       },
 
       cancelInvoice(id) {
-        set(s => ({
-          invoices: s.invoices.map(inv => inv.id === id ? { ...inv, cancelled: true } : inv),
+        const s = get();
+        const invoice = s.invoices.find(inv => inv.id === id);
+        if (!invoice) return;
+
+        const now = new Date();
+        const dateStr = formatDate(now);
+        const timeStr = formatTime(now);
+        const newReady = { ...s.readyStock };
+        const restorationTxns: ReadyStockTransaction[] = [];
+
+        for (const item of invoice.items) {
+          const sku = PRODUCTS.find(p => p.id === item.skuId)!;
+          const skuName = `${sku.product} – ${sku.variant}`;
+          const prevReady = newReady[item.skuId] ?? 0;
+          newReady[item.skuId] = prevReady + item.quantity;
+          restorationTxns.push({
+            id: crypto.randomUUID(),
+            date: dateStr, time: timeStr,
+            skuId: item.skuId, skuName,
+            type: 'ADD',
+            quantity: item.quantity,
+            previousStock: prevReady,
+            newStock: newReady[item.skuId],
+            reason: `Cancellation – ${invoice.invoiceNo}`,
+            invoiceNo: invoice.invoiceNo,
+          });
+        }
+
+        set(cur => ({
+          invoices: cur.invoices.map(inv => inv.id === id ? { ...inv, cancelled: true } : inv),
+          readyStock: newReady,
+          readyStockTransactions: [...cur.readyStockTransactions, ...restorationTxns],
         }));
+
         const { orgId } = get();
-        if (orgId) db.cancelInvoiceInDb(orgId, id).catch(console.error);
+        if (orgId) db.cancelInvoiceInDb(orgId, id, restorationTxns, newReady).catch(console.error);
       },
 
       updateInvoicePaymentMode(id, mode) {
@@ -773,7 +841,7 @@ export const useStore = create<AppState>()(
         let txn!: ReadyStockTransaction;
         set(s => {
           const prev = s.readyStock[skuId] ?? 0;
-          const newStock = Math.max(0, prev + qty);
+          const newStock = prev + qty;
           txn = {
             id: crypto.randomUUID(),
             date: date ?? formatDate(now), time: formatTime(now),
@@ -806,7 +874,7 @@ export const useStore = create<AppState>()(
               ? { ...t, quantity: newQty, newStock: old.newStock + signedDelta, reason: newReason }
               : t
           );
-          const newCurrentStock = Math.max(0, (s.readyStock[old.skuId] ?? 0) + signedDelta);
+          const newCurrentStock = (s.readyStock[old.skuId] ?? 0) + signedDelta;
           updatedTxn = updatedTxns[idx];
           return {
             readyStockTransactions: updatedTxns,
@@ -825,7 +893,7 @@ export const useStore = create<AppState>()(
           if (!txn) return {};
           deletedSkuId = txn.skuId;
           const signedQty = txn.type === 'DEDUCT' ? txn.quantity : -txn.quantity;
-          newCurrentStock = Math.max(0, (s.readyStock[txn.skuId] ?? 0) + signedQty);
+          newCurrentStock = (s.readyStock[txn.skuId] ?? 0) + signedQty;
           return {
             readyStockTransactions: s.readyStockTransactions.filter(t => t.id !== txId),
             readyStock: { ...s.readyStock, [txn.skuId]: newCurrentStock },
@@ -870,6 +938,77 @@ export const useStore = create<AppState>()(
         set(s => ({ expenses: s.expenses.filter(e => e.id !== id) }));
         const { orgId } = get();
         if (orgId) db.deleteExpense(id).catch(console.error);
+      },
+
+      // ─── Salary ──────────────────────────────────────────────────────
+
+      addEmployee(data) {
+        const employee: Employee = {
+          id: crypto.randomUUID(),
+          ...data,
+          createdAt: new Date().toISOString(),
+        };
+        set(s => ({ employees: [...s.employees, employee] }));
+        const { orgId } = get();
+        if (orgId) db.saveEmployee(orgId, employee).catch(console.error);
+      },
+
+      updateEmployee(id, data) {
+        set(s => ({ employees: s.employees.map(e => e.id === id ? { ...e, ...data } : e) }));
+        const { orgId } = get();
+        if (orgId) db.updateEmployee(id, data).catch(console.error);
+      },
+
+      addEmployeeLeave(employeeId, date, isHalfDay, notes) {
+        const leave: EmployeeLeave = {
+          id: crypto.randomUUID(), employeeId, date, isHalfDay, notes,
+          createdAt: new Date().toISOString(),
+        };
+        set(s => ({ employeeLeaves: [...s.employeeLeaves, leave] }));
+        const { orgId } = get();
+        if (orgId) db.saveEmployeeLeave(orgId, leave).catch(console.error);
+      },
+
+      deleteEmployeeLeave(id) {
+        set(s => ({ employeeLeaves: s.employeeLeaves.filter(l => l.id !== id) }));
+        const { orgId } = get();
+        if (orgId) db.deleteEmployeeLeave(id).catch(console.error);
+      },
+
+      addEmployeeAdvance(employeeId, amount, date, notes) {
+        const advance: EmployeeAdvance = {
+          id: crypto.randomUUID(), employeeId, amount, date, notes,
+          createdAt: new Date().toISOString(),
+        };
+        set(s => ({ employeeAdvances: [...s.employeeAdvances, advance] }));
+        const { orgId } = get();
+        if (orgId) db.saveEmployeeAdvance(orgId, advance).catch(console.error);
+      },
+
+      deleteEmployeeAdvance(id) {
+        set(s => ({ employeeAdvances: s.employeeAdvances.filter(a => a.id !== id) }));
+        const { orgId } = get();
+        if (orgId) db.deleteEmployeeAdvance(id).catch(console.error);
+      },
+
+      upsertSalaryRecord(record) {
+        const now = new Date().toISOString();
+        const existing = get().salaryRecords.find(
+          r => r.employeeId === record.employeeId && r.month === record.month,
+        );
+        const full: SalaryRecord = {
+          id: existing?.id ?? crypto.randomUUID(),
+          ...record,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        };
+        set(s => ({
+          salaryRecords: existing
+            ? s.salaryRecords.map(r => r.id === existing.id ? full : r)
+            : [...s.salaryRecords, full],
+        }));
+        const { orgId } = get();
+        if (orgId) db.upsertSalaryRecord(orgId, full).catch(console.error);
       },
 
       // ─── Computed helpers ────────────────────────────────────────────
@@ -991,6 +1130,7 @@ export const useStore = create<AppState>()(
         set({ packagingEntries: [], packagingStock: emptyStock });
         if (orgId) db.clearAllPackagingData(orgId).catch(console.error);
       },
+
   }),
 );
 

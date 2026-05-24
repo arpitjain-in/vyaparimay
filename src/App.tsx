@@ -26,6 +26,8 @@ const ProductionEntry  = lazy(() => import('./components/Inventory/ProductionEnt
 const PriceList        = lazy(() => import('./components/Pricing/PriceList'));
 const ReportsPage      = lazy(() => import('./components/Reports/ReportsPage'));
 const ExpensePage      = lazy(() => import('./components/Expenses/ExpensePage'));
+const SalaryListPage   = lazy(() => import('./components/Salary/SalaryListPage'));
+const SalaryDetailPage = lazy(() => import('./components/Salary/SalaryDetailPage'));
 
 function PageLoader() {
   return (
@@ -125,6 +127,8 @@ export default function App() {
       case 'price-list':       return <PriceList />;
       case 'reports':          return <ReportsPage />;
       case 'expense':          return <ExpensePage />;
+      case 'salary-list':      return <SalaryListPage />;
+      case 'salary-detail':    return <SalaryDetailPage />;
       default:                 return <Dashboard />;
     }
   };

@@ -14,6 +14,10 @@ import type {
   StockTransaction,
   ReadyStockTransaction,
   Expense,
+  Employee,
+  EmployeeLeave,
+  EmployeeAdvance,
+  SalaryRecord,
 } from '../types';
 import { DEFAULT_PRICES, PACKAGING_MATERIALS, PRODUCTS } from '../data/products';
 
@@ -258,11 +262,20 @@ export async function saveInvoice(
 export async function cancelInvoiceInDb(
   _orgId: string,
   invoiceId: string,
+  restorationTxns: ReadyStockTransaction[],
+  newReadyStock: Record<string, number>,
 ): Promise<void> {
   const invoices = lsGet<Invoice[]>('invoices', []);
   const idx = invoices.findIndex((inv) => inv.id === invoiceId);
   if (idx >= 0) invoices[idx] = { ...invoices[idx], cancelled: true };
   lsSet('invoices', invoices);
+
+  if (restorationTxns.length > 0) {
+    const txns = lsGet<ReadyStockTransaction[]>('ready_stock_transactions', []);
+    lsSet('ready_stock_transactions', [...txns, ...restorationTxns]);
+    const currentReadyStock = lsGet<Record<string, number>>('ready_stock', {});
+    lsSet('ready_stock', { ...currentReadyStock, ...newReadyStock });
+  }
 }
 
 export async function updateInvoicePaymentModeInDb(
@@ -495,6 +508,89 @@ export async function deleteExpense(id: string): Promise<void> {
     expenses.splice(index, 1);
     lsSet('expenses', expenses);
   }
+}
+
+// ─── Employees ────────────────────────────────────────────────────────────────
+
+export async function loadEmployees(_orgId: string): Promise<Employee[]> {
+  return lsGet('employees', []);
+}
+
+export async function saveEmployee(_orgId: string, employee: Employee): Promise<void> {
+  const employees = lsGet<Employee[]>('employees', []);
+  employees.push(employee);
+  lsSet('employees', employees);
+}
+
+export async function updateEmployee(
+  id: string,
+  data: Partial<Pick<Employee, 'name' | 'role' | 'monthlySalary' | 'isActive'>>,
+): Promise<void> {
+  const employees = lsGet<Employee[]>('employees', []);
+  const idx = employees.findIndex(e => e.id === id);
+  if (idx >= 0) {
+    employees[idx] = { ...employees[idx], ...data };
+    lsSet('employees', employees);
+  }
+}
+
+// ─── Employee Leaves ──────────────────────────────────────────────────────────
+
+export async function loadEmployeeLeaves(_orgId: string): Promise<EmployeeLeave[]> {
+  return lsGet('employee_leaves', []);
+}
+
+export async function saveEmployeeLeave(_orgId: string, leave: EmployeeLeave): Promise<void> {
+  const leaves = lsGet<EmployeeLeave[]>('employee_leaves', []);
+  leaves.push(leave);
+  lsSet('employee_leaves', leaves);
+}
+
+export async function deleteEmployeeLeave(id: string): Promise<void> {
+  const leaves = lsGet<EmployeeLeave[]>('employee_leaves', []);
+  const idx = leaves.findIndex(l => l.id === id);
+  if (idx >= 0) {
+    leaves.splice(idx, 1);
+    lsSet('employee_leaves', leaves);
+  }
+}
+
+// ─── Employee Advances ────────────────────────────────────────────────────────
+
+export async function loadEmployeeAdvances(_orgId: string): Promise<EmployeeAdvance[]> {
+  return lsGet('employee_advances', []);
+}
+
+export async function saveEmployeeAdvance(_orgId: string, advance: EmployeeAdvance): Promise<void> {
+  const advances = lsGet<EmployeeAdvance[]>('employee_advances', []);
+  advances.push(advance);
+  lsSet('employee_advances', advances);
+}
+
+export async function deleteEmployeeAdvance(id: string): Promise<void> {
+  const advances = lsGet<EmployeeAdvance[]>('employee_advances', []);
+  const idx = advances.findIndex(a => a.id === id);
+  if (idx >= 0) {
+    advances.splice(idx, 1);
+    lsSet('employee_advances', advances);
+  }
+}
+
+// ─── Salary Records ───────────────────────────────────────────────────────────
+
+export async function loadSalaryRecords(_orgId: string): Promise<SalaryRecord[]> {
+  return lsGet('salary_records', []);
+}
+
+export async function upsertSalaryRecord(_orgId: string, record: SalaryRecord): Promise<void> {
+  const records = lsGet<SalaryRecord[]>('salary_records', []);
+  const idx = records.findIndex(r => r.employeeId === record.employeeId && r.month === record.month);
+  if (idx >= 0) {
+    records[idx] = record;
+  } else {
+    records.push(record);
+  }
+  lsSet('salary_records', records);
 }
 
 // ─── Unused by demo but referenced generically ────────────────────────────────

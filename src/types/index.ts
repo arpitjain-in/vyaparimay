@@ -218,6 +218,54 @@ export interface Expense {
   createdAt: string;   // timestamp when created
 }
 
+// ─── Salary ───────────────────────────────────────────────────────────────
+
+export interface Employee {
+  id: string;
+  name: string;
+  role: string;
+  monthlySalary: number;
+  employmentStartDate: string; // DD/MM/YYYY
+  isActive: boolean;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface EmployeeLeave {
+  id: string;
+  employeeId: string;
+  date: string; // DD/MM/YYYY
+  isHalfDay: boolean;
+  notes: string;
+  createdAt: string;
+}
+
+export interface EmployeeAdvance {
+  id: string;
+  employeeId: string;
+  amount: number;
+  date: string; // DD/MM/YYYY
+  notes: string;
+  createdAt: string;
+}
+
+export interface SalaryRecord {
+  id: string;
+  employeeId: string;
+  month: string;           // YYYY-MM
+  grossSalary: number;
+  workingDays: number;     // total calendar days in month
+  leaveDays: number;       // 0.5 per half-day, 1 per full-day
+  leaveDeduction: number;
+  advanceDeducted: number;
+  bonusAmount: number;
+  netPayable: number;
+  amountPaid: number;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ─── Navigation ──────────────────────────────────────────────────────────
 export type AppPage =
   | 'setup'
@@ -235,4 +283,6 @@ export type AppPage =
   | 'production-entry'
   | 'price-list'
   | 'reports'
-  | 'expense';
+  | 'expense'
+  | 'salary-list'
+  | 'salary-detail';
