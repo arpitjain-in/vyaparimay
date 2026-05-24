@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { Search, FileText, XCircle, ArrowLeftRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, FileText, XCircle, ArrowLeftRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR, parseDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
 import DeletePasswordModal from './DeletePasswordModal';
+
+const PAGE_SIZE = 25;
 
 export default function InvoiceHistory() {
   const { invoices, navigate, cancelInvoice, updateInvoicePaymentMode } = useStore();
@@ -12,6 +14,9 @@ export default function InvoiceHistory() {
   const [paymentFilter, setPaymentFilter] = useState<'All' | 'Cash' | 'Credit'>('All');
   const [pendingCancelId, setPendingCancelId] = useState<string | null>(null);
   const [pendingPaymentModeId, setPendingPaymentModeId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+
+  useEffect(() => { setPage(1); }, [search, showCancelled, paymentFilter]);
 
   const pendingInvoice = pendingCancelId ? invoices.find(i => i.id === pendingCancelId) : null;
   const pendingPaymentModeInvoice = pendingPaymentModeId ? invoices.find(i => i.id === pendingPaymentModeId) : null;
@@ -32,6 +37,9 @@ export default function InvoiceHistory() {
       const d = parseDDMMYYYY(b.invoiceDate) - parseDDMMYYYY(a.invoiceDate);
       return d !== 0 ? d : b.invoiceNo.localeCompare(a.invoiceNo);
     });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginatedInvoices = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const totalRevenue = invoices.filter(i => !i.cancelled).reduce((s, i) => s + i.grandTotal, 0);
 
@@ -100,7 +108,7 @@ export default function InvoiceHistory() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filtered.map(inv => (
+              {paginatedInvoices.map(inv => (
                 <tr key={inv.id} className={`hover:bg-slate-50 transition-colors ${inv.cancelled ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-3 font-mono text-indigo-500 font-semibold text-xs">{inv.invoiceNo}</td>
                   <td className="px-4 py-3 text-slate-600">
@@ -162,7 +170,30 @@ export default function InvoiceHistory() {
           </table>
         )}
       </div>
-      <div className="mt-2 text-xs text-slate-400">{filtered.length} invoice{filtered.length !== 1 ? 's' : ''} shown</div>
+      <div className="mt-3 flex items-center justify-between">
+        <span className="text-xs text-slate-400">
+          {filtered.length} invoice{filtered.length !== 1 ? 's' : ''} found
+        </span>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(p => p - 1)}
+              disabled={page === 1}
+              className="p-1.5 border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-xs text-slate-500 px-1">Page {page} of {totalPages}</span>
+            <button
+              onClick={() => setPage(p => p + 1)}
+              disabled={page >= totalPages}
+              className="p-1.5 border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        )}
+      </div>
     </Layout>
 
     {pendingInvoice && (

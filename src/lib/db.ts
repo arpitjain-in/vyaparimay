@@ -213,6 +213,39 @@ export async function loadCustomers(
   return { customers, seq };
 }
 
+export async function loadCustomersPaginated(
+  orgId: string,
+  page: number,
+  pageSize: number,
+  search: string,
+  showInactive: boolean,
+): Promise<{ customers: Customer[]; totalCount: number }> {
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = supabase
+    .from('customers')
+    .select('*', { count: 'exact' })
+    .eq('org_id', orgId)
+    .order('seq', { ascending: true });
+
+  if (!showInactive) {
+    query = query.eq('active', true);
+  }
+
+  const s = search.trim();
+  if (s) {
+    query = query.or(
+      `name.ilike.%${s}%,mobile.ilike.%${s}%,id.ilike.%${s}%,city.ilike.%${s}%,firm_name.ilike.%${s}%`,
+    );
+  }
+
+  const { data, error, count } = await query.range(from, to);
+  if (error) throw error;
+
+  return { customers: (data ?? []).map(rowToCustomer), totalCount: count ?? 0 };
+}
+
 export async function saveCustomer(
   orgId: string,
   customer: Customer,

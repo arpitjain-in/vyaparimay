@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Plus, Edit2, UserX, BookOpen, Wallet, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Search, Plus, Edit2, UserX, BookOpen, Wallet, Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import Layout from '../Layout/Layout';
 import AddPaymentModal from '../common/AddPaymentModal';
@@ -7,40 +7,52 @@ import * as db from '../../lib/db';
 import { FIXED_ORG_ID } from '../../lib/db';
 import type { Customer } from '../../types';
 
+const PAGE_SIZE = 25;
+
 export default function CustomerList() {
   const { orgId, navigate } = useStore();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [paymentCustomerId, setPaymentCustomerId] = useState<string | null>(null);
   const [deactivating, setDeactivating] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
-  const fetchCustomers = useCallback(async () => {
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const loadPage = useCallback(async (pageNum: number) => {
     const activeOrgId = orgId ?? FIXED_ORG_ID;
     setLoading(true);
     setError(null);
     try {
-      const { customers: data, seq } = await db.loadCustomers(activeOrgId);
+      const { customers: data, totalCount: count } = await db.loadCustomersPaginated(
+        activeOrgId, pageNum, PAGE_SIZE, debouncedSearch, showInactive,
+      );
       setCustomers(data);
-      // Keep in-memory store in sync for other pages (e.g. NewOrder)
-      useStore.setState({ customers: data, customerSeq: seq });
+      setTotalCount(count);
+      setPage(pageNum);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load customers');
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, [orgId, debouncedSearch, showInactive]);
 
-  useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
+  useEffect(() => { loadPage(1); }, [loadPage]);
 
   const handleDeactivate = async (customer: Customer) => {
     if (!confirm(`Deactivate ${customer.name}?`)) return;
     setDeactivating(customer.id);
     try {
       await db.updateCustomerInDb(orgId ?? FIXED_ORG_ID, customer.id, { active: false });
-      await fetchCustomers();
+      await loadPage(page);
     } catch (err) {
       alert('Failed to deactivate: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
@@ -48,17 +60,7 @@ export default function CustomerList() {
     }
   };
 
-  const filtered = customers.filter(c => {
-    if (!showInactive && !c.active) return false;
-    const q = search.toLowerCase();
-    return (
-      c.name.toLowerCase().includes(q) ||
-      c.mobile.includes(q) ||
-      c.id.toLowerCase().includes(q) ||
-      c.city.toLowerCase().includes(q) ||
-      (c.firmName?.toLowerCase().includes(q) ?? false)
-    );
-  });
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   return (
     <Layout
@@ -76,7 +78,7 @@ export default function CustomerList() {
         <AddPaymentModal
           customerId={paymentCustomerId}
           customerName={customers.find(c => c.id === paymentCustomerId)?.name}
-          onClose={() => { setPaymentCustomerId(null); fetchCustomers(); }}
+          onClose={() => { setPaymentCustomerId(null); loadPage(page); }}
         />
       )}
 
@@ -101,7 +103,7 @@ export default function CustomerList() {
           Show inactive
         </label>
         <button
-          onClick={fetchCustomers}
+          onClick={() => loadPage(page)}
           disabled={loading}
           className="text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50"
           title="Refresh"
@@ -122,16 +124,16 @@ export default function CustomerList() {
         <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4 text-red-700 text-sm">
           <AlertCircle size={16} className="shrink-0" />
           <span>{error}</span>
-          <button onClick={fetchCustomers} className="ml-auto underline text-red-600 hover:text-red-800">Retry</button>
+          <button onClick={() => loadPage(page)} className="ml-auto underline text-red-600 hover:text-red-800">Retry</button>
         </div>
       )}
 
       {/* Table */}
       {!loading && !error && (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          {filtered.length === 0 ? (
+          {customers.length === 0 ? (
             <div className="text-center py-12 text-slate-400 text-sm">
-              {customers.length === 0
+              {totalCount === 0
                 ? 'No customers yet. Add your first customer!'
                 : 'No customers match your search.'}
             </div>
@@ -145,7 +147,7 @@ export default function CustomerList() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.map(c => (
+                {customers.map(c => (
                   <tr key={c.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs text-indigo-500 font-semibold">{c.id}</td>
                     <td className="px-4 py-3">
@@ -203,8 +205,32 @@ export default function CustomerList() {
           )}
         </div>
       )}
+
       {!loading && !error && (
-        <div className="mt-2 text-xs text-slate-400">{filtered.length} customer{filtered.length !== 1 ? 's' : ''} shown</div>
+        <div className="mt-3 flex items-center justify-between">
+          <span className="text-xs text-slate-400">
+            {totalCount} customer{totalCount !== 1 ? 's' : ''} total
+          </span>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => loadPage(page - 1)}
+                disabled={page === 1}
+                className="p-1.5 border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="text-xs text-slate-500 px-1">Page {page} of {totalPages}</span>
+              <button
+                onClick={() => loadPage(page + 1)}
+                disabled={page >= totalPages}
+                className="p-1.5 border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </Layout>
   );
