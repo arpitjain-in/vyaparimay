@@ -101,6 +101,13 @@ export function buildThermalText(invoice: Invoice, bp: BusinessProfile): string 
     lines.push(lr(dscLabel, `-Rs.${invoice.discountAmount.toFixed(2)}`));
   }
 
+  if (invoice.transportCharges && invoice.transportCharges > 0) {
+    lines.push(lr('TRANSPORT', `+Rs.${invoice.transportCharges.toFixed(2)}`));
+  }
+  if (invoice.loadingCharges && invoice.loadingCharges > 0) {
+    lines.push(lr('LOADING/UNLOADING', `+Rs.${invoice.loadingCharges.toFixed(2)}`));
+  }
+
   if (invoice.roundOff !== 0) {
     const sign = invoice.roundOff > 0 ? '+' : '';
     lines.push(lr('ROUND OFF', `${sign}${invoice.roundOff.toFixed(2)}`));
@@ -220,6 +227,14 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
           ? `Discount @ ${invoice.discountValue}%`
           : 'Discount (Flat)'
       }</td><td class="right">&minus; ${fmtRupees(invoice.discountAmount)}</td></tr>`
+    : '';
+
+  const transportRow = invoice.transportCharges && invoice.transportCharges > 0
+    ? `<tr style="color:#c2410c"><td>Transport Charges</td><td class="right">+ ${fmtRupees(invoice.transportCharges)}</td></tr>`
+    : '';
+
+  const loadingRow = invoice.loadingCharges && invoice.loadingCharges > 0
+    ? `<tr style="color:#c2410c"><td>Loading / Unloading</td><td class="right">+ ${fmtRupees(invoice.loadingCharges)}</td></tr>`
     : '';
 
   const bankSection = (bp.bankName || bp.upiId) ? `
@@ -614,6 +629,8 @@ ${cancelledBanner}
       </tr>
       ${gstRows}
       ${discountRow}
+      ${transportRow}
+      ${loadingRow}
       ${roundOffRow}
       <tr class="weight-row">
         <td>Total Weight</td>

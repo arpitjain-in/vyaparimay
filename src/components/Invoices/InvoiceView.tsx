@@ -237,12 +237,6 @@ export default function InvoiceView() {
                     </div>
                   </>
                 )}
-                {invoice.roundOff !== 0 && (
-                  <div className="flex justify-between text-gray-500">
-                    <span>Round Off</span>
-                    <span>{invoice.roundOff > 0 ? '+' : ''}{invoice.roundOff.toFixed(2)}</span>
-                  </div>
-                )}
                 {invoice.discountAmount != null && invoice.discountAmount > 0 && (
                   <div className="flex justify-between text-green-700 font-medium">
                     <span>
@@ -251,6 +245,24 @@ export default function InvoiceView() {
                         : ' (Flat)'}
                     </span>
                     <span>– {fmtINR(invoice.discountAmount)}</span>
+                  </div>
+                )}
+                {invoice.transportCharges != null && invoice.transportCharges > 0 && (
+                  <div className="flex justify-between text-orange-700 font-medium">
+                    <span>Transport</span>
+                    <span>+ {fmtINR(invoice.transportCharges)}</span>
+                  </div>
+                )}
+                {invoice.loadingCharges != null && invoice.loadingCharges > 0 && (
+                  <div className="flex justify-between text-orange-700 font-medium">
+                    <span>Loading / Unloading</span>
+                    <span>+ {fmtINR(invoice.loadingCharges)}</span>
+                  </div>
+                )}
+                {invoice.roundOff !== 0 && (
+                  <div className="flex justify-between text-gray-500">
+                    <span>Round Off</span>
+                    <span>{invoice.roundOff > 0 ? '+' : ''}{invoice.roundOff.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-gray-800 text-base border-t pt-2">

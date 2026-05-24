@@ -85,11 +85,13 @@ export default function NewOrder() {
   const {
     customers, currentOrder, businessProfile,
     setOrderCustomer, setOrderPaymentMode,
-    upsertCartItem, removeCartItem, generateInvoice, setOrderGst, setOrderDiscount,
+    upsertCartItem, removeCartItem, generateInvoice, setOrderGst, setOrderDiscount, setOrderCharges,
     rawMaterialStock, packagingStock, priceList, navigate,
   } = useStore();
 
   const [step, setStep] = useState(1);
+  const [transportInput, setTransportInput] = useState('');
+  const [loadingInput, setLoadingInput] = useState('');
   const [custSearch, setCustSearch] = useState('');
   const [category, setCategory] = useState('');
   const [selectedSKU, setSelectedSKU] = useState<ProductSKU | null>(null);
@@ -163,7 +165,9 @@ export default function NewOrder() {
   const discountAmount = discountType && discountValue > 0
     ? (discountType === 'percent' ? parseFloat((preDiscount * discountValue / 100).toFixed(2)) : discountValue)
     : 0;
-  const grandTotal = Math.round(preDiscount - discountAmount);
+  const transportCharges = currentOrder?.transportCharges ?? 0;
+  const loadingCharges   = currentOrder?.loadingCharges   ?? 0;
+  const grandTotal = Math.round(preDiscount - discountAmount + transportCharges + loadingCharges);
 
   const stockAlerts = getStockAlerts(currentOrder?.items ?? [], rawMaterialStock, packagingStock);
 
@@ -198,7 +202,9 @@ export default function NewOrder() {
     const dscAmt   = dscType && dscVal > 0
       ? (dscType === 'percent' ? parseFloat((preDsc * dscVal / 100).toFixed(2)) : dscVal)
       : 0;
-    const gTotal = Math.round(preDsc - dscAmt);
+    const tCharge = currentOrder.transportCharges ?? 0;
+    const lCharge = currentOrder.loadingCharges   ?? 0;
+    const gTotal = Math.round(preDsc - dscAmt + tCharge + lCharge);
     const dummy = {
       id: 'preview',
       invoiceNo: `PREVIEW-${fy}`,
@@ -212,10 +218,12 @@ export default function NewOrder() {
       sgstTotal: sgst,
       igstTotal: igst,
       totalGST: cgst + sgst + igst,
-      discountType:   dscType ?? undefined,
-      discountValue:  dscVal > 0 ? dscVal : undefined,
-      discountAmount: dscAmt > 0 ? dscAmt : undefined,
-      roundOff: parseFloat((gTotal - (preDsc - dscAmt)).toFixed(2)),
+      discountType:     dscType ?? undefined,
+      discountValue:    dscVal > 0 ? dscVal : undefined,
+      discountAmount:   dscAmt > 0 ? dscAmt : undefined,
+      transportCharges: tCharge > 0 ? tCharge : undefined,
+      loadingCharges:   lCharge > 0 ? lCharge : undefined,
+      roundOff: parseFloat((gTotal - (preDsc - dscAmt + tCharge + lCharge)).toFixed(2)),
       grandTotal: gTotal,
       isInterState: inter,
       paymentMode: currentOrder.paymentMode,
@@ -661,6 +669,16 @@ export default function NewOrder() {
                   <span>– {fmtINR(discountAmount)}</span>
                 </div>
               )}
+              {transportCharges > 0 && (
+                <div className="flex justify-end gap-8 text-orange-700">
+                  <span>Transport</span><span>+ {fmtINR(transportCharges)}</span>
+                </div>
+              )}
+              {loadingCharges > 0 && (
+                <div className="flex justify-end gap-8 text-orange-700">
+                  <span>Loading / Unloading</span><span>+ {fmtINR(loadingCharges)}</span>
+                </div>
+              )}
               <div className="flex justify-end gap-8 font-bold text-gray-800 border-t pt-2 text-base">
                 <span>Grand Total</span><span>{fmtINR(grandTotal)}</span>
               </div>
@@ -732,6 +750,47 @@ export default function NewOrder() {
                 )}
               </div>
             </div>
+            {/* Additional Charges */}
+            <div className="mb-5 pb-5 border-b">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Additional Charges <span className="text-xs text-gray-400">(optional)</span></label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 font-medium">Transport</label>
+                  <div className="relative mt-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
+                    <input
+                      type="number" min="0" step="1"
+                      placeholder="0"
+                      value={transportInput}
+                      onChange={e => {
+                        setTransportInput(e.target.value);
+                        const v = parseFloat(e.target.value) || 0;
+                        setOrderCharges(v, loadingCharges);
+                      }}
+                      className="w-full border border-gray-300 rounded-lg pl-7 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium">Loading / Unloading</label>
+                  <div className="relative mt-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
+                    <input
+                      type="number" min="0" step="1"
+                      placeholder="0"
+                      value={loadingInput}
+                      onChange={e => {
+                        setLoadingInput(e.target.value);
+                        const v = parseFloat(e.target.value) || 0;
+                        setOrderCharges(transportCharges, v);
+                      }}
+                      className="w-full border border-gray-300 rounded-lg pl-7 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Sale Date <span className="text-xs text-gray-400">(= Invoice Date)</span></label>
               <input

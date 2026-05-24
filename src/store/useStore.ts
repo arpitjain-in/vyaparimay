@@ -106,6 +106,7 @@ interface AppState {
   setOrderPaymentMode(mode: 'Cash' | 'Credit'): void;
   setOrderGst(enabled: boolean): void;
   setOrderDiscount(type: 'percent' | 'flat' | null, value: number): void;
+  setOrderCharges(transport: number, loading: number): void;
   upsertCartItem(skuId: string, quantity: number, rate: number): void;
   removeCartItem(skuId: string): void;
   clearOrder(): void;
@@ -419,6 +420,18 @@ export const useStore = create<AppState>()(
         }));
       },
 
+      setOrderCharges(transport, loading) {
+        set(s => ({
+          currentOrder: s.currentOrder
+            ? {
+                ...s.currentOrder,
+                transportCharges: transport > 0 ? transport : undefined,
+                loadingCharges: loading > 0 ? loading : undefined,
+              }
+            : null,
+        }));
+      },
+
       upsertCartItem(skuId, quantity, rate) {
         set(s => {
           if (!s.currentOrder) return {};
@@ -503,7 +516,10 @@ export const useStore = create<AppState>()(
           ? (discountType === 'percent' ? parseFloat((preDiscount * discountValue / 100).toFixed(2)) : discountValue)
           : 0;
 
-        const beforeRound = preDiscount - discountAmount;
+        const transportCharges = currentOrder.transportCharges ?? 0;
+        const loadingCharges   = currentOrder.loadingCharges   ?? 0;
+
+        const beforeRound = preDiscount - discountAmount + transportCharges + loadingCharges;
         const grandTotal  = Math.round(beforeRound);
         const roundOff    = parseFloat((grandTotal - beforeRound).toFixed(2));
 
@@ -520,9 +536,11 @@ export const useStore = create<AppState>()(
           sgstTotal,
           igstTotal,
           totalGST,
-          discountType:   discountType ?? undefined,
-          discountValue:  discountValue > 0 ? discountValue : undefined,
-          discountAmount: discountAmount > 0 ? discountAmount : undefined,
+          discountType:     discountType ?? undefined,
+          discountValue:    discountValue > 0 ? discountValue : undefined,
+          discountAmount:   discountAmount > 0 ? discountAmount : undefined,
+          transportCharges: transportCharges > 0 ? transportCharges : undefined,
+          loadingCharges:   loadingCharges   > 0 ? loadingCharges   : undefined,
           roundOff,
           grandTotal,
           isInterState: inter,

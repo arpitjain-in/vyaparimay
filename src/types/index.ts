@@ -115,6 +115,8 @@ export interface CurrentOrder {
   gstEnabled?: boolean;
   discountType?: 'percent' | 'flat';
   discountValue?: number;  // % value or flat ₹ amount
+  transportCharges?: number;
+  loadingCharges?: number;
 }
 
 // ─── Invoice ──────────────────────────────────────────────────────────────
@@ -148,6 +150,8 @@ export interface Invoice {
   discountType?: 'percent' | 'flat';
   discountValue?: number;
   discountAmount?: number;  // computed ₹ deduction
+  transportCharges?: number;
+  loadingCharges?: number;
   roundOff: number;
   grandTotal: number;
   isInterState: boolean;
