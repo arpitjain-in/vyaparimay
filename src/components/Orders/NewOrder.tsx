@@ -172,8 +172,7 @@ export default function NewOrder() {
   const stockAlerts = getStockAlerts(currentOrder?.items ?? [], rawMaterialStock, packagingStock);
 
   const handleGenerateInvoice = () => {
-    const inv = generateInvoice(saleDate);
-    if (!inv) alert('Failed to generate invoice. Please check order.');
+    generateInvoice(saleDate);
   };
 
   const handlePrintPreview = () => {

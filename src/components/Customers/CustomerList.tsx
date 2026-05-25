@@ -10,7 +10,7 @@ import type { Customer } from '../../types';
 const PAGE_SIZE = 25;
 
 export default function CustomerList() {
-  const { orgId, navigate } = useStore();
+  const { orgId, navigate, showDialog } = useStore();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +54,7 @@ export default function CustomerList() {
       await db.updateCustomerInDb(orgId ?? FIXED_ORG_ID, customer.id, { active: false });
       await loadPage(page);
     } catch (err) {
-      alert('Failed to deactivate: ' + (err instanceof Error ? err.message : String(err)));
+      showDialog({ title: 'Deactivation Failed', variant: 'error', message: err instanceof Error ? err.message : String(err) });
     } finally {
       setDeactivating(null);
     }

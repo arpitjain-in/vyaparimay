@@ -1,9 +1,10 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { useStore } from './store/useStore';
 import { supabase } from './lib/supabase';
 import AuthPage from './components/Auth/AuthPage';
 import DemoBanner from './components/common/DemoBanner';
+import AlertDialog from './components/common/AlertDialog';
 
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
@@ -38,10 +39,13 @@ function PageLoader() {
 }
 
 export default function App() {
-  const { currentPage, businessProfile, isInitialized, initError, initializeApp } = useStore();
+  const { currentPage, businessProfile, isInitialized, initError, initializeApp, dialog, closeDialog } = useStore();
   const [session, setSession] = useState<Session | null | 'loading'>(
     DEMO_MODE ? ({} as Session) : 'loading',
   );
+  // Guard against duplicate initializeApp() calls when both getSession() and
+  // onAuthStateChange(INITIAL_SESSION) resolve with the same session object.
+  const initCalledRef = useRef(false);
 
   useEffect(() => {
     if (DEMO_MODE) {
@@ -55,18 +59,20 @@ export default function App() {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
       if (!s) {
-        // Reset app state on sign-out
+        // Reset on sign-out so the next sign-in triggers a fresh init.
+        initCalledRef.current = false;
         useStore.setState({ isInitialized: false, orgId: null, businessProfile: null });
       }
+      setSession(s);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (!DEMO_MODE && session && session !== 'loading') {
+    if (!DEMO_MODE && session && session !== 'loading' && !initCalledRef.current) {
+      initCalledRef.current = true;
       initializeApp();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -141,6 +147,13 @@ export default function App() {
           {pageContent()}
         </Suspense>
       </div>
+      <AlertDialog
+        open={!!dialog}
+        title={dialog?.title ?? ''}
+        message={dialog?.message ?? ''}
+        variant={dialog?.variant}
+        onClose={closeDialog}
+      />
     </>
   );
 }

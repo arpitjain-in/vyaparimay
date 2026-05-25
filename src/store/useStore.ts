@@ -154,6 +154,11 @@ interface AppState {
   // Computed helpers (not persisted)
   getCustomerInvoices(customerId: string): Invoice[];
   getStockStatus(type: 'raw' | 'packaging', id: string): 'adequate' | 'low' | 'out';
+
+  // Global dialog
+  dialog: { title: string; message: string | string[]; variant?: 'error' | 'warning' | 'info' | 'success' } | null;
+  showDialog(config: { title: string; message: string | string[]; variant?: 'error' | 'warning' | 'info' | 'success' }): void;
+  closeDialog(): void;
 }
 
 // ─── Initial stock maps ───────────────────────────────────────────────────────
@@ -228,12 +233,23 @@ export const useStore = create<AppState>()(
       employeeAdvances: [],
       salaryRecords: [],
 
+      // Dialog
+      dialog: null,
+
       // ─── Init ────────────────────────────────────────────────────────
 
       async initializeApp() {
         try {
           const userId = await db.initAuth();
           const orgId = await db.getOrCreateOrg(userId);
+
+          // Apply cached business profile immediately so the setup page never
+          // flickers on refresh for users who have already configured their business.
+          const BP_CACHE_KEY = `bp_cache_${orgId}`;
+          const cachedBp = localStorage.getItem(BP_CACHE_KEY);
+          if (cachedBp) {
+            try { set({ businessProfile: JSON.parse(cachedBp) }); } catch { /* ignore corrupt cache */ }
+          }
 
           // Seed catalog entries (SKUs, packaging materials) on first login or after
           // a catalog update. Bump CATALOG_VERSION whenever src/data/products.ts changes.
@@ -289,6 +305,13 @@ export const useStore = create<AppState>()(
               const seq = parseInt(match[2], 10);
               invoiceCounters[fy] = Math.max(invoiceCounters[fy] ?? 0, seq);
             }
+          }
+
+          // Keep the business profile cache fresh so subsequent refreshes are instant.
+          if (businessProfile) {
+            localStorage.setItem(BP_CACHE_KEY, JSON.stringify(businessProfile));
+          } else {
+            localStorage.removeItem(BP_CACHE_KEY);
           }
 
           const s = get();
@@ -347,7 +370,10 @@ export const useStore = create<AppState>()(
       setBusinessProfile(profile) {
         set({ businessProfile: profile, currentPage: 'dashboard' });
         const { orgId } = get();
-        if (orgId) db.saveBusinessProfile(orgId, profile).catch(console.error);
+        if (orgId) {
+          localStorage.setItem(`bp_cache_${orgId}`, JSON.stringify(profile));
+          db.saveBusinessProfile(orgId, profile).catch(console.error);
+        }
       },
 
       // ─── Customers ───────────────────────────────────────────────────
@@ -574,6 +600,17 @@ export const useStore = create<AppState>()(
           });
         }
 
+        // Guard: reject if any SKU would go below zero
+        const insufficient = items.filter(i => (newReady[i.skuId] ?? 0) < 0);
+        if (insufficient.length > 0) {
+          const lines = insufficient.map(i => {
+            const sku = PRODUCTS.find(p => p.id === i.skuId)!;
+            return `${sku.product} – ${sku.variant}: available ${s.readyStock[i.skuId] ?? 0}, requested ${i.quantity}`;
+          });
+          set({ dialog: { title: 'Insufficient Ready Stock', variant: 'error', message: lines } });
+          return null;
+        }
+
         set({
           invoices: [...s.invoices, invoice],
           invoiceCounters: { ...s.invoiceCounters, [fy]: seq },
@@ -593,11 +630,15 @@ export const useStore = create<AppState>()(
                 invoiceCounters: { ...cur.invoiceCounters, [fy]: s.invoiceCounters[fy] ?? 0 },
               }));
               console.error('[saveInvoice] Failed to save invoice items:', err);
-              alert(
-                `Invoice ${invoiceNo} was created but could not be saved to the database.\n\n` +
-                `Error: ${fmtErr(err)}\n\n` +
-                `Please note down the items and contact support, or re-create the invoice after checking your connection.`,
-              );
+              set({ dialog: {
+                title: `Invoice ${invoiceNo} Not Saved`,
+                variant: 'error',
+                message: [
+                  'The invoice was created locally but could not be saved to the database.',
+                  `Error: ${fmtErr(err)}`,
+                  'Please note down the items and contact support, or re-create the invoice after checking your connection.',
+                ],
+              } });
             });
         }
 
@@ -675,12 +716,15 @@ export const useStore = create<AppState>()(
         const { orgId } = get();
         if (orgId) {
           db.savePaymentReceipt(orgId, rec).catch((err) => {
-            set({ paymentReceipts: prevReceipts, receiptSeq: prevSeq });
-            alert(
-              `Payment ${id} was recorded locally but could NOT be saved to the database.\n\n` +
-              `Error: ${fmtErr(err)}\n\n` +
-              `Please check your connection and re-enter this payment after reconnecting.`,
-            );
+            set({ paymentReceipts: prevReceipts, receiptSeq: prevSeq, dialog: {
+              title: 'Payment Not Saved',
+              variant: 'warning',
+              message: [
+                `Payment ${id} was recorded locally but could not be saved to the database.`,
+                `Error: ${fmtErr(err)}`,
+                'Please check your connection and re-enter this payment after reconnecting.',
+              ],
+            } });
           });
         }
       },
@@ -706,11 +750,15 @@ export const useStore = create<AppState>()(
         if (orgId) {
           db.savePackagingEntry(orgId, rec, newStock).catch((err) => {
             console.error('[savePackagingEntry] DB save failed:', err);
-            alert(
-              `Packaging entry was recorded locally but could not be saved to the database.\n\n` +
-              `Error: ${fmtErr(err)}\n\n` +
-              `Please check your connection and database setup, then retry.`
-            );
+            set({ dialog: {
+              title: 'Entry Not Saved',
+              variant: 'warning',
+              message: [
+                'Packaging entry was recorded locally but could not be saved to the database.',
+                `Error: ${fmtErr(err)}`,
+                'Please check your connection and retry.',
+              ],
+            } });
           });
         }
       },
@@ -723,12 +771,15 @@ export const useStore = create<AppState>()(
         const { orgId } = get();
         if (orgId) {
           db.saveProductionLog(orgId, rec).catch((err) => {
-            set({ productionLogs: prevLogs });
-            alert(
-              `Production log was recorded locally but could NOT be saved to the database.\n\n` +
-              `Error: ${fmtErr(err)}\n\n` +
-              `Please check your connection and re-enter this entry after reconnecting.`,
-            );
+            set({ productionLogs: prevLogs, dialog: {
+              title: 'Log Not Saved',
+              variant: 'warning',
+              message: [
+                'Production log was recorded locally but could not be saved to the database.',
+                `Error: ${fmtErr(err)}`,
+                'Please check your connection and re-enter this entry after reconnecting.',
+              ],
+            } });
           });
         }
       },
@@ -838,11 +889,15 @@ export const useStore = create<AppState>()(
         if (orgId) {
           db.saveReadyStockTransaction(orgId, txn).catch((err) => {
             console.error('[saveReadyStockTransaction] DB save failed:', err);
-            alert(
-              `Ready stock entry was recorded locally but could not be saved to the database.\n\n` +
-              `Error: ${fmtErr(err)}\n\n` +
-              `Please check your connection and database setup, then retry.`
-            );
+            set({ dialog: {
+              title: 'Entry Not Saved',
+              variant: 'warning',
+              message: [
+                'Ready stock entry was recorded locally but could not be saved to the database.',
+                `Error: ${fmtErr(err)}`,
+                'Please check your connection and retry.',
+              ],
+            } });
           });
           if (pkgEntry) {
             db.savePackagingEntry(orgId, pkgEntry, newPkgStock).catch((err) => {
@@ -1147,6 +1202,14 @@ export const useStore = create<AppState>()(
         const emptyStock = Object.fromEntries(PACKAGING_MATERIALS.map(m => [m.id, 0]));
         set({ packagingEntries: [], packagingStock: emptyStock });
         if (orgId) db.clearAllPackagingData(orgId).catch(console.error);
+      },
+
+      showDialog(config) {
+        set({ dialog: config });
+      },
+
+      closeDialog() {
+        set({ dialog: null });
       },
 
   }),

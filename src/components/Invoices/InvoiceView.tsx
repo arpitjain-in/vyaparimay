@@ -7,7 +7,7 @@ import Layout from '../Layout/Layout';
 import logoUrl from '../../assets/company-logo-v1.png';
 
 export default function InvoiceView() {
-  const { selectedInvoiceId, invoices, businessProfile, navigate } = useStore();
+  const { selectedInvoiceId, invoices, businessProfile, navigate, showDialog } = useStore();
   const invoice = invoices.find(inv => inv.id === selectedInvoiceId);
   const preRef = useRef<HTMLPreElement>(null);
 
@@ -83,7 +83,9 @@ export default function InvoiceView() {
   };
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(thermalText).then(() => alert('Invoice text copied!'));
+    navigator.clipboard.writeText(thermalText).then(() =>
+      showDialog({ title: 'Copied', variant: 'success', message: 'Invoice text copied to clipboard.' })
+    );
   };
 
   const ci = invoice.customerSnapshot;

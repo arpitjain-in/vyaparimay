@@ -15,10 +15,10 @@ const supabaseAnonKey = DEMO_MODE
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    // Disable auto session refresh so the demo client never attempts a network
-    // call to restore or refresh an existing Supabase session.
-    autoRefreshToken: false,
-    persistSession: false,
+    // In demo mode, disable auth persistence so the client never reaches the
+    // production Supabase backend or restores a real session.
+    autoRefreshToken: !DEMO_MODE,
+    persistSession: !DEMO_MODE,
     detectSessionInUrl: false,
   },
 });
