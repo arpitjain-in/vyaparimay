@@ -253,7 +253,7 @@ export const useStore = create<AppState>()(
 
           // Seed catalog entries (SKUs, packaging materials) on first login or after
           // a catalog update. Bump CATALOG_VERSION whenever src/data/products.ts changes.
-          const CATALOG_VERSION = 'v6';
+          const CATALOG_VERSION = 'v7';
           const catalogKey = `catalog_seeded_${orgId}`;
           if (localStorage.getItem(catalogKey) !== CATALOG_VERSION) {
             try {
