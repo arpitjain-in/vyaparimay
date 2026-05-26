@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Search, Plus, ShoppingCart, Trash2, AlertTriangle, CheckCircle2, ChevronRight, Eye } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PACKAGING_MATERIALS, PRODUCT_CATEGORIES, getRawMaterialId } from '../../data/products';
@@ -169,7 +169,10 @@ export default function NewOrder() {
   const loadingCharges   = currentOrder?.loadingCharges   ?? 0;
   const grandTotal = Math.round(preDiscount - discountAmount + transportCharges + loadingCharges);
 
-  const stockAlerts = getStockAlerts(currentOrder?.items ?? [], rawMaterialStock, packagingStock);
+  const stockAlerts = useMemo(
+    () => getStockAlerts(currentOrder?.items ?? [], rawMaterialStock, packagingStock),
+    [currentOrder?.items, rawMaterialStock, packagingStock],
+  );
 
   const handleGenerateInvoice = () => {
     generateInvoice(saleDate);

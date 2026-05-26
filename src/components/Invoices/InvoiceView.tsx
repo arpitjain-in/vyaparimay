@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { ArrowLeft, Printer, Copy } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR } from '../../utils/format';
@@ -8,8 +8,21 @@ import logoUrl from '../../assets/company-logo-v1.png';
 
 export default function InvoiceView() {
   const { selectedInvoiceId, invoices, businessProfile, navigate, showDialog } = useStore();
-  const invoice = invoices.find(inv => inv.id === selectedInvoiceId);
   const preRef = useRef<HTMLPreElement>(null);
+
+  const invoice = useMemo(
+    () => invoices.find(inv => inv.id === selectedInvoiceId),
+    [invoices, selectedInvoiceId],
+  );
+
+  const thermalText = useMemo(
+    () => invoice && businessProfile ? buildThermalText(invoice, businessProfile) : '',
+    [invoice, businessProfile],
+  );
+  const customerCopyText = useMemo(
+    () => invoice && businessProfile ? buildCustomerCopyText(invoice, businessProfile) : '',
+    [invoice, businessProfile],
+  );
 
   if (!invoice || !businessProfile) {
     return (
@@ -18,9 +31,6 @@ export default function InvoiceView() {
       </Layout>
     );
   }
-
-  const thermalText = buildThermalText(invoice, businessProfile);
-  const customerCopyText = buildCustomerCopyText(invoice, businessProfile);
 
   const handlePrint = (text: string, title: string) => {
     const w = window.open('', '_blank', 'width=302,height=600');

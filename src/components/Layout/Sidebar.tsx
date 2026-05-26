@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   LayoutDashboard, Users, ShoppingCart, FileText,
   PackageCheck, Box, IndianRupee, Settings,
@@ -21,7 +21,11 @@ type NavSection = { heading: string; items: NavItem[] };
 const TODAY = formatDate(new Date());
 
 export default function Sidebar() {
-  const { currentPage, navigate, businessProfile, currentOrder, invoices, readyStock, reorderLevels, getReadyStockStatus } = useStore();
+  const currentPage      = useStore(s => s.currentPage);
+  const navigate         = useStore(s => s.navigate);
+  const businessProfile  = useStore(s => s.businessProfile);
+  const currentOrder     = useStore(s => s.currentOrder);
+  const invoices         = useStore(s => s.invoices);
 
   const handleNav = (page: AppPage) => {
     if (page === 'new-order') {
@@ -31,9 +35,12 @@ export default function Sidebar() {
     }
   };
 
-  const todaySales = invoices.filter(i => !i.cancelled && i.invoiceDate === TODAY).length;
+  const todaySales = useMemo(
+    () => invoices.filter(i => !i.cancelled && i.invoiceDate === TODAY).length,
+    [invoices],
+  );
 
-  const SECTIONS: NavSection[] = [
+  const SECTIONS: NavSection[] = useMemo(() => [
     {
       heading: 'Overview',
       items: [
@@ -88,7 +95,7 @@ export default function Sidebar() {
         { label: 'Settings', page: 'setup', icon: <Settings size={16} /> },
       ],
     },
-  ];
+  ], [currentOrder, todaySales]);
 
   const initials = (businessProfile?.name ?? 'VM')
     .split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
