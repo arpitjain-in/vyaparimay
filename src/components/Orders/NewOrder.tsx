@@ -84,7 +84,7 @@ function getStockAlerts(
 export default function NewOrder() {
   const {
     customers, currentOrder, businessProfile,
-    setOrderCustomer, setOrderPaymentMode,
+    setOrderCustomer,
     upsertCartItem, removeCartItem, generateInvoice, setOrderGst, setOrderDiscount, setOrderCharges,
     rawMaterialStock, packagingStock, priceList, navigate,
   } = useStore();
@@ -843,21 +843,6 @@ export default function NewOrder() {
                 }`}
               />
               {saleDateError && <p className="text-xs text-red-500 mt-1">{saleDateError}</p>}
-            </div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Payment Mode</label>
-            <div className="flex gap-4">
-              {(['Cash', 'Credit'] as const).map(mode => (
-                <label key={mode} className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="paymentMode"
-                    checked={(currentOrder?.paymentMode ?? 'Cash') === mode}
-                    onChange={() => setOrderPaymentMode(mode)}
-                    className="text-indigo-600"
-                  />
-                  <span className="text-sm text-gray-700">{mode}</span>
-                </label>
-              ))}
             </div>
           </div>
 

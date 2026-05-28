@@ -421,7 +421,7 @@ export const useStore = create<AppState>()(
           currentOrder: {
             customerId,
             items: s.currentOrder?.items ?? [],
-            paymentMode: 'Cash',
+            paymentMode: 'Credit',
           },
         }));
       },

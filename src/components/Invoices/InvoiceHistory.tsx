@@ -22,7 +22,7 @@ export default function InvoiceHistory() {
   const pendingPaymentModeInvoice = pendingPaymentModeId ? invoices.find(i => i.id === pendingPaymentModeId) : null;
 
   const filtered = [...invoices]
-    .filter(inv => showCancelled || !inv.cancelled)
+    .filter(inv => showCancelled ? inv.cancelled : !inv.cancelled)
     .filter(inv => paymentFilter === 'All' || inv.paymentMode === paymentFilter)
     .filter(inv => {
       const q = search.toLowerCase();
@@ -199,6 +199,10 @@ export default function InvoiceHistory() {
     {pendingInvoice && (
       <DeletePasswordModal
         invoiceNo={pendingInvoice.invoiceNo}
+        customerName={pendingInvoice.customerSnapshot.name}
+        invoiceDate={pendingInvoice.invoiceDate}
+        grandTotal={pendingInvoice.grandTotal}
+        paymentMode={pendingInvoice.paymentMode}
         onConfirm={() => {
           cancelInvoice(pendingInvoice.id);
           setPendingCancelId(null);

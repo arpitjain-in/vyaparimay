@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import {
   ShoppingCart, TrendingUp, PackageCheck, FlaskConical,
-  AlertTriangle, ArrowRight, Users, IndianRupee,
+  ArrowRight, Users, IndianRupee,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { PRODUCTS, PACKAGING_MATERIALS } from '../../data/products';
+import { PRODUCTS } from '../../data/products';
 import { fmtINR, formatDate } from '../../utils/format';
 import Layout from '../Layout/Layout';
 
@@ -108,13 +108,11 @@ function SalesBarChart({ data }: { data: { date: string; label: string; revenue:
 export default function Dashboard() {
   // Actions don't trigger re-renders — keep destructured together.
   const { navigate, startNewOrder, getReadyStockStatus } = useStore();
-  const invoices               = useStore(s => s.invoices);
-  const packagingStock         = useStore(s => s.packagingStock);
-  const packagingEntries       = useStore(s => s.packagingEntries);
-  const reorderLevels          = useStore(s => s.reorderLevels);
-  const businessProfile        = useStore(s => s.businessProfile);
-  const readyStock             = useStore(s => s.readyStock);
-  const readyStockTransactions = useStore(s => s.readyStockTransactions);
+  const invoices        = useStore(s => s.invoices);
+  const businessProfile = useStore(s => s.businessProfile);
+  const readyStock      = useStore(s => s.readyStock);
+  const customers       = useStore(s => s.customers);
+  const paymentReceipts = useStore(s => s.paymentReceipts);
 
   // Computed once per mount, refreshed when the component remounts (e.g. next day).
   const TODAY = useMemo(() => formatDate(new Date()), []);
@@ -168,27 +166,24 @@ export default function Dashboard() {
     return days;
   }, [invoices]);
 
-  // ── Ready stock alerts ────────────────────────────────────────────
-  const { lowReadyItems, lowPkgItems } = useMemo(() => {
-    const activatedSkuIds = new Set(readyStockTransactions.map(t => t.skuId));
-    const activatedPkgIds = new Set(packagingEntries.map(e => e.materialId));
-
-    return {
-      lowReadyItems: PRODUCTS.filter(p => {
-        const status = getReadyStockStatus(p.id);
-        if (status === 'low') return true;
-        if (status === 'out' && activatedSkuIds.has(p.id)) return true;
-        return false;
-      }),
-      lowPkgItems: PACKAGING_MATERIALS.filter(pm => {
-        const stock = packagingStock[pm.id] ?? 0;
-        const reorder = reorderLevels.packaging[pm.id] ?? 0;
-        if (reorder > 0 && stock <= reorder) return true;
-        if (stock === 0 && activatedPkgIds.has(pm.id)) return true;
-        return false;
-      }),
-    };
-  }, [readyStockTransactions, packagingEntries, packagingStock, reorderLevels, getReadyStockStatus]);
+  // ── Top debtors ───────────────────────────────────────────────────
+  const topDebtors = useMemo(() => {
+    return customers
+      .filter(c => c.active)
+      .map(c => {
+        const totalInvoiced = invoices
+          .filter(i => !i.cancelled && i.customerId === c.id)
+          .reduce((s, i) => s + i.grandTotal, 0);
+        const totalPaid = paymentReceipts
+          .filter(r => r.customerId === c.id)
+          .reduce((s, r) => s + r.amount, 0);
+        const outstanding = c.openingBalance + totalInvoiced - totalPaid;
+        return { customer: c, outstanding };
+      })
+      .filter(d => d.outstanding > 0)
+      .sort((a, b) => b.outstanding - a.outstanding)
+      .slice(0, 25);
+  }, [customers, invoices, paymentReceipts]);
 
   // ── Today's sales by SKU ──────────────────────────────────────────
   const skuSalesList = useMemo(() => {
@@ -244,14 +239,6 @@ export default function Dashboard() {
           sub="Rolling last 7 days"
           icon={<TrendingUp size={18} className="text-indigo-600" />}
           accent="bg-indigo-50"
-        />
-        <KpiCard
-          label="Stock Alerts"
-          value={lowReadyItems.length + lowPkgItems.length}
-          sub={lowReadyItems.length > 0 ? `${lowReadyItems.length} SKU${lowReadyItems.length > 1 ? 's' : ''} low/out` : 'All good'}
-          icon={<AlertTriangle size={18} className={lowReadyItems.length + lowPkgItems.length > 0 ? 'text-rose-500' : 'text-slate-400'} />}
-          accent={lowReadyItems.length + lowPkgItems.length > 0 ? 'bg-rose-50' : 'bg-slate-50'}
-          onClick={() => navigate('ready-stock')}
         />
       </div>
 
@@ -394,32 +381,50 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Stock Alerts */}
-          {(lowReadyItems.length + lowPkgItems.length) > 0 && (
-            <div className="bg-rose-50 border border-rose-200 rounded-2xl overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-rose-100">
-                <AlertTriangle size={14} className="text-rose-500" />
-                <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Alerts</span>
-              </div>
-              <div className="divide-y divide-rose-100 p-2">
-                {lowReadyItems.slice(0, 5).map(p => (
-                  <div key={p.id} className="flex justify-between items-center px-2 py-2 text-xs">
-                    <span className="text-slate-700 truncate">{p.variant}</span>
-                    <span className={`font-bold ml-2 shrink-0 ${(readyStock[p.id] ?? 0) === 0 ? 'text-rose-600' : 'text-amber-600'}`}>
-                      {readyStock[p.id] ?? 0} left
-                    </span>
-                  </div>
-                ))}
-                {lowPkgItems.slice(0, 3).map(pm => (
-                  <div key={pm.id} className="flex justify-between items-center px-2 py-2 text-xs">
-                    <span className="text-slate-700 truncate">{pm.name}</span>
-                    <span className="font-bold text-amber-600 ml-2 shrink-0">{packagingStock[pm.id] ?? 0}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
+      </div>
+
+      {/* ── Top Debtors ────────────────────────────────────────────── */}
+      <div className="mt-5 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <Users size={15} className="text-rose-500" />
+            <span className="font-semibold text-slate-700">Top Customers by Outstanding Dues</span>
+          </div>
+          <button onClick={() => navigate('customer-list')} className="text-indigo-500 text-xs hover:underline flex items-center gap-0.5">
+            All customers <ArrowRight size={12} />
+          </button>
+        </div>
+        {topDebtors.length === 0 ? (
+          <div className="py-10 text-center text-slate-400 text-sm">No outstanding dues.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 text-xs text-slate-500 font-semibold uppercase tracking-wide">
+                <th className="px-5 py-2.5 text-left w-10">#</th>
+                <th className="px-3 py-2.5 text-left">Customer</th>
+                <th className="px-3 py-2.5 text-left">Firm</th>
+                <th className="px-3 py-2.5 text-left">Mobile</th>
+                <th className="px-5 py-2.5 text-right">Outstanding</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {topDebtors.map(({ customer: c, outstanding }, i) => (
+                <tr
+                  key={c.id}
+                  className="hover:bg-slate-50 cursor-pointer transition-colors"
+                  onClick={() => navigate('customer-ledger', { customerId: c.id })}
+                >
+                  <td className="px-5 py-2.5 text-slate-400 text-xs font-mono">{i + 1}</td>
+                  <td className="px-3 py-2.5 font-medium text-slate-700">{c.name}</td>
+                  <td className="px-3 py-2.5 text-slate-400">{c.firmName ?? '—'}</td>
+                  <td className="px-3 py-2.5 text-slate-500">{c.mobile}</td>
+                  <td className="px-5 py-2.5 text-right font-bold text-rose-600">{fmtINR(outstanding)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </Layout>
   );
