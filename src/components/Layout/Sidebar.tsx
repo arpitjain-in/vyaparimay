@@ -142,20 +142,22 @@ export default function Sidebar() {
                 </button>
               );
             })}
+            {section.heading === 'System' && (
+              <button
+                onClick={() => signOut()}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+              >
+                <span className="text-slate-500"><LogOut size={16} /></span>
+                <span className="flex-1 text-left font-medium">Sign out</span>
+              </button>
+            )}
           </div>
         ))}
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-slate-700/60 space-y-2">
+      <div className="px-4 py-3 border-t border-slate-700/60">
         <div className="text-xs text-slate-500">{TODAY}</div>
-        <button
-          onClick={() => signOut()}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 transition-colors text-xs"
-        >
-          <LogOut size={13} />
-          <span>Sign out</span>
-        </button>
       </div>
     </aside>
   );
