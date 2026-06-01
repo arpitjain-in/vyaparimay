@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { BarChart3, PackageCheck, Box, FileDown, Weight } from 'lucide-react';
+import { BarChart3, PackageCheck, Box, FileDown, Weight, Users } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/products';
 import Layout from '../Layout/Layout';
@@ -673,20 +673,278 @@ function PackagingInventory() {
   );
 }
 
+// ─── Monthly Customer Report ──────────────────────────────────────────────────
+
+function getMonthOptions(): { value: string; label: string }[] {
+  const options: { value: string; label: string }[] = [];
+  const now = new Date();
+  for (let i = 0; i < 13; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+    options.push({ value, label });
+  }
+  return options;
+}
+
+interface CustomerMonthRow {
+  customerId: string;
+  customerName: string;
+  totalDebit: number;
+  totalCredit: number;
+  weightWF: number;
+  weightBR: number;
+  weightBS: number;
+  weightTotal: number;
+}
+
+function buildCustomerMonthData(
+  selectedMonth: string,
+  invoices: Invoice[],
+  paymentReceipts: PaymentReceipt[],
+  customers: { id: string; name: string }[],
+): CustomerMonthRow[] {
+  const [yearS, monthS] = selectedMonth.split('-');
+  const year = Number(yearS);
+  const month = Number(monthS);
+
+  const map: Record<string, CustomerMonthRow> = {};
+
+  const getOrCreate = (customerId: string, customerName: string): CustomerMonthRow => {
+    if (!map[customerId]) {
+      map[customerId] = { customerId, customerName, totalDebit: 0, totalCredit: 0, weightWF: 0, weightBR: 0, weightBS: 0, weightTotal: 0 };
+    }
+    return map[customerId];
+  };
+
+  for (const inv of invoices) {
+    if (inv.cancelled) continue;
+    const [, mm, yyyy] = inv.invoiceDate.split('/').map(Number);
+    if (yyyy !== year || mm !== month) continue;
+    const entry = getOrCreate(inv.customerId, inv.customerSnapshot.name);
+    entry.totalDebit += inv.grandTotal;
+    for (const item of inv.items) {
+      const kg = item.quantity * item.weight;
+      entry.weightTotal += kg;
+      if (item.skuId.startsWith('WF-')) entry.weightWF += kg;
+      else if (item.skuId.startsWith('BR-')) entry.weightBR += kg;
+      else if (item.skuId.startsWith('BS-')) entry.weightBS += kg;
+    }
+  }
+
+  for (const receipt of paymentReceipts) {
+    const [, mm, yyyy] = receipt.date.split('/').map(Number);
+    if (yyyy !== year || mm !== month) continue;
+    const cust = customers.find(c => c.id === receipt.customerId);
+    const entry = getOrCreate(receipt.customerId, cust?.name ?? receipt.customerId);
+    entry.totalCredit += receipt.amount;
+  }
+
+  return Object.values(map).sort((a, b) => a.customerId.localeCompare(b.customerId));
+}
+
+function buildMonthlyCustomerReportPdfHtml(
+  bizName: string,
+  monthLabel: string,
+  rows: CustomerMonthRow[],
+): string {
+  const now = new Date();
+  const ts = `${formatDate(now)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  const totDebit  = rows.reduce((s, r) => s + r.totalDebit, 0);
+  const totCredit = rows.reduce((s, r) => s + r.totalCredit, 0);
+  const totWF     = rows.reduce((s, r) => s + r.weightWF, 0);
+  const totBR     = rows.reduce((s, r) => s + r.weightBR, 0);
+  const totBS     = rows.reduce((s, r) => s + r.weightBS, 0);
+  const totAll    = rows.reduce((s, r) => s + r.weightTotal, 0);
+
+  const bodyRows = rows.map(r => `<tr>
+    <td class="bold">${r.customerId}</td>
+    <td>${r.customerName}</td>
+    <td class="right amt">${r.totalDebit > 0 ? fmtINR(r.totalDebit) : '—'}</td>
+    <td class="right green">${r.totalCredit > 0 ? fmtINR(r.totalCredit) : '—'}</td>
+    <td class="right">${r.weightWF > 0 ? fmtKg(r.weightWF) : '—'}</td>
+    <td class="right">${r.weightBR > 0 ? fmtKg(r.weightBR) : '—'}</td>
+    <td class="right">${r.weightBS > 0 ? fmtKg(r.weightBS) : '—'}</td>
+    <td class="right bold">${r.weightTotal > 0 ? fmtKg(r.weightTotal) : '—'}</td>
+  </tr>`).join('');
+
+  const body = `
+    <div class="header">
+      <div class="biz-name">${bizName}</div>
+      <div class="report-title">Monthly Customer Report — ${monthLabel}</div>
+      <div class="report-meta">Generated: ${ts}</div>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Customer ID</th>
+        <th>Customer Name</th>
+        <th class="right">Total Debit</th>
+        <th class="right">Total Credit</th>
+        <th class="right">Wheat Flour (kg)</th>
+        <th class="right">Bran (kg)</th>
+        <th class="right">Besan (kg)</th>
+        <th class="right">Total Weight</th>
+      </tr></thead>
+      <tbody>${bodyRows}</tbody>
+      <tfoot><tr style="background:#f1f5f9;font-weight:700">
+        <td colspan="2" class="bold">Total</td>
+        <td class="right amt">${fmtINR(totDebit)}</td>
+        <td class="right green">${fmtINR(totCredit)}</td>
+        <td class="right">${fmtKg(totWF)}</td>
+        <td class="right">${fmtKg(totBR)}</td>
+        <td class="right">${fmtKg(totBS)}</td>
+        <td class="right">${fmtKg(totAll)}</td>
+      </tr></tfoot>
+    </table>`;
+
+  return wrapPdfHtml(body);
+}
+
+function MonthlyCustomerReport({
+  selectedMonth,
+  onMonthChange,
+}: {
+  selectedMonth: string;
+  onMonthChange: (month: string) => void;
+}) {
+  const { customers, invoices, paymentReceipts } = useStore();
+
+  const monthOptions = useMemo(getMonthOptions, []);
+
+  const rows = useMemo(
+    () => buildCustomerMonthData(selectedMonth, invoices, paymentReceipts, customers),
+    [selectedMonth, invoices, paymentReceipts, customers],
+  );
+
+  const totals = useMemo(() => ({
+    debit:  rows.reduce((s, r) => s + r.totalDebit, 0),
+    credit: rows.reduce((s, r) => s + r.totalCredit, 0),
+    wf:     rows.reduce((s, r) => s + r.weightWF, 0),
+    br:     rows.reduce((s, r) => s + r.weightBR, 0),
+    bs:     rows.reduce((s, r) => s + r.weightBS, 0),
+    total:  rows.reduce((s, r) => s + r.weightTotal, 0),
+  }), [rows]);
+
+  if (rows.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-slate-600">Month:</label>
+          <select
+            value={selectedMonth}
+            onChange={e => onMonthChange(e.target.value)}
+            className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          >
+            {monthOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div className="text-center py-16 text-slate-400">
+          <Users size={40} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No customer activity for this month</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-medium text-slate-600">Month:</label>
+        <select
+          value={selectedMonth}
+          onChange={e => onMonthChange(e.target.value)}
+          className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        >
+          {monthOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-400 border-b border-slate-100 bg-slate-50">
+                <th className="text-left px-4 py-3 font-medium">Customer ID</th>
+                <th className="text-left px-4 py-3 font-medium">Customer Name</th>
+                <th className="text-right px-4 py-3 font-medium text-indigo-600">Total Debit</th>
+                <th className="text-right px-4 py-3 font-medium text-emerald-600">Total Credit</th>
+                <th className="text-right px-4 py-3 font-medium">Wheat Flour</th>
+                <th className="text-right px-4 py-3 font-medium">Bran</th>
+                <th className="text-right px-4 py-3 font-medium">Besan</th>
+                <th className="text-right px-4 py-3 font-medium">Total Weight</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.customerId} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
+                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{r.customerId}</td>
+                  <td className="px-4 py-3 font-medium text-slate-800">{r.customerName}</td>
+                  <td className="px-4 py-3 text-right font-bold text-indigo-600">
+                    {r.totalDebit > 0 ? fmtINR(r.totalDebit) : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold text-emerald-600">
+                    {r.totalCredit > 0 ? fmtINR(r.totalCredit) : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-600">
+                    {r.weightWF > 0 ? fmtKg(r.weightWF) : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-600">
+                    {r.weightBR > 0 ? fmtKg(r.weightBR) : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-600">
+                    {r.weightBS > 0 ? fmtKg(r.weightBS) : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-700">
+                    {r.weightTotal > 0 ? fmtKg(r.weightTotal) : <span className="text-slate-300">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-50 border-t-2 border-slate-200 font-semibold text-sm">
+                <td className="px-4 py-3 text-slate-500 text-xs uppercase tracking-wide" colSpan={2}>Total</td>
+                <td className="px-4 py-3 text-right font-bold text-indigo-600">{fmtINR(totals.debit)}</td>
+                <td className="px-4 py-3 text-right font-bold text-emerald-600">{fmtINR(totals.credit)}</td>
+                <td className="px-4 py-3 text-right text-slate-700">{fmtKg(totals.wf)}</td>
+                <td className="px-4 py-3 text-right text-slate-700">{fmtKg(totals.br)}</td>
+                <td className="px-4 py-3 text-right text-slate-700">{fmtKg(totals.bs)}</td>
+                <td className="px-4 py-3 text-right font-bold text-slate-800">{fmtKg(totals.total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Reports Page ────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'packaging';
+type Tab = 'overview' | 'packaging' | 'monthly';
 
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [monthlySelectedMonth, setMonthlySelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
 
-  const { businessProfile, invoices, readyStock, packagingStock, packagingEntries, paymentReceipts } = useStore();
+  const { businessProfile, invoices, readyStock, packagingStock, packagingEntries, paymentReceipts, customers } = useStore();
   const bizName = businessProfile?.name ?? 'Vyaparimay';
 
   const handleDownloadPdf = () => {
-    const html = activeTab === 'overview'
-      ? buildOverviewPdfHtml(bizName, invoices, paymentReceipts, readyStock)
-      : buildPackagingPdfHtml(bizName, packagingStock, packagingEntries);
+    let html: string;
+    if (activeTab === 'overview') {
+      html = buildOverviewPdfHtml(bizName, invoices, paymentReceipts, readyStock);
+    } else if (activeTab === 'packaging') {
+      html = buildPackagingPdfHtml(bizName, packagingStock, packagingEntries);
+    } else {
+      const monthOptions = getMonthOptions();
+      const monthLabel = monthOptions.find(o => o.value === monthlySelectedMonth)?.label ?? monthlySelectedMonth;
+      const rows = buildCustomerMonthData(monthlySelectedMonth, invoices, paymentReceipts, customers);
+      html = buildMonthlyCustomerReportPdfHtml(bizName, monthLabel, rows);
+    }
     openPdfWindow(html);
   };
 
@@ -724,6 +982,15 @@ export default function ReportsPage() {
             <Box size={15} />
             Packaging Inventory
           </button>
+          <button
+            onClick={() => setActiveTab('monthly')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all ${
+              activeTab === 'monthly' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Users size={15} />
+            Monthly Customer
+          </button>
         </div>
 
         {activeTab === 'overview' && (
@@ -754,6 +1021,13 @@ export default function ReportsPage() {
         )}
 
         {activeTab === 'packaging' && <PackagingInventory />}
+
+        {activeTab === 'monthly' && (
+          <MonthlyCustomerReport
+            selectedMonth={monthlySelectedMonth}
+            onMonthChange={setMonthlySelectedMonth}
+          />
+        )}
       </div>
     </Layout>
   );

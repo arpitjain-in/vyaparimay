@@ -214,36 +214,42 @@ export default function ExpensePage() {
             <p className="text-sm text-slate-500 mt-1">Add your first expense to get started</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3">
-            {sortedExpenses.map(expense => (
-              <div key={expense.id} className="bg-white rounded-xl shadow-md p-4 flex items-center justify-between hover:shadow-lg transition-shadow">
-                <div className="flex-1">
-                  <div className="flex items-center gap-4">
-                    <div>
-                      <div className="text-2xl font-bold text-indigo-600">
-                        ₹{expense.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </div>
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-sm text-slate-500">
-                        {expense.date} at {expense.time}
-                      </div>
-                      {expense.notes && (
-                        <div className="text-sm text-slate-700 mt-1">{expense.notes}</div>
-                      )}
-                    </div>
+          <>
+            {/* Summary strip */}
+            <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 mb-4 flex items-center justify-between">
+              <span className="text-sm text-indigo-700 font-medium">Total spent</span>
+              <span className="text-lg font-bold text-indigo-700">
+                ₹{sortedExpenses.reduce((sum, e) => sum + e.amount, 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {sortedExpenses.map(expense => (
+                <div key={expense.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-3 flex flex-col hover:shadow-md transition-shadow relative group">
+                  <button
+                    onClick={() => handleDeleteClick(expense.id)}
+                    className="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                    title="Delete expense"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+
+                  <div className="text-xl font-extrabold text-indigo-600 leading-tight pr-6">
+                    ₹{expense.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+
+                  {expense.notes && (
+                    <div className="text-sm font-semibold text-slate-800 mt-1 line-clamp-2 leading-snug">{expense.notes}</div>
+                  )}
+
+                  <div className="text-xs text-slate-400 mt-auto pt-2">
+                    {expense.date}
+                    <span className="ml-1">{expense.time}</span>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDeleteClick(expense.id)}
-                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors ml-4"
-                  title="Delete expense"
-                >
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 

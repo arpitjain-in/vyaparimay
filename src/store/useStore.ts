@@ -52,7 +52,7 @@ interface AppState {
 
   // Invoices
   invoices: Invoice[];
-  invoiceCounters: Record<string, number>; // FY -> seq
+  invoiceCounters: Record<string, number>; // FY-MM -> seq
 
   // Payment Receipts
   paymentReceipts: PaymentReceipt[];
@@ -299,11 +299,11 @@ export const useStore = create<AppState>()(
           // Derive invoice counters from loaded invoices
           const invoiceCounters: Record<string, number> = {};
           for (const inv of invoices) {
-            const match = inv.invoiceNo.match(/INV-(\d{4})-(\d+)/);
+            const match = inv.invoiceNo.match(/INV\/(\d{4})\/(\d{2})\/(\d+)/);
             if (match) {
-              const fy = match[1];
-              const seq = parseInt(match[2], 10);
-              invoiceCounters[fy] = Math.max(invoiceCounters[fy] ?? 0, seq);
+              const key = `${match[1]}-${match[2]}`;
+              const seq = parseInt(match[3], 10);
+              invoiceCounters[key] = Math.max(invoiceCounters[key] ?? 0, seq);
             }
           }
 
@@ -501,8 +501,10 @@ export const useStore = create<AppState>()(
           ? (() => { const [y, m, d] = saleDate.split('-').map(Number); return new Date(y, m - 1, d); })()
           : new Date();
         const fy = getFYFromDate(invoiceDateObj);
-        const seq = (invoiceCounters[fy] ?? 0) + 1;
-        const invoiceNo = `INV-${fy}-${String(seq).padStart(3, '0')}`;
+        const mm = String(invoiceDateObj.getMonth() + 1).padStart(2, '0');
+        const fyMonth = `${fy}-${mm}`;
+        const seq = (invoiceCounters[fyMonth] ?? 0) + 1;
+        const invoiceNo = `INV/${fy}/${mm}/${String(seq).padStart(2, '0')}`;
         const inter = isInterState(businessProfile.state, customer.state);
         const gstEnabled = currentOrder.gstEnabled ?? businessProfile.gstEnabled ?? false;
         const now = new Date();
@@ -613,7 +615,7 @@ export const useStore = create<AppState>()(
 
         set({
           invoices: [...s.invoices, invoice],
-          invoiceCounters: { ...s.invoiceCounters, [fy]: seq },
+          invoiceCounters: { ...s.invoiceCounters, [fyMonth]: seq },
           readyStock: newReady,
           readyStockTransactions: [...s.readyStockTransactions, ...newReadyTxns],
           currentOrder: null,
@@ -627,7 +629,7 @@ export const useStore = create<AppState>()(
             .catch((err) => {
               // Revert the invoice counter so the next attempt reuses the same sequence number.
               set(cur => ({
-                invoiceCounters: { ...cur.invoiceCounters, [fy]: s.invoiceCounters[fy] ?? 0 },
+                invoiceCounters: { ...cur.invoiceCounters, [fyMonth]: s.invoiceCounters[fyMonth] ?? 0 },
               }));
               console.error('[saveInvoice] Failed to save invoice items:', err);
               set({ dialog: {

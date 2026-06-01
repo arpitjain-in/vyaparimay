@@ -70,20 +70,28 @@ beforeEach(baseState);
 // ─── Invoice numbering ────────────────────────────────────────────────────────
 
 describe('generateInvoice — invoice numbering', () => {
-  it('generates invoice number INV-YYMM-001 for first invoice of FY', () => {
+  it('generates invoice number INV/FY/MM/01 for first invoice of month', () => {
     placeOrder('CUST-001', [{ skuId: 'WF-26K', qty: 1, rate: 780 }]);
     const inv = useStore.getState().generateInvoice('2026-05-09');
     expect(inv).not.toBeNull();
-    // May 2026 is FY 2026-27 → YYMM code = '2627'
-    expect(inv!.invoiceNo).toBe('INV-2627-001');
+    // May 2026 is FY 2026-27 → FY code = '2627', month = '05'
+    expect(inv!.invoiceNo).toBe('INV/2627/05/01');
   });
 
-  it('increments sequence for subsequent invoices in same FY', () => {
+  it('increments sequence for subsequent invoices in same month', () => {
     placeOrder('CUST-001', [{ skuId: 'WF-26K', qty: 1, rate: 780 }]);
     useStore.getState().generateInvoice('2026-05-09');
     placeOrder('CUST-001', [{ skuId: 'WF-5P', qty: 2, rate: 165 }]);
-    const inv2 = useStore.getState().generateInvoice('2026-05-09');
-    expect(inv2!.invoiceNo).toBe('INV-2627-002');
+    const inv2 = useStore.getState().generateInvoice('2026-05-15');
+    expect(inv2!.invoiceNo).toBe('INV/2627/05/02');
+  });
+
+  it('resets sequence on the 1st of a new month', () => {
+    placeOrder('CUST-001', [{ skuId: 'WF-26K', qty: 1, rate: 780 }]);
+    useStore.getState().generateInvoice('2026-05-31'); // last day of May
+    placeOrder('CUST-001', [{ skuId: 'WF-5P', qty: 1, rate: 165 }]);
+    const inv2 = useStore.getState().generateInvoice('2026-06-01'); // June 1st
+    expect(inv2!.invoiceNo).toBe('INV/2627/06/01');
   });
 
   it('resets sequence for a new financial year', () => {
@@ -91,7 +99,7 @@ describe('generateInvoice — invoice numbering', () => {
     useStore.getState().generateInvoice('2026-05-09'); // FY 2627
     placeOrder('CUST-001', [{ skuId: 'WF-5P', qty: 1, rate: 165 }]);
     const inv2 = useStore.getState().generateInvoice('2027-04-01'); // FY 2728
-    expect(inv2!.invoiceNo).toBe('INV-2728-001');
+    expect(inv2!.invoiceNo).toBe('INV/2728/04/01');
   });
 
   it('returns null when no current order', () => {
@@ -210,11 +218,12 @@ describe('generateInvoice — ready stock deduction', () => {
     expect(readyStock['WF-25K']).toBe(10); // unchanged
   });
 
-  it('ready stock never goes below 0 (floor at 0)', () => {
+  it('rejects invoice and leaves stock unchanged when quantity exceeds available stock', () => {
     useStore.setState({ readyStock: { 'WF-26K': 2 } });
     placeOrder('CUST-001', [{ skuId: 'WF-26K', qty: 10, rate: 780 }]);
-    useStore.getState().generateInvoice('2026-05-09');
-    expect(useStore.getState().readyStock['WF-26K']).toBe(0);
+    const inv = useStore.getState().generateInvoice('2026-05-09');
+    expect(inv).toBeNull();
+    expect(useStore.getState().readyStock['WF-26K']).toBe(2);
   });
 
   it('creates DEDUCT ready-stock transactions for each line', () => {
