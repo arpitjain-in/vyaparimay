@@ -9,6 +9,7 @@ interface Props {
   message: string | string[];
   variant?: Variant;
   onClose: () => void;
+  onRetry?: () => void;
 }
 
 const VARIANT_CONFIG: Record<Variant, { icon: React.ReactNode; iconColor: string; btnColor: string }> = {
@@ -18,7 +19,7 @@ const VARIANT_CONFIG: Record<Variant, { icon: React.ReactNode; iconColor: string
   success: { icon: <CheckCircle size={20} />,   iconColor: 'text-green-600',  btnColor: 'bg-green-600 hover:bg-green-700' },
 };
 
-export default function AlertDialog({ open, title, message, variant = 'info', onClose }: Props) {
+export default function AlertDialog({ open, title, message, variant = 'info', onClose, onRetry }: Props) {
   if (!open) return null;
 
   const { icon, iconColor, btnColor } = VARIANT_CONFIG[variant];
@@ -51,13 +52,23 @@ export default function AlertDialog({ open, title, message, variant = 'info', on
           ))}
         </div>
 
-        {/* OK button */}
-        <button
-          onClick={onClose}
-          className={`w-full py-2.5 rounded-xl text-white text-sm font-medium transition-colors ${btnColor}`}
-        >
-          OK
-        </button>
+        {/* Buttons */}
+        <div className={`flex gap-2 ${onRetry ? 'flex-row' : ''}`}>
+          {onRetry && (
+            <button
+              onClick={() => { onClose(); onRetry(); }}
+              className={`flex-1 py-2.5 rounded-xl text-white text-sm font-medium transition-colors ${btnColor}`}
+            >
+              Retry
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className={`${onRetry ? 'flex-1' : 'w-full'} py-2.5 rounded-xl text-sm font-medium transition-colors ${onRetry ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : `text-white ${btnColor}`}`}
+          >
+            {onRetry ? 'Dismiss' : 'OK'}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { BarChart3, PackageCheck, Box, FileDown, Weight, Users } from 'lucide-react';
+import { BarChart3, PackageCheck, Box, FileDown, Weight, Users, BookOpen } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/products';
 import Layout from '../Layout/Layout';
@@ -919,13 +919,198 @@ function MonthlyCustomerReport({
   );
 }
 
+// ─── Accountant Report ────────────────────────────────────────────────────────
+
+function buildAccountantReportPdfHtml(
+  bizName: string,
+  monthLabel: string,
+  invoices: Invoice[],
+): string {
+  const now = new Date();
+  const ts = `${formatDate(now)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  const sorted = [...invoices].sort((a, b) => toOrd(a.invoiceDate) - toOrd(b.invoiceDate));
+
+  const grandTotal = sorted.reduce((s, i) => s + i.grandTotal, 0);
+  const cashTotal  = sorted.filter(i => i.paymentMode === 'Cash').reduce((s, i) => s + i.grandTotal, 0);
+  const creditTotal = sorted.filter(i => i.paymentMode === 'Credit').reduce((s, i) => s + i.grandTotal, 0);
+
+  const bodyRows = sorted.map(inv => {
+    const skuLines = inv.items
+      .map(it => `<div style="white-space:nowrap">${it.variant}: <b>${fmtKg(it.quantity * it.weight)}</b></div>`)
+      .join('');
+    return `<tr>
+    <td class="bold">${inv.invoiceNo}</td>
+    <td>${inv.invoiceDate}</td>
+    <td>${inv.customerSnapshot.name}</td>
+    <td style="font-size:9px;color:#475569;line-height:1.6">${skuLines}</td>
+    <td class="center muted">${inv.paymentMode}</td>
+    <td class="right amt">${fmtINR(inv.grandTotal)}</td>
+  </tr>`;
+  }).join('');
+
+  const body = `
+    <div class="header">
+      <div class="biz-name">${bizName}</div>
+      <div class="report-title">Accountant Invoice Report — ${monthLabel}</div>
+      <div class="report-meta">Generated: ${ts} &nbsp;&middot;&nbsp; ${sorted.length} invoice${sorted.length !== 1 ? 's' : ''}</div>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Invoice No</th>
+        <th>Date</th>
+        <th>Customer Name</th>
+        <th>SKU / Weight</th>
+        <th class="center">Payment Mode</th>
+        <th class="right">Amount</th>
+      </tr></thead>
+      <tbody>${bodyRows}</tbody>
+      <tfoot>
+        <tr style="background:#f1f5f9;font-weight:700">
+          <td colspan="5" class="bold">Grand Total (${sorted.length} invoices)</td>
+          <td class="right amt">${fmtINR(grandTotal)}</td>
+        </tr>
+        <tr style="background:#f8fafc">
+          <td colspan="5" class="muted" style="font-size:9px">Cash</td>
+          <td class="right green" style="font-size:9px">${fmtINR(cashTotal)}</td>
+        </tr>
+        <tr style="background:#f8fafc">
+          <td colspan="5" class="muted" style="font-size:9px">Credit</td>
+          <td class="right amber" style="font-size:9px">${fmtINR(creditTotal)}</td>
+        </tr>
+      </tfoot>
+    </table>`;
+
+  return wrapPdfHtml(body);
+}
+
+function AccountantReport({
+  selectedMonth,
+  onMonthChange,
+}: {
+  selectedMonth: string;
+  onMonthChange: (month: string) => void;
+}) {
+  const { invoices } = useStore();
+  const monthOptions = useMemo(getMonthOptions, []);
+
+  const [yearS, monthS] = selectedMonth.split('-');
+  const year = Number(yearS);
+  const month = Number(monthS);
+
+  const filtered = useMemo(
+    () =>
+      invoices
+        .filter(inv => {
+          if (inv.cancelled) return false;
+          const [, mm, yyyy] = inv.invoiceDate.split('/').map(Number);
+          return yyyy === year && mm === month;
+        })
+        .sort((a, b) => toOrd(a.invoiceDate) - toOrd(b.invoiceDate)),
+    [invoices, year, month],
+  );
+
+  const totals = useMemo(() => ({
+    grand:  filtered.reduce((s, i) => s + i.grandTotal, 0),
+    cash:   filtered.filter(i => i.paymentMode === 'Cash').reduce((s, i) => s + i.grandTotal, 0),
+    credit: filtered.filter(i => i.paymentMode === 'Credit').reduce((s, i) => s + i.grandTotal, 0),
+  }), [filtered]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-medium text-slate-600">Month:</label>
+        <select
+          value={selectedMonth}
+          onChange={e => onMonthChange(e.target.value)}
+          className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        >
+          {monthOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-16 text-slate-400">
+          <BookOpen size={40} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No invoices for this month</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-slate-400 border-b border-slate-100 bg-slate-50">
+                  <th className="text-left px-4 py-3 font-medium">Invoice No</th>
+                  <th className="text-left px-4 py-3 font-medium">Date</th>
+                  <th className="text-left px-4 py-3 font-medium">Customer Name</th>
+                  <th className="text-left px-4 py-3 font-medium">SKU / Weight</th>
+                  <th className="text-center px-4 py-3 font-medium">Payment Mode</th>
+                  <th className="text-right px-4 py-3 font-medium text-indigo-600">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(inv => (
+                  <tr key={inv.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs font-semibold text-indigo-700">{inv.invoiceNo}</td>
+                    <td className="px-4 py-3 text-slate-700">{inv.invoiceDate}</td>
+                    <td className="px-4 py-3 font-medium text-slate-800">{inv.customerSnapshot.name}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-0.5">
+                        {inv.items.map((item, i) => (
+                          <span key={i} className="text-xs text-slate-600 whitespace-nowrap">
+                            {item.variant}: <span className="font-semibold text-slate-800">{fmtKg(item.quantity * item.weight)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full ${
+                        inv.paymentMode === 'Cash'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-amber-50 text-amber-700'
+                      }`}>
+                        {inv.paymentMode}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold text-indigo-600">{fmtINR(inv.grandTotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-50 border-t-2 border-slate-200">
+                  <td className="px-4 py-3 text-xs text-slate-500 uppercase tracking-wide font-semibold" colSpan={5}>
+                    Total ({filtered.length} invoice{filtered.length !== 1 ? 's' : ''})
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold text-indigo-600">{fmtINR(totals.grand)}</td>
+                </tr>
+                <tr className="bg-slate-50/50">
+                  <td className="px-4 py-2 text-xs text-slate-400" colSpan={5}>Cash</td>
+                  <td className="px-4 py-2 text-right text-xs font-semibold text-emerald-600">{fmtINR(totals.cash)}</td>
+                </tr>
+                <tr className="bg-slate-50/50">
+                  <td className="px-4 py-2 text-xs text-slate-400" colSpan={5}>Credit</td>
+                  <td className="px-4 py-2 text-right text-xs font-semibold text-amber-600">{fmtINR(totals.credit)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Reports Page ────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'packaging' | 'monthly';
+type Tab = 'overview' | 'packaging' | 'monthly' | 'accountant';
 
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [monthlySelectedMonth, setMonthlySelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [accountantSelectedMonth, setAccountantSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
@@ -939,6 +1124,17 @@ export default function ReportsPage() {
       html = buildOverviewPdfHtml(bizName, invoices, paymentReceipts, readyStock);
     } else if (activeTab === 'packaging') {
       html = buildPackagingPdfHtml(bizName, packagingStock, packagingEntries);
+    } else if (activeTab === 'accountant') {
+      const monthOptions = getMonthOptions();
+      const monthLabel = monthOptions.find(o => o.value === accountantSelectedMonth)?.label ?? accountantSelectedMonth;
+      const [yearS, monthS] = accountantSelectedMonth.split('-');
+      const year = Number(yearS); const month = Number(monthS);
+      const acctInvoices = invoices.filter(inv => {
+        if (inv.cancelled) return false;
+        const [, mm, yyyy] = inv.invoiceDate.split('/').map(Number);
+        return yyyy === year && mm === month;
+      });
+      html = buildAccountantReportPdfHtml(bizName, monthLabel, acctInvoices);
     } else {
       const monthOptions = getMonthOptions();
       const monthLabel = monthOptions.find(o => o.value === monthlySelectedMonth)?.label ?? monthlySelectedMonth;
@@ -991,6 +1187,15 @@ export default function ReportsPage() {
             <Users size={15} />
             Monthly Customer
           </button>
+          <button
+            onClick={() => setActiveTab('accountant')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all ${
+              activeTab === 'accountant' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <BookOpen size={15} />
+            Accountant
+          </button>
         </div>
 
         {activeTab === 'overview' && (
@@ -1026,6 +1231,13 @@ export default function ReportsPage() {
           <MonthlyCustomerReport
             selectedMonth={monthlySelectedMonth}
             onMonthChange={setMonthlySelectedMonth}
+          />
+        )}
+
+        {activeTab === 'accountant' && (
+          <AccountantReport
+            selectedMonth={accountantSelectedMonth}
+            onMonthChange={setAccountantSelectedMonth}
           />
         )}
       </div>

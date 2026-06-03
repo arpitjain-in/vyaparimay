@@ -20,7 +20,9 @@ function fmtErr(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (err && typeof err === 'object') {
     const e = err as Record<string, unknown>;
-    return [e.message, e.details, e.hint].filter(Boolean).join(' — ') || JSON.stringify(err);
+    const parts = ([e.message, e.details, e.hint].filter(Boolean) as string[]);
+    const unique = [...new Set(parts)];
+    return unique.join(' — ') || JSON.stringify(err);
   }
   return String(err);
 }
@@ -156,7 +158,7 @@ interface AppState {
   getStockStatus(type: 'raw' | 'packaging', id: string): 'adequate' | 'low' | 'out';
 
   // Global dialog
-  dialog: { title: string; message: string | string[]; variant?: 'error' | 'warning' | 'info' | 'success' } | null;
+  dialog: { title: string; message: string | string[]; variant?: 'error' | 'warning' | 'info' | 'success'; onRetry?: () => void } | null;
   showDialog(config: { title: string; message: string | string[]; variant?: 'error' | 'warning' | 'info' | 'success' }): void;
   closeDialog(): void;
 }
@@ -889,18 +891,22 @@ export const useStore = create<AppState>()(
         });
         const { orgId } = get();
         if (orgId) {
-          db.saveReadyStockTransaction(orgId, txn).catch((err) => {
-            console.error('[saveReadyStockTransaction] DB save failed:', err);
-            set({ dialog: {
-              title: 'Entry Not Saved',
-              variant: 'warning',
-              message: [
-                'Ready stock entry was recorded locally but could not be saved to the database.',
-                `Error: ${fmtErr(err)}`,
-                'Please check your connection and retry.',
-              ],
-            } });
-          });
+          const attemptSave = () => {
+            db.saveReadyStockTransaction(orgId!, txn).catch((err) => {
+              console.error('[saveReadyStockTransaction] DB save failed:', err);
+              set({ dialog: {
+                title: 'Entry Not Saved',
+                variant: 'warning',
+                message: [
+                  'Ready stock entry was recorded locally but could not be saved to the database.',
+                  `Error: ${fmtErr(err)}`,
+                  'Tap Retry to try again, or check your connection.',
+                ],
+                onRetry: attemptSave,
+              } });
+            });
+          };
+          attemptSave();
           if (pkgEntry) {
             db.savePackagingEntry(orgId, pkgEntry, newPkgStock).catch((err) => {
               console.error('[savePackagingEntry/auto-deduct] DB save failed:', err);

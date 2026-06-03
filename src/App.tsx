@@ -153,6 +153,7 @@ export default function App() {
         message={dialog?.message ?? ''}
         variant={dialog?.variant}
         onClose={closeDialog}
+        onRetry={dialog?.onRetry}
       />
     </>
   );
