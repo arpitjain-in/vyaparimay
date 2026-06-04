@@ -103,6 +103,26 @@ export default function App() {
     );
   }
 
+  if (initError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900">
+        <div className="text-center max-w-sm px-6">
+          <p className="text-red-400 font-semibold mb-2">Could not connect to database</p>
+          <p className="text-slate-400 text-sm mb-6 break-words">{initError}</p>
+          <button
+            onClick={() => {
+              useStore.setState({ isInitialized: false, initError: null });
+              initializeApp();
+            }}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-500"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // First-run: business profile not set
   if (!businessProfile && currentPage !== 'setup') {
     return (

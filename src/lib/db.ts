@@ -113,12 +113,13 @@ export async function getOrCreateOrg(_userId: string): Promise<string> {
 export async function loadBusinessProfile(
   orgId: string,
 ): Promise<BusinessProfile | null> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('business_profiles')
     .select('*')
     .eq('org_id', orgId)
     .maybeSingle();
 
+  if (error) throw error;
   if (!data) return null;
   return {
     name: data.name,

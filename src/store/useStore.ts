@@ -245,25 +245,16 @@ export const useStore = create<AppState>()(
           const userId = await db.initAuth();
           const orgId = await db.getOrCreateOrg(userId);
 
-          // Apply cached business profile immediately so the setup page never
-          // flickers on refresh for users who have already configured their business.
-          const BP_CACHE_KEY = `bp_cache_${orgId}`;
-          const cachedBp = localStorage.getItem(BP_CACHE_KEY);
-          if (cachedBp) {
-            try { set({ businessProfile: JSON.parse(cachedBp) }); } catch { /* ignore corrupt cache */ }
-          }
+          // Remove stale localStorage keys written by the old cache layer.
+          localStorage.removeItem(`bp_cache_${orgId}`);
+          localStorage.removeItem(`catalog_seeded_${orgId}`);
 
-          // Seed catalog entries (SKUs, packaging materials) on first login or after
-          // a catalog update. Bump CATALOG_VERSION whenever src/data/products.ts changes.
-          const CATALOG_VERSION = 'v7';
-          const catalogKey = `catalog_seeded_${orgId}`;
-          if (localStorage.getItem(catalogKey) !== CATALOG_VERSION) {
-            try {
-              await db.initializeCatalog(orgId);
-              localStorage.setItem(catalogKey, CATALOG_VERSION);
-            } catch (catErr) {
-              console.warn('[initializeCatalog] Failed to seed catalog, will retry on next startup:', catErr);
-            }
+          // Seed catalog entries (SKUs, packaging materials) on every startup.
+          // initializeCatalog uses ON CONFLICT DO NOTHING so it is always safe to run.
+          try {
+            await db.initializeCatalog(orgId);
+          } catch (catErr) {
+            console.warn('[initializeCatalog] Failed to seed catalog, will retry on next startup:', catErr);
           }
 
           const [
@@ -309,18 +300,12 @@ export const useStore = create<AppState>()(
             }
           }
 
-          // Keep the business profile cache fresh so subsequent refreshes are instant.
-          if (businessProfile) {
-            localStorage.setItem(BP_CACHE_KEY, JSON.stringify(businessProfile));
-          } else {
-            localStorage.removeItem(BP_CACHE_KEY);
-          }
-
           const s = get();
 
           set({
             orgId,
             isInitialized: true,
+            initError: null,
             businessProfile,
             customers,
             customerSeq,
@@ -346,7 +331,7 @@ export const useStore = create<AppState>()(
             employeeLeaves,
             employeeAdvances,
             salaryRecords,
-            currentPage: get().isInitialized ? get().currentPage : (businessProfile ? 'dashboard' : 'setup'),
+            currentPage: businessProfile ? 'dashboard' : 'setup',
           });
         } catch (err) {
           const msg = fmtErr(err);
@@ -373,7 +358,6 @@ export const useStore = create<AppState>()(
         set({ businessProfile: profile, currentPage: 'dashboard' });
         const { orgId } = get();
         if (orgId) {
-          localStorage.setItem(`bp_cache_${orgId}`, JSON.stringify(profile));
           db.saveBusinessProfile(orgId, profile).catch(console.error);
         }
       },
