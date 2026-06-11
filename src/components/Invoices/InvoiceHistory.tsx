@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Search, FileText, XCircle, ArrowLeftRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, FileText, XCircle, ArrowLeftRight, ChevronLeft, ChevronRight, Truck } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR, parseDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
 import DeletePasswordModal from './DeletePasswordModal';
+import TruckLoadSheet from './TruckLoadSheet';
 
 const PAGE_SIZE = 25;
 
@@ -15,6 +16,9 @@ export default function InvoiceHistory() {
   const [pendingCancelId, setPendingCancelId] = useState<string | null>(null);
   const [pendingPaymentModeId, setPendingPaymentModeId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [truckMode, setTruckMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showLoadSheet, setShowLoadSheet] = useState(false);
 
   useEffect(() => { setPage(1); }, [search, showCancelled, paymentFilter]);
 
@@ -40,20 +44,63 @@ export default function InvoiceHistory() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginatedInvoices = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
   const totalRevenue = invoices.filter(i => !i.cancelled).reduce((s, i) => s + i.grandTotal, 0);
+
+  const handleTruckModeToggle = () => {
+    if (truckMode) {
+      setSelectedIds(new Set());
+      setShowLoadSheet(false);
+    }
+    setTruckMode(m => !m);
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedInvoices = invoices.filter(inv => selectedIds.has(inv.id));
 
   return (
     <>
     <Layout
       title="Invoice History"
       actions={
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <span>Total Revenue:</span>
-          <span className="font-bold text-gray-800">{fmtINR(totalRevenue)}</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleTruckModeToggle}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
+              truckMode
+                ? 'bg-indigo-500 text-white'
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <Truck size={15} />
+            Truck Load
+          </button>
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <span>Total Revenue:</span>
+            <span className="font-bold text-gray-800">{fmtINR(totalRevenue)}</span>
+          </div>
         </div>
       }
     >
+      {truckMode && (
+        <div className="mb-3 flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-xl text-sm text-indigo-700">
+          <Truck size={14} />
+          <span>
+            Select invoices to generate a load sheet.{' '}
+            {selectedIds.size > 0
+              ? <><strong>{selectedIds.size}</strong> invoice{selectedIds.size !== 1 ? 's' : ''} selected.</>
+              : 'None selected yet.'}
+          </span>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex items-center gap-4 mb-4">
         <div className="relative flex-1">
@@ -102,6 +149,7 @@ export default function InvoiceHistory() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
+                {truckMode && <th className="px-4 py-3" />}
                 {['Invoice No', 'Date', 'Customer', 'Items', 'Subtotal', 'GST', 'Grand Total', 'Payment', 'Status', ''].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wide">{h}</th>
                 ))}
@@ -109,7 +157,21 @@ export default function InvoiceHistory() {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {paginatedInvoices.map(inv => (
-                <tr key={inv.id} className={`hover:bg-slate-50 transition-colors ${inv.cancelled ? 'opacity-50' : ''}`}>
+                <tr
+                  key={inv.id}
+                  className={`hover:bg-slate-50 transition-colors ${inv.cancelled ? 'opacity-50' : ''} ${truckMode && selectedIds.has(inv.id) ? 'bg-indigo-50 hover:bg-indigo-50' : ''}`}
+                >
+                  {truckMode && (
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(inv.id)}
+                        onChange={() => toggleSelect(inv.id)}
+                        disabled={inv.cancelled}
+                        className="rounded accent-indigo-500 disabled:opacity-30"
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-3 font-mono text-indigo-500 font-semibold text-xs">{inv.invoiceNo}</td>
                   <td className="px-4 py-3 text-slate-600">
                     {inv.invoiceDate}
@@ -194,7 +256,33 @@ export default function InvoiceHistory() {
           </div>
         )}
       </div>
+
+      {/* Bottom padding so the fixed bar doesn't cover the last row */}
+      {truckMode && selectedIds.size > 0 && <div className="h-16" />}
     </Layout>
+
+    {/* Sticky truck load action bar */}
+    {truckMode && selectedIds.size > 0 && (
+      <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-between px-6 py-3 bg-indigo-600 text-white shadow-2xl">
+        <span className="text-sm font-medium">
+          {selectedIds.size} invoice{selectedIds.size !== 1 ? 's' : ''} selected
+        </span>
+        <button
+          onClick={() => setShowLoadSheet(true)}
+          className="flex items-center gap-2 bg-white text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-indigo-50 transition-colors"
+        >
+          <Truck size={15} />
+          View Load Sheet
+        </button>
+      </div>
+    )}
+
+    {showLoadSheet && (
+      <TruckLoadSheet
+        invoices={selectedInvoices}
+        onClose={() => setShowLoadSheet(false)}
+      />
+    )}
 
     {pendingInvoice && (
       <DeletePasswordModal
