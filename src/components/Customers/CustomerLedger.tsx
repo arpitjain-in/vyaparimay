@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Phone, MapPin, Building2, PlusCircle, TrendingUp, TrendingDown, Loader2, AlertCircle, Pencil, Check, X } from 'lucide-react';
+import { ArrowLeft, Phone, MapPin, Building2, PlusCircle, TrendingUp, TrendingDown, Loader2, AlertCircle, Pencil, Check, X, Printer } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR } from '../../utils/format';
 import Layout from '../Layout/Layout';
@@ -10,7 +10,7 @@ import type { Customer } from '../../types';
 
 // ─── Main Ledger ─────────────────────────────────────────────────────────────
 export default function CustomerLedger() {
-  const { selectedCustomerId, orgId, invoices, paymentReceipts, navigate, updatePaymentReceipt } = useStore();
+  const { selectedCustomerId, orgId, invoices, paymentReceipts, navigate, updatePaymentReceipt, businessProfile } = useStore();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +127,123 @@ export default function CustomerLedger() {
   const totalCredit = rows.reduce((s, r) => s + r.credit, 0);
   const outstanding = totalDebit - totalCredit;
 
+  const handlePrint = () => {
+    const biz = businessProfile;
+    const bizHeader = biz
+      ? `<div style="text-align:center;margin-bottom:12px;">
+          <div style="font-size:18px;font-weight:700;">${biz.name}</div>
+          ${biz.address1 ? `<div style="font-size:12px;color:#555;">${biz.address1}${biz.address2 ? ', ' + biz.address2 : ''}, ${biz.city} – ${biz.state}</div>` : ''}
+          ${biz.mobile ? `<div style="font-size:12px;color:#555;">Ph: ${biz.mobile}</div>` : ''}
+          ${biz.gstin ? `<div style="font-size:12px;color:#555;">GSTIN: ${biz.gstin}</div>` : ''}
+        </div>`
+      : '';
+
+    const rowsHtml = ledger.map(row => {
+      let desc = '';
+      if (row.kind === 'opening') desc = '<span style="color:#b45309;font-weight:600;">Opening Balance</span>';
+      else if (row.kind === 'invoice') desc = `Invoice <span style="font-family:monospace;">${(row as { invoiceNo: string }).invoiceNo}</span>`;
+      else {
+        const r = row as { mode: string; refNo?: string; notes?: string };
+        desc = `<span style="color:#15803d;font-weight:600;">Payment Received · ${r.mode}${r.refNo ? ` (${r.refNo})` : ''}${r.notes ? ` · ${r.notes}` : ''}</span>`;
+      }
+      const balColor = row.balance > 0 ? '#92400e' : row.balance < 0 ? '#15803d' : '#6b7280';
+      const balSuffix = row.balance > 0 ? ' Dr' : row.balance < 0 ? ' Cr' : ' Nil';
+      return `<tr>
+        <td style="padding:6px 8px;white-space:nowrap;color:#6b7280;">${row.date}</td>
+        <td style="padding:6px 8px;">${desc}</td>
+        <td style="padding:6px 8px;text-align:right;color:#dc2626;">${row.debit > 0 ? fmtINR(row.debit) : '—'}</td>
+        <td style="padding:6px 8px;text-align:right;color:#16a34a;">${row.credit > 0 ? fmtINR(row.credit) : '—'}</td>
+        <td style="padding:6px 8px;text-align:right;font-weight:700;color:${balColor};">${fmtINR(Math.abs(row.balance))}${balSuffix}</td>
+      </tr>`;
+    }).join('');
+
+    const outstandingColor = outstanding > 0 ? '#92400e' : '#15803d';
+    const outstandingLabel = outstanding > 0 ? 'Dr' : outstanding < 0 ? 'Cr' : '';
+
+    const html = `<!DOCTYPE html><html><head>
+      <meta charset="utf-8"/>
+      <title>Customer Ledger – ${customer.name}</title>
+      <style>
+        @page { size: A4; margin: 15mm 12mm; }
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; font-size: 13px; color: #111; background: #fff; margin: 0; padding: 0; }
+        h2 { text-align:center; font-size:15px; margin:8px 0 4px; color:#1e3a5f; }
+        .divider { border:none; border-top:1.5px solid #1e3a5f; margin:8px 0; }
+        .customer-box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:10px 14px; margin-bottom:10px; display:flex; justify-content:space-between; }
+        .stats { display:flex; gap:12px; margin-bottom:10px; }
+        .stat { flex:1; border:1px solid #e2e8f0; border-radius:6px; padding:8px; text-align:center; }
+        .stat .val { font-size:15px; font-weight:700; }
+        .stat .lbl { font-size:10px; color:#6b7280; margin-top:2px; }
+        table { width:100%; border-collapse:collapse; font-size:12px; }
+        thead th { background:#1e3a5f; color:#fff; padding:7px 8px; text-align:left; font-size:11px; text-transform:uppercase; }
+        thead th:nth-child(n+3) { text-align:right; }
+        tbody tr:nth-child(even) { background:#f9fafb; }
+        tfoot td { padding:7px 8px; font-weight:700; border-top:2px solid #1e3a5f; }
+        tfoot td:nth-child(n+3) { text-align:right; }
+        .footer { margin-top:20px; font-size:10px; color:#9ca3af; text-align:center; }
+      </style>
+    </head><body>
+      ${bizHeader}
+      <h2>Account Statement</h2>
+      <hr class="divider"/>
+      <div class="customer-box">
+        <div>
+          <div style="font-weight:700;font-size:14px;">${customer.name}</div>
+          ${customer.firmName ? `<div style="color:#555;font-size:12px;">${customer.firmName}</div>` : ''}
+          <div style="color:#555;font-size:12px;">Ph: ${customer.mobile}${customer.alternateMobile ? ' / ' + customer.alternateMobile : ''}</div>
+          <div style="color:#555;font-size:12px;">${customer.address1}, ${customer.city} – ${customer.state}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:11px;color:#9ca3af;">CUST ID</div>
+          <div style="font-family:monospace;font-weight:700;color:#4338ca;">${customer.id}</div>
+          <div style="font-size:11px;color:#9ca3af;margin-top:4px;">Terms</div>
+          <div style="font-size:12px;font-weight:600;">${customer.paymentTerms}</div>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat">
+          <div class="val">${invoices.filter(i => i.customerId === customer.id && !i.cancelled).length}</div>
+          <div class="lbl">Total Orders</div>
+        </div>
+        <div class="stat">
+          <div class="val" style="color:#dc2626;">${fmtINR(totalDebit)}</div>
+          <div class="lbl">Total Dues</div>
+        </div>
+        <div class="stat">
+          <div class="val" style="color:#16a34a;">${fmtINR(totalCredit)}</div>
+          <div class="lbl">Total Received</div>
+        </div>
+        <div class="stat" style="background:${outstanding > 0 ? '#fffbeb' : '#f0fdf4'};border-color:${outstanding > 0 ? '#fcd34d' : '#86efac'};">
+          <div class="val" style="color:${outstandingColor};">${fmtINR(Math.abs(outstanding))}</div>
+          <div class="lbl">${outstanding > 0 ? 'Outstanding' : outstanding < 0 ? 'Advance' : 'Settled'}</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Date</th><th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Balance</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+        <tfoot><tr>
+          <td colspan="2">Totals</td>
+          <td style="color:#dc2626;">${fmtINR(totalDebit)}</td>
+          <td style="color:#16a34a;">${fmtINR(totalCredit)}</td>
+          <td style="color:${outstandingColor};">${fmtINR(Math.abs(outstanding))} ${outstandingLabel}</td>
+        </tr></tfoot>
+      </table>
+      <div class="footer">Printed on ${new Date().toLocaleString('en-IN')}</div>
+    </body></html>`;
+
+    const w = window.open('', '_blank', 'width=794,height=1123');
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.onload = () => {
+      w.print();
+      w.onafterprint = () => w.close();
+    };
+  };
+
   return (
     <Layout
       title="Customer Ledger"
@@ -221,12 +338,20 @@ export default function CustomerLedger() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-5 py-4 border-b flex items-center justify-between">
           <h2 className="font-semibold text-gray-700">Account Statement</h2>
-          <button
-            onClick={() => setShowAddPayment(true)}
-            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
-          >
-            <PlusCircle size={15} /> Add Payment
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              <Printer size={15} /> Print
+            </button>
+            <button
+              onClick={() => setShowAddPayment(true)}
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              <PlusCircle size={15} /> Add Payment
+            </button>
+          </div>
         </div>
 
         {ledger.length === 0 ? (
