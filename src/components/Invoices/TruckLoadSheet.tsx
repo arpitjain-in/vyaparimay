@@ -56,7 +56,10 @@ export default function TruckLoadSheet({ invoices, onClose }: Props) {
     return g;
   }, [rows]);
 
-  const grandTotalQty = rows.reduce((s, r) => s + r.totalQty, 0);
+  const grandTotalQty = rows.reduce((s, r) => {
+    const ratio = OUTER_BAG_RATIO[r.skuId];
+    return s + (ratio ? Math.ceil(r.totalQty / ratio) : r.totalQty);
+  }, 0);
   const grandTotalWeight = rows.reduce((s, r) => s + r.totalWeight, 0);
 
   const fmt = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(1));
