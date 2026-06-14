@@ -181,6 +181,246 @@ function fmtRupees(n: number): string {
   return (neg ? '-' : '') + '\u20B9' + result + '.' + dec;
 }
 
+export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?: string): string {
+  const c = invoice.customerSnapshot;
+
+  const totalWeightKg = invoice.items.reduce((sum, i) => sum + i.weight * i.quantity, 0);
+  const totalWeightStr = totalWeightKg % 1 === 0 ? totalWeightKg.toFixed(0) : totalWeightKg.toFixed(1);
+
+  const itemRows = invoice.items.map((item, idx) => {
+    const totalKg = item.weight * item.quantity;
+    const totalKgStr = totalKg % 1 === 0 ? totalKg.toFixed(0) : totalKg.toFixed(1);
+    const perKg = item.weight > 0 ? item.rate / item.weight : 0;
+    const perKgStr = perKg % 1 === 0 ? perKg.toFixed(0) : perKg.toFixed(2);
+    const unitPlural = item.quantity === 1 ? item.unit : item.unit + 's';
+    return `<tr>
+      <td class="c">${idx + 1}</td>
+      <td><div class="pn">${esc(item.product)}</div><div class="vr">${esc(item.variant)}</div></td>
+      <td class="c mono">${esc(item.hsnCode)}</td>
+      <td class="c">${item.quantity}&nbsp;${esc(unitPlural)}<br/><span class="s">${totalKgStr}&nbsp;kg</span></td>
+      <td class="r">${fmtRupees(item.rate)}/${esc(item.unit.toLowerCase())}<br/><span class="s">&#8377;${perKgStr}/kg</span></td>
+      <td class="c">${item.gstRate}%</td>
+      <td class="r b">${fmtRupees(item.lineTotal)}</td>
+    </tr>`;
+  }).join('');
+
+  const gstSummary = invoice.isInterState
+    ? `<tr><td>IGST @ 5%</td><td class="r">${fmtRupees(invoice.igstTotal)}</td></tr>`
+    : `<tr><td>CGST @ 2.5%</td><td class="r">${fmtRupees(invoice.cgstTotal)}</td></tr>
+       <tr><td>SGST @ 2.5%</td><td class="r">${fmtRupees(invoice.sgstTotal)}</td></tr>`;
+
+  const extraSummary = [
+    invoice.discountAmount && invoice.discountAmount > 0
+      ? `<tr class="disc"><td>${invoice.discountType === 'percent' ? `Discount @ ${invoice.discountValue}%` : 'Discount'}</td><td class="r">&minus;&nbsp;${fmtRupees(invoice.discountAmount)}</td></tr>`
+      : '',
+    invoice.transportCharges && invoice.transportCharges > 0
+      ? `<tr class="xtra"><td>Transport</td><td class="r">+&nbsp;${fmtRupees(invoice.transportCharges)}</td></tr>`
+      : '',
+    invoice.loadingCharges && invoice.loadingCharges > 0
+      ? `<tr class="xtra"><td>Loading / Unloading</td><td class="r">+&nbsp;${fmtRupees(invoice.loadingCharges)}</td></tr>`
+      : '',
+    invoice.roundOff !== 0
+      ? `<tr><td>Round Off</td><td class="r">${invoice.roundOff > 0 ? '+' : ''}${invoice.roundOff.toFixed(2)}</td></tr>`
+      : '',
+  ].join('');
+
+  const gstTypeTag = invoice.isInterState
+    ? `<span class="tag inter">IGST &ndash; Inter-State</span>`
+    : `<span class="tag intra">CGST+SGST &ndash; Intra-State</span>`;
+
+  const bankParts = [
+    bp.upiId ? `UPI:&nbsp;<b>${esc(bp.upiId)}</b>` : '',
+    bp.bankName ? `Bank:&nbsp;<b>${esc(bp.bankName)}</b>${bp.accountNo ? '&nbsp;A/C:&nbsp;' + esc(bp.accountNo) : ''}${bp.ifscCode ? '&nbsp;IFSC:&nbsp;' + esc(bp.ifscCode) : ''}` : '',
+  ].filter(Boolean).join('&emsp;');
+
+  const cancelledBanner = invoice.cancelled
+    ? `<div class="cancelled">CANCELLED</div>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Invoice ${esc(invoice.invoiceNo)}</title>
+<style>
+  @page { size: A4 portrait; margin: 8mm 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 8pt;
+    color: #000;
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ── Header ── */
+  .hdr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    gap: 8px;
+    border-bottom: 2.5px solid #1a3a6b;
+    padding-bottom: 5px;
+    margin-bottom: 5px;
+  }
+  .hdr-left { display: flex; align-items: flex-start; gap: 7px; }
+  .hlogo { width: 38px; height: 38px; object-fit: contain; flex-shrink: 0; }
+  .biz-name { font-size: 12pt; font-weight: 800; color: #1a3a6b; line-height: 1.2; }
+  .biz-meta { font-size: 7pt; color: #222; line-height: 1.55; margin-top: 2px; }
+  .hdr-right { text-align: right; }
+  .inv-label { font-size: 8.5pt; font-weight: 700; color: #1a3a6b; letter-spacing: 0.5px; }
+  .inv-no { font-size: 11pt; font-weight: 800; color: #cc1122; line-height: 1.2; }
+  .inv-meta { font-size: 7pt; color: #222; line-height: 1.6; margin-top: 1px; }
+
+  /* ── Customer strip ── */
+  .cust-strip {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    gap: 8px;
+    background: #f4f6fb;
+    border: 1px solid #d0d8e8;
+    border-radius: 3px;
+    padding: 4px 8px;
+    margin-bottom: 5px;
+  }
+  .cust-name { font-size: 9.5pt; font-weight: 700; line-height: 1.3; }
+  .cust-detail { font-size: 7pt; color: #222; line-height: 1.55; margin-top: 1px; }
+  .tag { display: inline-block; font-size: 6.5pt; font-weight: 700; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+  .intra { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+  .inter { background: #ffedd5; color: #9a3412; border: 1px solid #fed7aa; }
+
+  /* ── Cancelled ── */
+  .cancelled { text-align: center; font-size: 16pt; font-weight: 900; color: #c00; border: 3px solid #c00; padding: 1px 16px; letter-spacing: 4px; margin: 3px 0; }
+
+  /* ── Items table ── */
+  .itbl { width: 100%; border-collapse: collapse; font-size: 7.5pt; margin-bottom: 5px; }
+  .itbl thead tr { background: #1a3a6b; color: #fff; }
+  .itbl th { padding: 3px 5px; font-size: 7pt; font-weight: 600; text-align: left; }
+  .itbl th.c { text-align: center; }
+  .itbl th.r { text-align: right; }
+  .itbl tbody tr { border-bottom: 1px solid #e5e7eb; }
+  .itbl tbody tr:nth-child(even) { background: #f8f9fc; }
+  .itbl td { padding: 3px 5px; vertical-align: top; }
+  .itbl td.c { text-align: center; }
+  .itbl td.r { text-align: right; }
+  .itbl td.b { font-weight: 700; }
+  .itbl td.mono { font-family: monospace; font-size: 7pt; text-align: center; }
+  .pn { font-weight: 600; color: #000; }
+  .vr { font-size: 7pt; color: #4f46e5; margin-top: 1px; }
+  .s { font-size: 7pt; color: #555; }
+
+  /* ── Totals section ── */
+  .totals { display: grid; grid-template-columns: 1fr 170px; gap: 10px; margin-bottom: 5px; align-items: start; }
+  .amt-box { background: #f0f4ff; border: 1px solid #c7d2fe; border-radius: 3px; padding: 4px 7px; font-size: 7pt; color: #3730a3; font-style: italic; margin-bottom: 4px; line-height: 1.5; }
+  .amt-box b { font-style: normal; color: #000; }
+  .bank-box { font-size: 7pt; color: #222; line-height: 1.6; }
+  .stbl { width: 100%; border-collapse: collapse; font-size: 7.5pt; }
+  .stbl td { padding: 2px 5px; }
+  .stbl td.r { text-align: right; }
+  .stbl .disc td { color: #15803d; }
+  .stbl .xtra td { color: #c2410c; }
+  .stbl .wt td { color: #555; font-size: 7pt; border-top: 1px solid #e5e7eb; }
+  .stbl .grand td { font-size: 10pt; font-weight: 800; color: #1a3a6b; border-top: 2px solid #1a3a6b; border-bottom: 2px solid #1a3a6b; padding: 3px 5px; }
+
+  /* ── Footer ── */
+  .footer { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #d0d8e8; padding-top: 5px; }
+  .footer-left { font-size: 6.5pt; color: #444; max-width: 65%; line-height: 1.5; }
+  .sig-block { text-align: right; }
+  .sig-line { width: 120px; border-top: 1px solid #333; margin-left: auto; margin-top: 22px; font-size: 7pt; font-weight: 600; color: #1a3a6b; padding-top: 2px; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- Header: business left, invoice details right -->
+<div class="hdr">
+  <div class="hdr-left">
+    ${logoUrl ? `<img class="hlogo" src="${logoUrl}" alt=""/>` : ''}
+    <div>
+      <div class="biz-name">${esc(bp.name)}</div>
+      <div class="biz-meta">
+        ${esc(bp.address1)}, ${esc(bp.city)} &ndash; ${esc(bp.pinCode)}<br/>
+        GSTIN: ${esc(bp.gstin)}&emsp;FSSAI: ${esc(bp.fssai)}&emsp;Ph: ${esc(bp.mobile)}
+      </div>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <div class="inv-label">TAX INVOICE</div>
+    <div class="inv-no">${esc(invoice.invoiceNo)}</div>
+    <div class="inv-meta">
+      Date: ${esc(invoice.invoiceDate)}<br/>
+      Time: ${esc(invoice.invoiceTime)}<br/>
+      Payment: ${esc(invoice.paymentMode)}
+    </div>
+  </div>
+</div>
+
+${cancelledBanner}
+
+<!-- Customer strip: name/address left, GST type right -->
+<div class="cust-strip">
+  <div>
+    <div class="cust-name">${esc(c.name)}${c.firmName ? ' &ndash; ' + esc(c.firmName) : ''}</div>
+    <div class="cust-detail">
+      ${esc(c.address1)}, ${esc(c.city)}, ${esc(c.state)}${c.pinCode ? ' &ndash; ' + esc(c.pinCode) : ''}&emsp;
+      Mob: ${esc(c.mobile)}${c.gstin ? '&emsp;GSTIN: ' + esc(c.gstin) : ''}
+    </div>
+  </div>
+  <div style="padding-top:2px">${gstTypeTag}</div>
+</div>
+
+<!-- Items table: 7 cols (# | Product+Variant | HSN | Qty/Wt | Rate | GST% | Total) -->
+<table class="itbl">
+  <thead>
+    <tr>
+      <th style="width:20px">#</th>
+      <th>Product / Variant</th>
+      <th class="c" style="width:52px">HSN</th>
+      <th class="c" style="width:72px">Qty / Wt</th>
+      <th class="r" style="width:88px">Rate</th>
+      <th class="c" style="width:36px">GST%</th>
+      <th class="r" style="width:72px">Total</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${itemRows}
+  </tbody>
+</table>
+
+<!-- Totals: amount-in-words + bank left, summary table right -->
+<div class="totals">
+  <div>
+    <div class="amt-box"><b>Amount:</b> ${esc(invoice.amountInWords)}</div>
+    ${bankParts ? `<div class="bank-box">${bankParts}</div>` : ''}
+  </div>
+  <div>
+    <table class="stbl">
+      <tr><td>Taxable Amount</td><td class="r">${fmtRupees(invoice.subtotal)}</td></tr>
+      ${gstSummary}
+      ${extraSummary}
+      <tr class="wt"><td>Total Weight</td><td class="r">${totalWeightStr}&nbsp;kg</td></tr>
+      <tr class="grand"><td>Grand Total</td><td class="r">${fmtRupees(invoice.grandTotal)}</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <div class="footer-left">
+    We declare that this invoice shows the actual price of the goods described and all particulars are true and correct.${bp.tagline ? '<br/><em>' + esc(bp.tagline) + '</em>' : ''}
+  </div>
+  <div class="sig-block">
+    <div>For <b>${esc(bp.name)}</b></div>
+    <div class="sig-line">Authorised Signatory</div>
+  </div>
+</div>
+
+
+</body>
+</html>`;
+}
+
 export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: string, logoUrl?: string): string {
   const c = invoice.customerSnapshot;
 

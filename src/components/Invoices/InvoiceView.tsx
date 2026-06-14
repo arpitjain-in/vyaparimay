@@ -2,7 +2,7 @@ import React, { useMemo, useRef } from 'react';
 import { ArrowLeft, Printer, Copy } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR } from '../../utils/format';
-import { buildThermalText, buildCustomerCopyText, buildA4Html } from '../../utils/invoice';
+import { buildThermalText, buildCustomerCopyText, buildA4Html, buildA4HalfHtml } from '../../utils/invoice';
 import Layout from '../Layout/Layout';
 import logoUrl from '../../assets/company-logo-v1.png';
 
@@ -92,6 +92,19 @@ export default function InvoiceView() {
     };
   };
 
+  const handleA4HalfPrint = () => {
+    const html = buildA4HalfHtml(invoice, businessProfile, logoUrl);
+    const w = window.open('', '_blank', 'width=794,height=1123');
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.onload = () => {
+      w.print();
+      w.onafterprint = () => w.close();
+    };
+  };
+
   const handleCopy = () => {
     navigator.clipboard.writeText(thermalText).then(() =>
       showDialog({ title: 'Copied', variant: 'success', message: 'Invoice text copied to clipboard.' })
@@ -140,6 +153,12 @@ export default function InvoiceView() {
             className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium"
           >
             <Printer size={14} /> A4 Copy
+          </button>
+          <button
+            onClick={handleA4HalfPrint}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium"
+          >
+            <Printer size={14} /> A4 Half (2-up)
           </button>
         </div>
       }
