@@ -237,6 +237,87 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
     ? `<div class="cancelled">CANCELLED</div>`
     : '';
 
+  // Shared invoice block — rendered twice with different copy labels
+  function buildHalf(copyLabel: string): string {
+    return `<div class="half">
+  <!-- Header -->
+  <div class="hdr">
+    <div class="hdr-left">
+      ${logoUrl ? `<img class="hlogo" src="${logoUrl}" alt=""/>` : ''}
+      <div>
+        <div class="biz-name">${esc(bp.name)}</div>
+        <div class="biz-meta">
+          ${esc(bp.address1)}, ${esc(bp.city)} &ndash; ${esc(bp.pinCode)}<br/>
+          GSTIN: ${esc(bp.gstin)}&emsp;FSSAI: ${esc(bp.fssai)}&emsp;Ph: ${esc(bp.mobile)}
+        </div>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <div class="copy-label">${esc(copyLabel)}</div>
+      <div class="inv-label">TAX INVOICE</div>
+      <div class="inv-no">${esc(invoice.invoiceNo)}</div>
+      <div class="inv-meta">
+        Date: ${esc(invoice.invoiceDate)}&emsp;Time: ${esc(invoice.invoiceTime)}<br/>
+        Payment: ${esc(invoice.paymentMode)}
+      </div>
+    </div>
+  </div>
+  ${cancelledBanner}
+  <!-- Customer strip -->
+  <div class="cust-strip">
+    <div>
+      <div class="cust-name">${esc(c.name)}${c.firmName ? ' &ndash; ' + esc(c.firmName) : ''}</div>
+      <div class="cust-detail">
+        ${esc(c.address1)}, ${esc(c.city)}, ${esc(c.state)}${c.pinCode ? ' &ndash; ' + esc(c.pinCode) : ''}&emsp;
+        Mob: ${esc(c.mobile)}${c.gstin ? '&emsp;GSTIN: ' + esc(c.gstin) : ''}
+      </div>
+    </div>
+    <div style="padding-top:2px">${gstTypeTag}</div>
+  </div>
+  <!-- Items table -->
+  <table class="itbl">
+    <thead><tr>
+      <th style="width:20px">#</th>
+      <th>Product / Variant</th>
+      <th class="c" style="width:52px">HSN</th>
+      <th class="c" style="width:72px">Qty / Wt</th>
+      <th class="r" style="width:88px">Rate</th>
+      <th class="c" style="width:36px">GST%</th>
+      <th class="r" style="width:72px">Total</th>
+    </tr></thead>
+    <tbody>${itemRows}</tbody>
+  </table>
+  <!-- Totals -->
+  <div class="totals">
+    <div>
+      <div class="amt-box"><b>Amount:</b> ${esc(invoice.amountInWords)}</div>
+      ${bankParts ? `<div class="bank-box">${bankParts}</div>` : ''}
+    </div>
+    <div>
+      <table class="stbl">
+        <tr><td>Taxable Amount</td><td class="r">${fmtRupees(invoice.subtotal)}</td></tr>
+        ${gstSummary}
+        ${extraSummary}
+        <tr class="wt"><td>Total Weight</td><td class="r">${totalWeightStr}&nbsp;kg</td></tr>
+        <tr class="grand"><td>Grand Total</td><td class="r">${fmtRupees(invoice.grandTotal)}</td></tr>
+      </table>
+    </div>
+  </div>
+  <!-- Footer -->
+  <div class="footer">
+    <div class="footer-left">
+      We declare that this invoice shows the actual price of the goods described and all particulars are true and correct.${bp.tagline ? '<br/><em>' + esc(bp.tagline) + '</em>' : ''}
+    </div>
+    <div class="sig-block">
+      <div>For <b>${esc(bp.name)}</b></div>
+      <div class="sig-line">Authorised Signatory</div>
+    </div>
+  </div>
+</div>`;
+  }
+
+  // A4 usable height with 8mm top+bottom margins = 281mm.
+  // Each half = 138mm, separator = 5mm. Total = 281mm.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -254,24 +335,62 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
     print-color-adjust: exact;
   }
 
+  /* Each half is exactly 138mm — overflow hidden keeps it strictly within bounds */
+  .half {
+    height: 138mm;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  /* Dashed cut line between the two halves */
+  .cut-line {
+    height: 5mm;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 7pt;
+    color: #999;
+    border-top: 1px dashed #bbb;
+    border-bottom: 1px dashed #bbb;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+
+  /* ── Copy label badge ── */
+  .copy-label {
+    display: inline-block;
+    font-size: 6.5pt;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #fff;
+    background: #1a3a6b;
+    border-radius: 2px;
+    padding: 1px 6px;
+    margin-bottom: 3px;
+    text-transform: uppercase;
+  }
+
   /* ── Header ── */
   .hdr {
     display: grid;
     grid-template-columns: 1fr auto;
     align-items: start;
     gap: 8px;
-    border-bottom: 2.5px solid #1a3a6b;
-    padding-bottom: 5px;
-    margin-bottom: 5px;
+    border-bottom: 2px solid #1a3a6b;
+    padding-bottom: 4px;
+    flex-shrink: 0;
   }
-  .hdr-left { display: flex; align-items: flex-start; gap: 7px; }
-  .hlogo { width: 38px; height: 38px; object-fit: contain; flex-shrink: 0; }
-  .biz-name { font-size: 12pt; font-weight: 800; color: #1a3a6b; line-height: 1.2; }
-  .biz-meta { font-size: 7pt; color: #222; line-height: 1.55; margin-top: 2px; }
+  .hdr-left { display: flex; align-items: flex-start; gap: 6px; }
+  .hlogo { width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; }
+  .biz-name { font-size: 11pt; font-weight: 800; color: #1a3a6b; line-height: 1.2; }
+  .biz-meta { font-size: 6.5pt; color: #222; line-height: 1.5; margin-top: 1px; }
   .hdr-right { text-align: right; }
-  .inv-label { font-size: 8.5pt; font-weight: 700; color: #1a3a6b; letter-spacing: 0.5px; }
-  .inv-no { font-size: 11pt; font-weight: 800; color: #cc1122; line-height: 1.2; }
-  .inv-meta { font-size: 7pt; color: #222; line-height: 1.6; margin-top: 1px; }
+  .inv-label { font-size: 8pt; font-weight: 700; color: #1a3a6b; letter-spacing: 0.5px; }
+  .inv-no { font-size: 10pt; font-weight: 800; color: #cc1122; line-height: 1.2; }
+  .inv-meta { font-size: 6.5pt; color: #222; line-height: 1.55; margin-top: 1px; }
 
   /* ── Customer strip ── */
   .cust-strip {
@@ -282,141 +401,59 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
     background: #f4f6fb;
     border: 1px solid #d0d8e8;
     border-radius: 3px;
-    padding: 4px 8px;
-    margin-bottom: 5px;
+    padding: 3px 7px;
+    flex-shrink: 0;
   }
-  .cust-name { font-size: 9.5pt; font-weight: 700; line-height: 1.3; }
-  .cust-detail { font-size: 7pt; color: #222; line-height: 1.55; margin-top: 1px; }
+  .cust-name { font-size: 9pt; font-weight: 700; line-height: 1.3; }
+  .cust-detail { font-size: 6.5pt; color: #222; line-height: 1.5; margin-top: 1px; }
   .tag { display: inline-block; font-size: 6.5pt; font-weight: 700; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
   .intra { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
   .inter { background: #ffedd5; color: #9a3412; border: 1px solid #fed7aa; }
 
   /* ── Cancelled ── */
-  .cancelled { text-align: center; font-size: 16pt; font-weight: 900; color: #c00; border: 3px solid #c00; padding: 1px 16px; letter-spacing: 4px; margin: 3px 0; }
+  .cancelled { text-align: center; font-size: 14pt; font-weight: 900; color: #c00; border: 3px solid #c00; padding: 1px 12px; letter-spacing: 3px; flex-shrink: 0; }
 
   /* ── Items table ── */
-  .itbl { width: 100%; border-collapse: collapse; font-size: 7.5pt; margin-bottom: 5px; }
+  .itbl { width: 100%; border-collapse: collapse; font-size: 7pt; flex-shrink: 1; min-height: 0; }
   .itbl thead tr { background: #1a3a6b; color: #fff; }
-  .itbl th { padding: 3px 5px; font-size: 7pt; font-weight: 600; text-align: left; }
+  .itbl th { padding: 2px 4px; font-size: 6.5pt; font-weight: 600; text-align: left; }
   .itbl th.c { text-align: center; }
   .itbl th.r { text-align: right; }
   .itbl tbody tr { border-bottom: 1px solid #e5e7eb; }
   .itbl tbody tr:nth-child(even) { background: #f8f9fc; }
-  .itbl td { padding: 3px 5px; vertical-align: top; }
+  .itbl td { padding: 2px 4px; vertical-align: top; }
   .itbl td.c { text-align: center; }
   .itbl td.r { text-align: right; }
   .itbl td.b { font-weight: 700; }
-  .itbl td.mono { font-family: monospace; font-size: 7pt; text-align: center; }
+  .itbl td.mono { font-family: monospace; font-size: 6.5pt; text-align: center; }
   .pn { font-weight: 600; color: #000; }
-  .vr { font-size: 7pt; color: #4f46e5; margin-top: 1px; }
-  .s { font-size: 7pt; color: #555; }
+  .vr { font-size: 6.5pt; color: #4f46e5; margin-top: 1px; }
+  .s { font-size: 6.5pt; color: #555; }
 
   /* ── Totals section ── */
-  .totals { display: grid; grid-template-columns: 1fr 170px; gap: 10px; margin-bottom: 5px; align-items: start; }
-  .amt-box { background: #f0f4ff; border: 1px solid #c7d2fe; border-radius: 3px; padding: 4px 7px; font-size: 7pt; color: #3730a3; font-style: italic; margin-bottom: 4px; line-height: 1.5; }
+  .totals { display: grid; grid-template-columns: 1fr 165px; gap: 8px; align-items: start; flex-shrink: 0; }
+  .amt-box { background: #f0f4ff; border: 1px solid #c7d2fe; border-radius: 3px; padding: 3px 6px; font-size: 6.5pt; color: #3730a3; font-style: italic; margin-bottom: 3px; line-height: 1.5; }
   .amt-box b { font-style: normal; color: #000; }
-  .bank-box { font-size: 7pt; color: #222; line-height: 1.6; }
-  .stbl { width: 100%; border-collapse: collapse; font-size: 7.5pt; }
-  .stbl td { padding: 2px 5px; }
+  .bank-box { font-size: 6.5pt; color: #222; line-height: 1.55; }
+  .stbl { width: 100%; border-collapse: collapse; font-size: 7pt; }
+  .stbl td { padding: 1px 4px; }
   .stbl td.r { text-align: right; }
   .stbl .disc td { color: #15803d; }
   .stbl .xtra td { color: #c2410c; }
-  .stbl .wt td { color: #555; font-size: 7pt; border-top: 1px solid #e5e7eb; }
-  .stbl .grand td { font-size: 10pt; font-weight: 800; color: #1a3a6b; border-top: 2px solid #1a3a6b; border-bottom: 2px solid #1a3a6b; padding: 3px 5px; }
+  .stbl .wt td { color: #555; font-size: 6.5pt; border-top: 1px solid #e5e7eb; }
+  .stbl .grand td { font-size: 9pt; font-weight: 800; color: #1a3a6b; border-top: 2px solid #1a3a6b; border-bottom: 2px solid #1a3a6b; padding: 3px 4px; }
 
   /* ── Footer ── */
-  .footer { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #d0d8e8; padding-top: 5px; }
-  .footer-left { font-size: 6.5pt; color: #444; max-width: 65%; line-height: 1.5; }
+  .footer { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #d0d8e8; padding-top: 3px; flex-shrink: 0; margin-top: auto; }
+  .footer-left { font-size: 6pt; color: #444; max-width: 65%; line-height: 1.4; }
   .sig-block { text-align: right; }
-  .sig-line { width: 120px; border-top: 1px solid #333; margin-left: auto; margin-top: 22px; font-size: 7pt; font-weight: 600; color: #1a3a6b; padding-top: 2px; text-align: center; }
+  .sig-line { width: 110px; border-top: 1px solid #333; margin-left: auto; margin-top: 16px; font-size: 6.5pt; font-weight: 600; color: #1a3a6b; padding-top: 2px; text-align: center; }
 </style>
 </head>
 <body>
-
-<!-- Header: business left, invoice details right -->
-<div class="hdr">
-  <div class="hdr-left">
-    ${logoUrl ? `<img class="hlogo" src="${logoUrl}" alt=""/>` : ''}
-    <div>
-      <div class="biz-name">${esc(bp.name)}</div>
-      <div class="biz-meta">
-        ${esc(bp.address1)}, ${esc(bp.city)} &ndash; ${esc(bp.pinCode)}<br/>
-        GSTIN: ${esc(bp.gstin)}&emsp;FSSAI: ${esc(bp.fssai)}&emsp;Ph: ${esc(bp.mobile)}
-      </div>
-    </div>
-  </div>
-  <div class="hdr-right">
-    <div class="inv-label">TAX INVOICE</div>
-    <div class="inv-no">${esc(invoice.invoiceNo)}</div>
-    <div class="inv-meta">
-      Date: ${esc(invoice.invoiceDate)}<br/>
-      Time: ${esc(invoice.invoiceTime)}<br/>
-      Payment: ${esc(invoice.paymentMode)}
-    </div>
-  </div>
-</div>
-
-${cancelledBanner}
-
-<!-- Customer strip: name/address left, GST type right -->
-<div class="cust-strip">
-  <div>
-    <div class="cust-name">${esc(c.name)}${c.firmName ? ' &ndash; ' + esc(c.firmName) : ''}</div>
-    <div class="cust-detail">
-      ${esc(c.address1)}, ${esc(c.city)}, ${esc(c.state)}${c.pinCode ? ' &ndash; ' + esc(c.pinCode) : ''}&emsp;
-      Mob: ${esc(c.mobile)}${c.gstin ? '&emsp;GSTIN: ' + esc(c.gstin) : ''}
-    </div>
-  </div>
-  <div style="padding-top:2px">${gstTypeTag}</div>
-</div>
-
-<!-- Items table: 7 cols (# | Product+Variant | HSN | Qty/Wt | Rate | GST% | Total) -->
-<table class="itbl">
-  <thead>
-    <tr>
-      <th style="width:20px">#</th>
-      <th>Product / Variant</th>
-      <th class="c" style="width:52px">HSN</th>
-      <th class="c" style="width:72px">Qty / Wt</th>
-      <th class="r" style="width:88px">Rate</th>
-      <th class="c" style="width:36px">GST%</th>
-      <th class="r" style="width:72px">Total</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${itemRows}
-  </tbody>
-</table>
-
-<!-- Totals: amount-in-words + bank left, summary table right -->
-<div class="totals">
-  <div>
-    <div class="amt-box"><b>Amount:</b> ${esc(invoice.amountInWords)}</div>
-    ${bankParts ? `<div class="bank-box">${bankParts}</div>` : ''}
-  </div>
-  <div>
-    <table class="stbl">
-      <tr><td>Taxable Amount</td><td class="r">${fmtRupees(invoice.subtotal)}</td></tr>
-      ${gstSummary}
-      ${extraSummary}
-      <tr class="wt"><td>Total Weight</td><td class="r">${totalWeightStr}&nbsp;kg</td></tr>
-      <tr class="grand"><td>Grand Total</td><td class="r">${fmtRupees(invoice.grandTotal)}</td></tr>
-    </table>
-  </div>
-</div>
-
-<!-- Footer -->
-<div class="footer">
-  <div class="footer-left">
-    We declare that this invoice shows the actual price of the goods described and all particulars are true and correct.${bp.tagline ? '<br/><em>' + esc(bp.tagline) + '</em>' : ''}
-  </div>
-  <div class="sig-block">
-    <div>For <b>${esc(bp.name)}</b></div>
-    <div class="sig-line">Authorised Signatory</div>
-  </div>
-</div>
-
-
+${buildHalf('Original')}
+<div class="cut-line">&#9988;&ensp;Cut Here&ensp;&#9988;</div>
+${buildHalf('Customer Copy')}
 </body>
 </html>`;
 }
