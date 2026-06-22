@@ -16,7 +16,7 @@ type FactoryPricingParams = {
   monthlyEmi: number;
   monthlyRepair: number;
   safetyMargin: number;
-  profitMarginPct: number;
+  profitMarginBySku?: Record<string, number>;
 };
 
 const normalizePercentInput = (value: number) => {
@@ -84,7 +84,7 @@ export default function FactoryPricing() {
     monthlyEmi: Number(factoryParams.monthlyEmi ?? 200000),
     monthlyRepair: Number(factoryParams.monthlyRepair ?? 30000),
     safetyMargin: Number(factoryParams.safetyMargin ?? 0.1),
-    profitMarginPct: percentDisplay(factoryParams.profitMarginPct, 1.25),
+    profitMarginBySku: {},
   });
 
   const costs = useMemo(() => computeCosts(localParams), [localParams]);
@@ -109,12 +109,13 @@ export default function FactoryPricing() {
 
   const handleApply = () => {
     // compute selling price per kg and bag price for each atta SKU
-    const profitPct = normalizePercentInput(Number(localParams.profitMarginPct || 0));
     const safety = Number(localParams.safetyMargin || 0);
     const newPrices: Record<string, number> = {};
     for (const sku of packagingSkus) {
       const packagingCostPerKg = Number(localPrices[sku.id + '_pkg_cost'] || 0);
       const finalFactoryCostPerKg = costs.baseManufacturingCost + packagingCostPerKg;
+      const defaultProfitPct = 1.5;
+      const profitPct = Number(localParams.profitMarginBySku?.[sku.id] ?? defaultProfitPct) / 100;
       const sellingPerKg = finalFactoryCostPerKg * (1 + profitPct) + safety;
       const bagPrice = parseFloat((sellingPerKg * sku.weight).toFixed(2));
       newPrices[sku.id] = bagPrice;
@@ -164,9 +165,6 @@ export default function FactoryPricing() {
             <label className="text-sm">Operational Safety Margin (Rs/kg)
               <input type="number" value={localParams.safetyMargin} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, safetyMargin: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
-            <label className="text-sm">Profit Margin (%)
-              <input type="number" value={localParams.profitMarginPct} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, profitMarginPct: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
-            </label>
           </div>
         </div>
 
@@ -193,10 +191,11 @@ export default function FactoryPricing() {
                 <th className="px-2 py-1">Variant</th>
                 <th className="px-2 py-1">Weight</th>
                 <th className="px-2 py-1">Packaging Cost (Rs/kg)</th>
+                <th className="px-2 py-1">Profit Margin (%)</th>
                 <th className="px-2 py-1">Selling Price (Rs/kg)</th>
                 <th className="px-2 py-1">Actual Bag Price (₹)</th>
                 <th className="px-2 py-1">Delivery Bag (30 kg)</th>
-                <th className="px-2 py-1">Profit (per quintal)</th>
+                <th className="px-2 py-1">Per Quintal Profit (₹)</th>
               </tr>
             </thead>
             <tbody>
@@ -204,11 +203,14 @@ export default function FactoryPricing() {
                 const pkgKey = sku.id + '_pkg_cost';
                 const pkgCost = Number(localPrices[pkgKey] || 0);
                 const finalFactoryCostPerKg = costs.baseManufacturingCost + pkgCost;
-                const profitPct = Number(localParams.profitMarginPct || 0) / 100;
+                const defaultProfitPct = 1.5;
+                const profitPct = Number(localParams.profitMarginBySku?.[sku.id] ?? defaultProfitPct) / 100;
                 const sellingPerKg = finalFactoryCostPerKg * (1 + profitPct) + Number(localParams.safetyMargin || 0);
                 const bagPrice = parseFloat((sellingPerKg * sku.weight).toFixed(2));
                 const deliveryBagPrice = sku.weight <= 10 ? parseFloat((sellingPerKg * 30).toFixed(2)) : undefined;
-                const profitPerQuintal = parseFloat(((sellingPerKg - finalFactoryCostPerKg) * 100).toFixed(2));
+                const profitPercentValue = Number(localParams.profitMarginBySku?.[sku.id] ?? defaultProfitPct);
+                const profitPerKg = sellingPerKg - finalFactoryCostPerKg;
+                const perQuintalProfit = parseFloat((profitPerKg * 100).toFixed(2));
                 return (
                   <tr key={sku.id} className="border-t">
                     <td className="px-2 py-2">{sku.variant}</td>
@@ -216,10 +218,16 @@ export default function FactoryPricing() {
                     <td className="px-2 py-2">
                       <input type="number" value={pkgCost || ''} onChange={e => setLocalPrices(p => ({ ...p, [pkgKey]: Number(e.target.value) }))} className="w-32 p-1 border rounded" />
                     </td>
+                    <td className="px-2 py-2">
+                      <input type="number" value={profitPercentValue} onChange={e => setLocalParams((p: FactoryPricingParams) => ({
+                        ...p,
+                        profitMarginBySku: { ...p.profitMarginBySku, [sku.id]: Number(e.target.value) },
+                      }))} className="w-20 p-1 border rounded" />
+                    </td>
                     <td className="px-2 py-2 font-medium">{fmtINR(sellingPerKg)}</td>
                     <td className="px-2 py-2 font-medium">{fmtINR(bagPrice)}</td>
                     <td className="px-2 py-2 font-medium">{deliveryBagPrice != null ? fmtINR(deliveryBagPrice) : '—'}</td>
-                    <td className="px-2 py-2 font-medium">{fmtINR(profitPerQuintal)}</td>
+                    <td className="px-2 py-2 font-medium text-green-700">{fmtINR(perQuintalProfit)}</td>
                   </tr>
                 );
               })}
