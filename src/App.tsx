@@ -25,6 +25,7 @@ const PackagingStockPage = lazy(() => import('./components/Inventory/PackagingSt
 const AddStock         = lazy(() => import('./components/Inventory/AddStock'));
 const ProductionEntry  = lazy(() => import('./components/Inventory/ProductionEntry'));
 const PriceList        = lazy(() => import('./components/Pricing/PriceList'));
+const FactoryPricing   = lazy(() => import('./components/Pricing/FactoryPricing'));
 const ReportsPage      = lazy(() => import('./components/Reports/ReportsPage'));
 const ExpensePage      = lazy(() => import('./components/Expenses/ExpensePage'));
 const SalaryListPage   = lazy(() => import('./components/Salary/SalaryListPage'));
@@ -151,6 +152,7 @@ export default function App() {
       case 'add-stock':        return <AddStock />;
       case 'production-entry': return <ProductionEntry />;
       case 'price-list':       return <PriceList />;
+      case 'factory-pricing':  return <FactoryPricing />;
       case 'reports':          return <ReportsPage />;
       case 'expense':          return <ExpensePage />;
       case 'salary-list':      return <SalaryListPage />;

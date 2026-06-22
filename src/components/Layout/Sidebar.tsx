@@ -90,9 +90,10 @@ export default function Sidebar() {
       ],
     },
     {
-      heading: 'System',
+        heading: 'System',
       items: [
         { label: 'Settings', page: 'setup', icon: <Settings size={16} /> },
+        { label: 'Factory Pricing', page: 'factory-pricing', icon: <IndianRupee size={16} /> },
       ],
     },
   ], [currentOrder, todaySales]);

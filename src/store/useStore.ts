@@ -77,6 +77,9 @@ interface AppState {
 
   // Pricing
   priceList: Record<string, number>; // skuId -> rate
+  // Factory pricing managed via UI
+  factoryPrices: Record<string, number>;
+  factoryPricingParams: Record<string, unknown>;
 
   // Expenses
   expenses: Expense[];
@@ -139,6 +142,10 @@ interface AppState {
 
   // Pricing
   updatePrice(skuId: string, rate: number): void;
+  setFactoryPricingParams(params: Record<string, unknown>): void;
+  setFactoryPrices(prices: Record<string, number>): void;
+  updateFactoryPrice(skuId: string, price: number): void;
+  exportFactoryPrices(): Record<string, number>;
 
   // Expenses
   addExpense(amount: number, date: string, time: string, notes: string, createdBy: string): void;
@@ -179,7 +186,6 @@ const initReorder = {
 };
 
 // ─── Store ───────────────────────────────────────────────────────────────────
-
 export const useStore = create<AppState>()(
   (set, get) => ({
       // Auth / tenant
@@ -224,7 +230,27 @@ export const useStore = create<AppState>()(
       reorderLevels: initReorder,
 
       // Pricing
-      priceList: { ...DEFAULT_PRICES },
+      // Load persisted factory prices from localStorage (client-side only)
+      factoryPrices: (() => {
+        try {
+          const raw = localStorage.getItem('factory_prices');
+          return raw ? JSON.parse(raw) as Record<string, number> : {};
+        } catch (e) { return {}; }
+      })(),
+      factoryPricingParams: (() => {
+        try {
+          const raw = localStorage.getItem('factory_pricing_params');
+          const parsed = raw ? JSON.parse(raw) : {};
+          return { wheatWastage: 1, ...parsed };
+        } catch (e) { return { wheatWastage: 1 }; }
+      })(),
+      priceList: (() => {
+        try {
+          const raw = localStorage.getItem('factory_prices');
+          const factory = raw ? JSON.parse(raw) as Record<string, number> : {};
+          return { ...DEFAULT_PRICES, ...factory };
+        } catch (e) { return { ...DEFAULT_PRICES }; }
+      })(),
 
       // Expenses
       expenses: [],
@@ -237,6 +263,26 @@ export const useStore = create<AppState>()(
 
       // Dialog
       dialog: null,
+
+      // ─── Factory pricing helpers ───────────────────────────────────
+      setFactoryPricingParams(params) {
+        set(s => ({ factoryPricingParams: { ...s.factoryPricingParams, ...params } }));
+        try { localStorage.setItem('factory_pricing_params', JSON.stringify({ ...get().factoryPricingParams, ...params })); } catch(e){}
+      },
+
+      setFactoryPrices(prices) {
+        set(s => ({ factoryPrices: { ...s.factoryPrices, ...prices }, priceList: { ...s.priceList, ...prices } }));
+        try { localStorage.setItem('factory_prices', JSON.stringify({ ...get().factoryPrices, ...prices })); } catch(e){}
+      },
+
+      updateFactoryPrice(skuId, price) {
+        set(s => ({ factoryPrices: { ...s.factoryPrices, [skuId]: price }, priceList: { ...s.priceList, [skuId]: price } }));
+        try { localStorage.setItem('factory_prices', JSON.stringify({ ...get().factoryPrices, [skuId]: price })); } catch(e){}
+      },
+
+      exportFactoryPrices() {
+        return get().factoryPrices;
+      },
 
       // ─── Init ────────────────────────────────────────────────────────
 
@@ -316,8 +362,12 @@ export const useStore = create<AppState>()(
             packagingEntries,
             productionLogs,
             ...stockData,
-            priceList:
-              Object.keys(dbPriceList).length > 0 ? dbPriceList : s.priceList,
+            // Keep local (factory) prices as the final authority — do not let DB overwrite them.
+            priceList: {
+              ...DEFAULT_PRICES,
+              ...dbPriceList,
+              ...s.priceList,
+            },
             reorderLevels: {
               raw: { ...s.reorderLevels.raw, ...dbReorderLevels.raw },
               packaging: {

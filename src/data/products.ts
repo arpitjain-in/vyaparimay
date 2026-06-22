@@ -1,4 +1,5 @@
 import { ProductSKU, PackagingMaterial, RawMaterialDef } from '../types';
+import factoryPrices from './factory_prices.json';
 
 export const PRODUCTS: ProductSKU[] = [
   // Shikharji Atta
@@ -54,7 +55,7 @@ export const INDIAN_STATES = [
 ];
 
 // Default prices (₹ per unit, user-editable)
-export const DEFAULT_PRICES: Record<string, number> = {
+const BASE_DEFAULT_PRICES: Record<string, number> = {
   'WF-26K':  780,
   'WF-25K':  750,
   'WF-5P':   165,
@@ -66,6 +67,11 @@ export const DEFAULT_PRICES: Record<string, number> = {
   'BS-500G': 35,
   'DL-500G': 28,
   'BR-40K':  480,
+};
+
+export const DEFAULT_PRICES: Record<string, number> = {
+  ...BASE_DEFAULT_PRICES,
+  ...factoryPrices,
 };
 
 export function getRawMaterialId(productId: string): string {
