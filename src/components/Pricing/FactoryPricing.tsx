@@ -4,6 +4,21 @@ import { useStore } from '../../store/useStore';
 import { PRODUCTS } from '../../data/products';
 import { fmtINR } from '../../utils/format';
 
+type FactoryPricingParams = {
+  wheatPrice: number;
+  branRecovery: number;
+  wheatWastage: number;
+  branSellingPrice: number;
+  dailyProductionMt: number;
+  workingDays: number;
+  monthlySalary: number;
+  monthlyElectricity: number;
+  monthlyEmi: number;
+  monthlyRepair: number;
+  safetyMargin: number;
+  profitMarginPct: number;
+};
+
 const normalizePercentInput = (value: number) => {
   const n = Number(value ?? 0);
   if (Number.isNaN(n)) return 0;
@@ -57,18 +72,18 @@ export default function FactoryPricing() {
   const setFactoryPricingParams = useStore(s => s.setFactoryPricingParams);
   const setFactoryPrices = useStore(s => s.setFactoryPrices);
 
-  const [localParams, setLocalParams] = useState<any>({
-    wheatPrice: factoryParams.wheatPrice ?? 23.1,
+  const [localParams, setLocalParams] = useState<FactoryPricingParams>({
+    wheatPrice: Number(factoryParams.wheatPrice ?? 23.1),
     branRecovery: percentDisplay(factoryParams.branRecovery, 5),
     wheatWastage: percentDisplay(factoryParams.wheatWastage, 1),
-    branSellingPrice: factoryParams.branSellingPrice ?? 24,
-    dailyProductionMt: factoryParams.dailyProductionMt ?? 10,
-    workingDays: factoryParams.workingDays ?? 28,
-    monthlySalary: factoryParams.monthlySalary ?? 200000,
-    monthlyElectricity: factoryParams.monthlyElectricity ?? 200000,
-    monthlyEmi: factoryParams.monthlyEmi ?? 200000,
-    monthlyRepair: factoryParams.monthlyRepair ?? 30000,
-    safetyMargin: factoryParams.safetyMargin ?? 0.1,
+    branSellingPrice: Number(factoryParams.branSellingPrice ?? 24),
+    dailyProductionMt: Number(factoryParams.dailyProductionMt ?? 10),
+    workingDays: Number(factoryParams.workingDays ?? 28),
+    monthlySalary: Number(factoryParams.monthlySalary ?? 200000),
+    monthlyElectricity: Number(factoryParams.monthlyElectricity ?? 200000),
+    monthlyEmi: Number(factoryParams.monthlyEmi ?? 200000),
+    monthlyRepair: Number(factoryParams.monthlyRepair ?? 30000),
+    safetyMargin: Number(factoryParams.safetyMargin ?? 0.1),
     profitMarginPct: percentDisplay(factoryParams.profitMarginPct, 1.25),
   });
 
@@ -117,40 +132,40 @@ export default function FactoryPricing() {
           <h3 className="font-semibold mb-2">Input Parameters</h3>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-sm">Wheat Price (Rs/kg)
-              <input type="number" value={localParams.wheatPrice} onChange={e => setLocalParams(p => ({ ...p, wheatPrice: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.wheatPrice} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, wheatPrice: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
             <label className="text-sm">Bran Recovery (%)
-              <input type="number" value={localParams.branRecovery} onChange={e => setLocalParams(p => ({ ...p, branRecovery: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.branRecovery} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, branRecovery: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
             <label className="text-sm">Wheat Wastage (%)
-              <input type="number" value={localParams.wheatWastage} onChange={e => setLocalParams(p => ({ ...p, wheatWastage: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.wheatWastage} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, wheatWastage: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
             <label className="text-sm">Bran Selling Price (Rs/kg)
-              <input type="number" value={localParams.branSellingPrice} onChange={e => setLocalParams(p => ({ ...p, branSellingPrice: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.branSellingPrice} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, branSellingPrice: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
             <label className="text-sm">Daily Production (MT)
-              <input type="number" value={localParams.dailyProductionMt} onChange={e => setLocalParams(p => ({ ...p, dailyProductionMt: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.dailyProductionMt} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, dailyProductionMt: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
             <label className="text-sm">Working Days / Month
-              <input type="number" value={localParams.workingDays} onChange={e => setLocalParams(p => ({ ...p, workingDays: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.workingDays} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, workingDays: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
             <label className="text-sm">Monthly Salary (Rs)
-              <input type="number" value={localParams.monthlySalary} onChange={e => setLocalParams(p => ({ ...p, monthlySalary: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.monthlySalary} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, monthlySalary: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
             <label className="text-sm">Monthly Electricity (Rs)
-              <input type="number" value={localParams.monthlyElectricity} onChange={e => setLocalParams(p => ({ ...p, monthlyElectricity: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.monthlyElectricity} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, monthlyElectricity: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
             <label className="text-sm">Monthly EMI (Rs)
-              <input type="number" value={localParams.monthlyEmi} onChange={e => setLocalParams(p => ({ ...p, monthlyEmi: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.monthlyEmi} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, monthlyEmi: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
             <label className="text-sm">Monthly Repair & Maintenance (Rs)
-              <input type="number" value={localParams.monthlyRepair} onChange={e => setLocalParams(p => ({ ...p, monthlyRepair: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.monthlyRepair} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, monthlyRepair: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
             <label className="text-sm">Operational Safety Margin (Rs/kg)
-              <input type="number" value={localParams.safetyMargin} onChange={e => setLocalParams(p => ({ ...p, safetyMargin: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.safetyMargin} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, safetyMargin: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
             <label className="text-sm">Profit Margin (%)
-              <input type="number" value={localParams.profitMarginPct} onChange={e => setLocalParams(p => ({ ...p, profitMarginPct: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
+              <input type="number" value={localParams.profitMarginPct} onChange={e => setLocalParams((p: FactoryPricingParams) => ({ ...p, profitMarginPct: Number(e.target.value) }))} className="w-full mt-1 p-2 border rounded" />
             </label>
           </div>
         </div>
