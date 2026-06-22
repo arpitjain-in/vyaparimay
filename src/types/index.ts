@@ -289,5 +289,5 @@ export type AppPage =
   | 'reports'
   | 'expense'
   | 'salary-list'
-  | 'salary-detail';
+  | 'salary-detail'
   | 'factory-pricing'
