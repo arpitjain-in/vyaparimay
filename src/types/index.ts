@@ -51,7 +51,10 @@ export interface ProductSKU {
   productId: string;    // 'WF' | 'BS' | 'DL'
   variant: string;      // '26 kg Bag'
   weight: number;       // kg per unit
-  packagingId: string;  // references PackagingMaterial
+  packagingId: string;  // references PackagingMaterial (outer bag for bundles)
+  innerSkuId?: string;  // for bundle SKUs: the inner SKU whose ready stock is consumed
+  innerSkuQty?: number; // inner SKU units consumed per outer bag unit sold
+  useIdAsLabel?: boolean; // show SKU ID instead of variant string on invoices/orders
   hsnCode: string;
   gstRate: number;      // 5
   unit: string;         // 'Bag' | 'Pouch' | 'Packet'

@@ -32,6 +32,8 @@ export default function InvoiceView() {
     );
   }
 
+  const PRINT_SCRIPT = `<script>window.onafterprint=function(){window.close()};window.print();<\/script>`;
+
   const handlePrint = (text: string, title: string) => {
     const w = window.open('', '_blank', 'width=302,height=600');
     if (!w) return;
@@ -70,39 +72,29 @@ export default function InvoiceView() {
           font-weight: bold;
         }
       </style>
-    </head><body><pre>${escaped}</pre></body></html>`);
+    </head><body><pre>${escaped}</pre>${PRINT_SCRIPT}</body></html>`);
     w.document.close();
     w.focus();
-    w.onload = () => {
-      w.print();
-      w.onafterprint = () => w.close();
-    };
   };
 
   const handleA4Print = (copyLabel?: string) => {
-    const html = buildA4Html(invoice, businessProfile, copyLabel, logoUrl);
+    const html = buildA4Html(invoice, businessProfile, copyLabel, logoUrl)
+      .replace('</body>', `${PRINT_SCRIPT}</body>`);
     const w = window.open('', '_blank', 'width=794,height=1123');
     if (!w) return;
     w.document.write(html);
     w.document.close();
     w.focus();
-    w.onload = () => {
-      w.print();
-      w.onafterprint = () => w.close();
-    };
   };
 
   const handleA4HalfPrint = () => {
-    const html = buildA4HalfHtml(invoice, businessProfile, logoUrl);
+    const html = buildA4HalfHtml(invoice, businessProfile, logoUrl)
+      .replace('</body>', `${PRINT_SCRIPT}</body>`);
     const w = window.open('', '_blank', 'width=794,height=1123');
     if (!w) return;
     w.document.write(html);
     w.document.close();
     w.focus();
-    w.onload = () => {
-      w.print();
-      w.onafterprint = () => w.close();
-    };
   };
 
   const handleCopy = () => {

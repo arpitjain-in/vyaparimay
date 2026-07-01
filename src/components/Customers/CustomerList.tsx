@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Plus, Edit2, UserX, BookOpen, Wallet, Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus, Edit2, UserX, BookOpen, Wallet, Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, TrendingUp, IndianRupee } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import Layout from '../Layout/Layout';
 import AddPaymentModal from '../common/AddPaymentModal';
 import * as db from '../../lib/db';
 import { FIXED_ORG_ID } from '../../lib/db';
+import { fmtINR } from '../../utils/format';
 import type { Customer } from '../../types';
 
 const PAGE_SIZE = 25;
 
 export default function CustomerList() {
-  const { orgId, navigate, showDialog } = useStore();
+  const { orgId, navigate, showDialog, invoices, paymentReceipts, customers: allCustomers } = useStore();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +63,11 @@ export default function CustomerList() {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
+  const totalDues = allCustomers.reduce((sum, c) => sum + c.openingBalance, 0)
+    + invoices.filter(i => !i.cancelled).reduce((sum, i) => sum + i.grandTotal, 0);
+  const totalReceived = paymentReceipts.reduce((sum, r) => sum + r.amount, 0);
+  const totalOutstanding = totalDues - totalReceived;
+
   return (
     <Layout
       title="Customers"
@@ -81,6 +87,38 @@ export default function CustomerList() {
           onClose={() => { setPaymentCustomerId(null); loadPage(page); }}
         />
       )}
+
+      {/* Summary Totals */}
+      {/* <div className="grid grid-cols-3 gap-4 mb-5">
+        <div className="bg-white rounded-xl border border-red-100 shadow-sm p-4">
+          <div className="flex items-center gap-2 text-red-500 mb-1">
+            <TrendingUp size={16} />
+            <span className="text-xs font-semibold uppercase tracking-wide">Total Dues (Selling)</span>
+          </div>
+          <div className="text-2xl font-bold text-red-600">{fmtINR(totalDues)}</div>
+          <div className="text-xs text-slate-400 mt-1">Opening balance + all invoices</div>
+        </div>
+        <div className="bg-white rounded-xl border border-green-100 shadow-sm p-4">
+          <div className="flex items-center gap-2 text-green-500 mb-1">
+            <IndianRupee size={16} />
+            <span className="text-xs font-semibold uppercase tracking-wide">Total Received</span>
+          </div>
+          <div className="text-2xl font-bold text-green-600">{fmtINR(totalReceived)}</div>
+          <div className="text-xs text-slate-400 mt-1">All payments collected</div>
+        </div>
+        <div className={`rounded-xl border shadow-sm p-4 ${totalOutstanding > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+          <div className={`flex items-center gap-2 mb-1 ${totalOutstanding > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+            <IndianRupee size={16} />
+            <span className="text-xs font-semibold uppercase tracking-wide">Total Outstanding</span>
+          </div>
+          <div className={`text-2xl font-bold ${totalOutstanding > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+            {fmtINR(Math.abs(totalOutstanding))}
+          </div>
+          <div className="text-xs text-slate-400 mt-1">
+            {totalOutstanding > 0 ? 'Balance due from all customers' : totalOutstanding < 0 ? 'Net advance received' : 'All settled'}
+          </div>
+        </div>
+      </div> */}
 
       {/* Filters */}
       <div className="flex items-center gap-4 mb-4">

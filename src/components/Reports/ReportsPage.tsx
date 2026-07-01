@@ -1,10 +1,13 @@
 import React, { useMemo } from 'react';
-import { BarChart3, PackageCheck, Box, FileDown, Weight, Users, BookOpen } from 'lucide-react';
+import {
+  BarChart3, PackageCheck, Box, FileDown, Weight, Users, BookOpen,
+  TrendingUp, Wallet, Receipt, AlertTriangle, IndianRupee,
+} from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/products';
 import Layout from '../Layout/Layout';
 import { fmtINR, formatDate } from '../../utils/format';
-import type { Invoice, PackagingEntry, PaymentReceipt } from '../../types';
+import type { Invoice, PackagingEntry, PaymentReceipt, Expense, SalaryRecord, Customer } from '../../types';
 import { useState } from 'react';
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
@@ -1100,9 +1103,539 @@ function AccountantReport({
   );
 }
 
+// ─── Quarterly Financial Report ───────────────────────────────────────────────
+// India Financial Year: Apr–Mar. Q1=Apr-Jun, Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar.
+
+interface QuarterOption {
+  value: string;       // '2026-Q1'
+  label: string;       // 'Q1 FY 26-27'
+  rangeLabel: string;  // 'Apr – Jun 2026'
+  startOrd: number;
+  endOrd: number;
+  endDateStr: string;
+  months: PeriodDef[];
+}
+
+function fyQuarterOf(d: Date): { fyStartYear: number; quarterNum: number; qStartDate: Date } {
+  const monthIdx = d.getMonth();
+  const fyStartYear = monthIdx >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+  const monthsSinceFYStart = (monthIdx - 3 + 12) % 12;
+  const quarterNum = Math.floor(monthsSinceFYStart / 3) + 1;
+  const qStartOffset = (quarterNum - 1) * 3;
+  const qStartMonth = (3 + qStartOffset) % 12;
+  const qStartYear = fyStartYear + Math.floor((3 + qStartOffset) / 12);
+  return { fyStartYear, quarterNum, qStartDate: new Date(qStartYear, qStartMonth, 1) };
+}
+
+function getQuarterOptions(count = 8): QuarterOption[] {
+  const today = new Date();
+  const todayOrd = toOrd(dateStr(today));
+  const { qStartDate: currentQStart } = fyQuarterOf(today);
+
+  const options: QuarterOption[] = [];
+  for (let i = 0; i < count; i++) {
+    const qStart = new Date(currentQStart.getFullYear(), currentQStart.getMonth() - i * 3, 1);
+    const { fyStartYear, quarterNum } = fyQuarterOf(qStart);
+    const qEnd = new Date(qStart.getFullYear(), qStart.getMonth() + 3, 0);
+    const endDate = qEnd.getTime() > today.getTime() ? today : qEnd;
+
+    const months: PeriodDef[] = [0, 1, 2]
+      .map(mi => {
+        const mStart = new Date(qStart.getFullYear(), qStart.getMonth() + mi, 1);
+        const mEnd = new Date(qStart.getFullYear(), qStart.getMonth() + mi + 1, 0);
+        const cappedEnd = mEnd.getTime() > today.getTime() ? today : mEnd;
+        return {
+          label: monthName(mStart),
+          sublabel: dateStr(mStart),
+          startOrd: toOrd(dateStr(mStart)),
+          endOrd: toOrd(dateStr(cappedEnd)),
+        };
+      })
+      .filter(m => m.startOrd <= todayOrd);
+
+    options.push({
+      value: `${fyStartYear}-Q${quarterNum}`,
+      label: `Q${quarterNum} FY ${String(fyStartYear % 100).padStart(2, '0')}-${String((fyStartYear + 1) % 100).padStart(2, '0')}`,
+      rangeLabel: `${qStart.toLocaleString('en-IN', { month: 'short' })} – ${qEnd.toLocaleString('en-IN', { month: 'short' })} ${qEnd.getFullYear()}`,
+      startOrd: toOrd(dateStr(qStart)),
+      endOrd: Math.min(toOrd(dateStr(qEnd)), todayOrd),
+      endDateStr: dateStr(endDate),
+      months,
+    });
+  }
+  return options;
+}
+
+interface CustomerRevenueRow { customerId: string; customerName: string; revenue: number; weightKg: number; invoiceCount: number; }
+interface OutstandingRow { customerId: string; customerName: string; balance: number; }
+interface CategorySalesRow { category: string; qty: number; weightKg: number; revenue: number; }
+interface MonthTrendRow extends PeriodDef {
+  revenue: number; collections: number; expenses: number; salaryPayout: number; invoiceCount: number;
+}
+
+interface QuarterReportData {
+  invoiceCount: number;
+  revenue: number;
+  gstCollected: number;
+  cashRevenue: number;
+  creditRevenue: number;
+  collections: number;
+  totalUnits: number;
+  totalWeightKg: number;
+  expensesTotal: number;
+  salaryPayout: number;
+  salaryAccrued: number;
+  netCashSurplus: number;
+  netBusinessResult: number;
+  outstandingAsOfEnd: number;
+  monthlyTrend: MonthTrendRow[];
+  categorySales: CategorySalesRow[];
+  topCustomers: CustomerRevenueRow[];
+  topOutstanding: OutstandingRow[];
+}
+
+function buildQuarterReportData(
+  opt: QuarterOption,
+  invoices: Invoice[],
+  receipts: PaymentReceipt[],
+  expenses: Expense[],
+  salaryRecords: SalaryRecord[],
+  customers: Customer[],
+): QuarterReportData {
+  const filteredInvoices = invoices.filter(
+    inv => !inv.cancelled && toOrd(inv.invoiceDate) >= opt.startOrd && toOrd(inv.invoiceDate) <= opt.endOrd,
+  );
+
+  const revenue = filteredInvoices.reduce((s, i) => s + i.grandTotal, 0);
+  const gstCollected = filteredInvoices.reduce((s, i) => s + i.totalGST, 0);
+  const cashRevenue = filteredInvoices.filter(i => i.paymentMode === 'Cash').reduce((s, i) => s + i.grandTotal, 0);
+  const creditRevenue = filteredInvoices.filter(i => i.paymentMode === 'Credit').reduce((s, i) => s + i.grandTotal, 0);
+
+  const receiptsInRange = receipts.filter(r => toOrd(r.date) >= opt.startOrd && toOrd(r.date) <= opt.endOrd);
+  const collections = cashRevenue + receiptsInRange.reduce((s, r) => s + r.amount, 0);
+
+  let totalUnits = 0;
+  let totalWeightKg = 0;
+  for (const inv of filteredInvoices) {
+    for (const item of inv.items) {
+      totalUnits += item.quantity;
+      totalWeightKg += item.quantity * item.weight;
+    }
+  }
+
+  const expensesInRange = expenses.filter(e => toOrd(e.date) >= opt.startOrd && toOrd(e.date) <= opt.endOrd);
+  const expensesTotal = expensesInRange.reduce((s, e) => s + e.amount, 0);
+
+  const quarterMonthKeys = new Set(opt.months.map(m => {
+    const [, mm, yyyy] = m.sublabel.split('/');
+    return `${yyyy}-${mm}`;
+  }));
+  const salaryInRange = salaryRecords.filter(r => quarterMonthKeys.has(r.month));
+  const salaryPayout = salaryInRange.reduce((s, r) => s + r.amountPaid, 0);
+  const salaryAccrued = salaryInRange.reduce((s, r) => s + r.netPayable, 0);
+
+  const netCashSurplus = collections - expensesTotal - salaryPayout;
+  const netBusinessResult = revenue - expensesTotal - salaryAccrued;
+
+  // Running customer balance (opening balance + invoices − receipts) as of quarter end
+  const balanceByCustomer: Record<string, number> = {};
+  for (const c of customers) balanceByCustomer[c.id] = c.openingBalance;
+  for (const inv of invoices) {
+    if (inv.cancelled || toOrd(inv.invoiceDate) > opt.endOrd) continue;
+    balanceByCustomer[inv.customerId] = (balanceByCustomer[inv.customerId] ?? 0) + inv.grandTotal;
+  }
+  for (const r of receipts) {
+    if (toOrd(r.date) > opt.endOrd) continue;
+    balanceByCustomer[r.customerId] = (balanceByCustomer[r.customerId] ?? 0) - r.amount;
+  }
+  const outstandingAsOfEnd = Object.values(balanceByCustomer).reduce((s, b) => s + b, 0);
+
+  const custNameById: Record<string, string> = {};
+  for (const c of customers) custNameById[c.id] = c.name;
+
+  const topOutstanding: OutstandingRow[] = Object.entries(balanceByCustomer)
+    .filter(([, bal]) => bal > 0)
+    .map(([customerId, balance]) => ({ customerId, customerName: custNameById[customerId] ?? customerId, balance }))
+    .sort((a, b) => b.balance - a.balance)
+    .slice(0, 10);
+
+  const revByCustomer: Record<string, { name: string; revenue: number; weightKg: number; count: number }> = {};
+  for (const inv of filteredInvoices) {
+    const entry = revByCustomer[inv.customerId] ?? { name: inv.customerSnapshot.name, revenue: 0, weightKg: 0, count: 0 };
+    entry.revenue += inv.grandTotal;
+    entry.count += 1;
+    for (const item of inv.items) entry.weightKg += item.quantity * item.weight;
+    revByCustomer[inv.customerId] = entry;
+  }
+  const topCustomers: CustomerRevenueRow[] = Object.entries(revByCustomer)
+    .map(([customerId, v]) => ({ customerId, customerName: v.name, revenue: v.revenue, weightKg: v.weightKg, invoiceCount: v.count }))
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 10);
+
+  const categorySales: CategorySalesRow[] = PRODUCT_CATEGORIES
+    .map(cat => {
+      let qty = 0, weightKg = 0, catRevenue = 0;
+      const catSkuIds = new Set(PRODUCTS.filter(p => p.product === cat).map(p => p.id));
+      for (const inv of filteredInvoices) {
+        for (const item of inv.items) {
+          if (!catSkuIds.has(item.skuId)) continue;
+          qty += item.quantity;
+          weightKg += item.quantity * item.weight;
+          catRevenue += item.lineTotal;
+        }
+      }
+      return { category: cat, qty, weightKg, revenue: catRevenue };
+    })
+    .filter(r => r.qty > 0);
+
+  const monthlyTrend: MonthTrendRow[] = opt.months.map(m => {
+    const s = calcPeriodStats(invoices, receipts, m.startOrd, m.endOrd);
+    const mExpenses = expenses
+      .filter(e => toOrd(e.date) >= m.startOrd && toOrd(e.date) <= m.endOrd)
+      .reduce((sum, e) => sum + e.amount, 0);
+    const [, mm, yyyy] = m.sublabel.split('/');
+    const mSalary = salaryRecords
+      .filter(r => r.month === `${yyyy}-${mm}`)
+      .reduce((sum, r) => sum + r.amountPaid, 0);
+    return { ...m, revenue: s.invoiceTotal, collections: s.moneyReceived, expenses: mExpenses, salaryPayout: mSalary, invoiceCount: s.invoiceCount };
+  });
+
+  return {
+    invoiceCount: filteredInvoices.length,
+    revenue, gstCollected, cashRevenue, creditRevenue, collections,
+    totalUnits, totalWeightKg, expensesTotal, salaryPayout, salaryAccrued,
+    netCashSurplus, netBusinessResult, outstandingAsOfEnd,
+    monthlyTrend, categorySales, topCustomers, topOutstanding,
+  };
+}
+
+function buildQuarterlyReportPdfHtml(bizName: string, opt: QuarterOption, data: QuarterReportData): string {
+  const now = new Date();
+  const ts = `${formatDate(now)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  const kpi = (label: string, value: string, sub: string, c1: string, c2: string) => `
+    <div class="kpi" style="background:linear-gradient(135deg, ${c1}, ${c2})">
+      <div class="kpi-label">${label}</div>
+      <div class="kpi-value">${value}</div>
+      ${sub ? `<div class="kpi-sub">${sub}</div>` : ''}
+    </div>`;
+
+  const kpiGrid = [
+    kpi('Total Revenue', fmtINR(data.revenue), `${data.invoiceCount} invoices`, '#6366f1', '#4338ca'),
+    kpi('Collections', fmtINR(data.collections), 'Cash sales + receipts', '#10b981', '#047857'),
+    kpi('GST Collected', fmtINR(data.gstCollected), '', '#0ea5e9', '#0369a1'),
+    kpi('Expenses', fmtINR(data.expensesTotal), '', '#f43f5e', '#be123c'),
+    kpi('Salary Payout', fmtINR(data.salaryPayout), '', '#8b5cf6', '#6d28d9'),
+    kpi('Weight Sold', fmtKg(data.totalWeightKg), `${data.totalUnits.toLocaleString('en-IN')} units`, '#f59e0b', '#b45309'),
+    kpi('Net Cash Surplus', fmtINR(data.netCashSurplus), 'Collections − Expenses − Salary',
+      data.netCashSurplus >= 0 ? '#10b981' : '#f43f5e', data.netCashSurplus >= 0 ? '#047857' : '#be123c'),
+    kpi('Outstanding Receivables', fmtINR(Math.abs(data.outstandingAsOfEnd)), `As of ${opt.endDateStr}`,
+      data.outstandingAsOfEnd > 0 ? '#f59e0b' : '#10b981', data.outstandingAsOfEnd > 0 ? '#b45309' : '#047857'),
+  ].join('');
+
+  const trendRows = data.monthlyTrend.map(m => `
+    <tr>
+      <td class="bold">${m.label}</td>
+      <td class="right indigo">${fmtINR(m.revenue)}</td>
+      <td class="right green">${fmtINR(m.collections)}</td>
+      <td class="right rose">${fmtINR(m.expenses)}</td>
+      <td class="right violet">${fmtINR(m.salaryPayout)}</td>
+      <td class="right">${m.invoiceCount}</td>
+    </tr>`).join('');
+
+  const categoryRows = data.categorySales.map(c => `
+    <tr>
+      <td class="bold">${c.category}</td>
+      <td class="right">${c.qty.toLocaleString('en-IN')}</td>
+      <td class="right">${fmtKg(c.weightKg)}</td>
+      <td class="right indigo bold">${fmtINR(c.revenue)}</td>
+    </tr>`).join('');
+
+  const topCustRows = data.topCustomers.length > 0
+    ? data.topCustomers.map((c, i) => `
+      <tr><td class="muted center">${i + 1}</td><td>${c.customerName}</td><td class="right indigo bold">${fmtINR(c.revenue)}</td></tr>`).join('')
+    : `<tr><td colspan="3" class="muted center" style="padding:14px">No sales this quarter</td></tr>`;
+
+  const outstandingRows = data.topOutstanding.length > 0
+    ? data.topOutstanding.map((c, i) => `
+      <tr><td class="muted center">${i + 1}</td><td>${c.customerName}</td><td class="right amber bold">${fmtINR(c.balance)}</td></tr>`).join('')
+    : `<tr><td colspan="3" class="muted center" style="padding:14px">No outstanding dues</td></tr>`;
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Quarterly Financial Report</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 10px; color: #1e293b; background: #fff; }
+    .band { background: linear-gradient(120deg, #4338ca, #7c3aed); border-radius: 14px; padding: 18px 22px; color: #fff; margin-bottom: 18px; }
+    .band .biz { font-size: 18px; font-weight: 800; }
+    .band .title { font-size: 13px; font-weight: 600; margin-top: 2px; opacity: 0.95; }
+    .band .range { font-size: 10px; margin-top: 6px; opacity: 0.85; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
+    .kpi { border-radius: 10px; padding: 10px 12px; color: #fff; }
+    .kpi-label { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.9; }
+    .kpi-value { font-size: 14px; font-weight: 800; margin-top: 4px; }
+    .kpi-sub { font-size: 7.5px; opacity: 0.85; margin-top: 2px; }
+    .section-heading { font-size: 12px; font-weight: 700; color: #312e81; margin: 16px 0 8px; padding-bottom: 5px; border-bottom: 2px solid #e0e7ff; }
+    table { width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; margin-bottom: 4px; }
+    thead tr { background: #eef2ff; }
+    th { padding: 6px 10px; font-size: 9px; font-weight: 700; color: #4338ca; text-transform: uppercase; letter-spacing: 0.03em; text-align: left; }
+    th.right { text-align: right; }
+    td { padding: 6px 10px; font-size: 10px; border-top: 1px solid #f1f5f9; }
+    td.right { text-align: right; }
+    td.center { text-align: center; }
+    td.bold { font-weight: 700; }
+    td.muted { color: #94a3b8; }
+    td.indigo { color: #4f46e5; }
+    td.green { color: #059669; }
+    td.rose { color: #e11d48; }
+    td.violet { color: #7c3aed; }
+    td.amber { color: #d97706; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .note { margin-top: 16px; font-size: 8.5px; color: #64748b; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; line-height: 1.5; }
+    .footer { font-size: 8px; color: #94a3b8; text-align: right; margin-top: 16px; padding-top: 8px; border-top: 1px solid #e2e8f0; }
+  </style></head><body>
+    <div class="band">
+      <div class="biz">${bizName}</div>
+      <div class="title">Quarterly Financial Report &mdash; ${opt.label}</div>
+      <div class="range">${opt.rangeLabel} &nbsp;&middot;&nbsp; Generated: ${ts}</div>
+    </div>
+
+    <div class="kpi-grid">${kpiGrid}</div>
+
+    <div class="section-heading">Month-wise Trend</div>
+    <table>
+      <thead><tr><th>Month</th><th class="right">Revenue</th><th class="right">Collections</th><th class="right">Expenses</th><th class="right">Salary</th><th class="right">Invoices</th></tr></thead>
+      <tbody>${trendRows}</tbody>
+    </table>
+
+    ${data.categorySales.length > 0 ? `
+    <div class="section-heading">Category-wise Sales</div>
+    <table>
+      <thead><tr><th>Category</th><th class="right">Units</th><th class="right">Weight</th><th class="right">Revenue</th></tr></thead>
+      <tbody>${categoryRows}</tbody>
+    </table>` : ''}
+
+    <div class="two-col">
+      <div>
+        <div class="section-heading">Top Customers by Revenue</div>
+        <table><tbody>${topCustRows}</tbody></table>
+      </div>
+      <div>
+        <div class="section-heading">Top Outstanding Receivables</div>
+        <table><tbody>${outstandingRows}</tbody></table>
+      </div>
+    </div>
+
+    <div class="note">Note: Net Cash Surplus and revenue figures reflect recorded sales, expenses and salary payouts. Raw-material and production costs are not tracked with pricing in this system, so the figures above are not a full profit &amp; loss statement.</div>
+    <div class="footer">Vyaparimay &nbsp;&middot;&nbsp; Generated ${ts}</div>
+  </body></html>`;
+}
+
+function KpiCard({
+  icon: Icon, label, value, sub, tone,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  sub?: string;
+  tone: 'indigo' | 'emerald' | 'amber' | 'rose' | 'sky' | 'violet';
+}) {
+  const gradients: Record<string, string> = {
+    indigo: 'from-indigo-500 to-indigo-700',
+    emerald: 'from-emerald-500 to-emerald-700',
+    amber: 'from-amber-500 to-amber-700',
+    rose: 'from-rose-500 to-rose-700',
+    sky: 'from-sky-500 to-sky-700',
+    violet: 'from-violet-500 to-violet-700',
+  };
+  return (
+    <div className={`rounded-2xl p-4 text-white shadow-sm bg-gradient-to-br ${gradients[tone]}`}>
+      <div className="flex items-center gap-2 opacity-90 mb-2">
+        <Icon size={15} />
+        <span className="text-xs font-semibold uppercase tracking-wide">{label}</span>
+      </div>
+      <div className="text-xl font-bold leading-tight">{value}</div>
+      {sub && <div className="text-xs opacity-80 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function QuarterlyFinancialReport({
+  selectedQuarter,
+  onQuarterChange,
+}: {
+  selectedQuarter: string;
+  onQuarterChange: (value: string) => void;
+}) {
+  const { customers, invoices, paymentReceipts, expenses, salaryRecords } = useStore();
+  const quarterOptions = useMemo(() => getQuarterOptions(), []);
+  const opt = quarterOptions.find(q => q.value === selectedQuarter) ?? quarterOptions[0];
+
+  const data = useMemo(
+    () => buildQuarterReportData(opt, invoices, paymentReceipts, expenses, salaryRecords, customers),
+    [opt, invoices, paymentReceipts, expenses, salaryRecords, customers],
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-medium text-slate-600">Quarter:</label>
+        <select
+          value={opt.value}
+          onChange={e => onQuarterChange(e.target.value)}
+          className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        >
+          {quarterOptions.map(o => (
+            <option key={o.value} value={o.value}>{o.label} &middot; {o.rangeLabel}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <KpiCard icon={TrendingUp} tone="indigo" label="Total Revenue" value={fmtINR(data.revenue)} sub={`${data.invoiceCount} invoices`} />
+        <KpiCard icon={Wallet} tone="emerald" label="Collections" value={fmtINR(data.collections)} sub="Cash sales + receipts" />
+        <KpiCard icon={Receipt} tone="sky" label="GST Collected" value={fmtINR(data.gstCollected)} />
+        <KpiCard icon={AlertTriangle} tone="rose" label="Expenses" value={fmtINR(data.expensesTotal)} />
+        <KpiCard icon={Users} tone="violet" label="Salary Payout" value={fmtINR(data.salaryPayout)} />
+        <KpiCard icon={Weight} tone="amber" label="Weight Sold" value={fmtKg(data.totalWeightKg)} sub={`${data.totalUnits.toLocaleString('en-IN')} units`} />
+        <KpiCard
+          icon={IndianRupee}
+          tone={data.netCashSurplus >= 0 ? 'emerald' : 'rose'}
+          label="Net Cash Surplus"
+          value={fmtINR(data.netCashSurplus)}
+          sub="Collections − Expenses − Salary"
+        />
+        <KpiCard
+          icon={AlertTriangle}
+          tone={data.outstandingAsOfEnd > 0 ? 'amber' : 'emerald'}
+          label="Outstanding Receivables"
+          value={fmtINR(Math.abs(data.outstandingAsOfEnd))}
+          sub={`As of ${opt.endDateStr}`}
+        />
+      </div>
+
+      {/* Payment mode split */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+        <div className="font-semibold text-slate-700 mb-3">Cash vs. Credit Sales</div>
+        <div className="flex h-3 rounded-full overflow-hidden bg-slate-100">
+          <div className="bg-emerald-500" style={{ width: `${data.revenue > 0 ? (data.cashRevenue / data.revenue) * 100 : 0}%` }} />
+          <div className="bg-amber-500" style={{ width: `${data.revenue > 0 ? (data.creditRevenue / data.revenue) * 100 : 0}%` }} />
+        </div>
+        <div className="flex justify-between mt-2 text-xs text-slate-500">
+          <span><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1.5" />Cash: {fmtINR(data.cashRevenue)}</span>
+          <span><span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1.5" />Credit: {fmtINR(data.creditRevenue)}</span>
+        </div>
+      </div>
+
+      {/* Month-wise trend */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 font-semibold text-slate-700">Month-wise Trend</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-400 border-b border-slate-100 bg-slate-50/50">
+                <th className="text-left px-5 py-2.5 font-medium">Month</th>
+                <th className="text-right px-4 py-2.5 font-medium text-indigo-600">Revenue</th>
+                <th className="text-right px-4 py-2.5 font-medium text-emerald-600">Collections</th>
+                <th className="text-right px-4 py-2.5 font-medium text-rose-500">Expenses</th>
+                <th className="text-right px-4 py-2.5 font-medium text-violet-600">Salary</th>
+                <th className="text-right px-5 py-2.5 font-medium">Invoices</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.monthlyTrend.map(m => (
+                <tr key={m.label} className="border-b border-slate-50 last:border-0">
+                  <td className="px-5 py-2.5 font-medium text-slate-700">{m.label}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-indigo-600">{fmtINR(m.revenue)}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">{fmtINR(m.collections)}</td>
+                  <td className="px-4 py-2.5 text-right text-rose-500">{fmtINR(m.expenses)}</td>
+                  <td className="px-4 py-2.5 text-right text-violet-600">{fmtINR(m.salaryPayout)}</td>
+                  <td className="px-5 py-2.5 text-right text-slate-600">{m.invoiceCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Category-wise sales */}
+      {data.categorySales.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 font-semibold text-slate-700">Category-wise Sales</div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-400 border-b border-slate-100 bg-slate-50/50">
+                <th className="text-left px-5 py-2.5 font-medium">Category</th>
+                <th className="text-right px-4 py-2.5 font-medium">Units</th>
+                <th className="text-right px-4 py-2.5 font-medium">Weight</th>
+                <th className="text-right px-5 py-2.5 font-medium text-indigo-600">Revenue</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.categorySales.map(c => (
+                <tr key={c.category} className="border-b border-slate-50 last:border-0">
+                  <td className="px-5 py-2.5 font-medium text-slate-700">{c.category}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-600">{c.qty.toLocaleString('en-IN')}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-600">{fmtKg(c.weightKg)}</td>
+                  <td className="px-5 py-2.5 text-right font-semibold text-indigo-600">{fmtINR(c.revenue)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Top customers + Outstanding, side by side */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 font-semibold text-slate-700">Top Customers by Revenue</div>
+          {data.topCustomers.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 text-sm">No sales this quarter</div>
+          ) : (
+            <table className="w-full text-sm">
+              <tbody>
+                {data.topCustomers.map((c, i) => (
+                  <tr key={c.customerId} className="border-b border-slate-50 last:border-0">
+                    <td className="px-5 py-2.5 text-slate-400 w-6">{i + 1}</td>
+                    <td className="px-2 py-2.5 font-medium text-slate-700">{c.customerName}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-indigo-600">{fmtINR(c.revenue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 font-semibold text-slate-700">Top Outstanding Receivables</div>
+          {data.topOutstanding.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 text-sm">No outstanding dues</div>
+          ) : (
+            <table className="w-full text-sm">
+              <tbody>
+                {data.topOutstanding.map((c, i) => (
+                  <tr key={c.customerId} className="border-b border-slate-50 last:border-0">
+                    <td className="px-5 py-2.5 text-slate-400 w-6">{i + 1}</td>
+                    <td className="px-2 py-2.5 font-medium text-slate-700">{c.customerName}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-amber-600">{fmtINR(c.balance)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      <div className="text-xs text-slate-400 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
+        Note: Net Cash Surplus and revenue figures reflect recorded sales, expenses and salary payouts. Raw-material and production costs are not tracked with pricing in this system, so figures above are not a full profit &amp; loss statement.
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Reports Page ────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'packaging' | 'monthly' | 'accountant';
+type Tab = 'overview' | 'packaging' | 'monthly' | 'accountant' | 'quarterly';
 
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
@@ -1114,8 +1647,9 @@ export default function ReportsPage() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [selectedQuarter, setSelectedQuarter] = useState(() => getQuarterOptions(1)[0].value);
 
-  const { businessProfile, invoices, readyStock, packagingStock, packagingEntries, paymentReceipts, customers } = useStore();
+  const { businessProfile, invoices, readyStock, packagingStock, packagingEntries, paymentReceipts, customers, expenses, salaryRecords } = useStore();
   const bizName = businessProfile?.name ?? 'Vyaparimay';
 
   const handleDownloadPdf = () => {
@@ -1135,6 +1669,11 @@ export default function ReportsPage() {
         return yyyy === year && mm === month;
       });
       html = buildAccountantReportPdfHtml(bizName, monthLabel, acctInvoices);
+    } else if (activeTab === 'quarterly') {
+      const quarterOptions = getQuarterOptions();
+      const opt = quarterOptions.find(o => o.value === selectedQuarter) ?? quarterOptions[0];
+      const data = buildQuarterReportData(opt, invoices, paymentReceipts, expenses, salaryRecords, customers);
+      html = buildQuarterlyReportPdfHtml(bizName, opt, data);
     } else {
       const monthOptions = getMonthOptions();
       const monthLabel = monthOptions.find(o => o.value === monthlySelectedMonth)?.label ?? monthlySelectedMonth;
@@ -1160,6 +1699,15 @@ export default function ReportsPage() {
 
         {/* Tab bar */}
         <div className="flex items-center gap-2 bg-white rounded-2xl border border-slate-100 shadow-sm p-1.5">
+          <button
+            onClick={() => setActiveTab('quarterly')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all ${
+              activeTab === 'quarterly' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <TrendingUp size={15} />
+            Quarterly Financial
+          </button>
           <button
             onClick={() => setActiveTab('overview')}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all ${
@@ -1197,6 +1745,13 @@ export default function ReportsPage() {
             Accountant
           </button>
         </div>
+
+        {activeTab === 'quarterly' && (
+          <QuarterlyFinancialReport
+            selectedQuarter={selectedQuarter}
+            onQuarterChange={setSelectedQuarter}
+          />
+        )}
 
         {activeTab === 'overview' && (
           <div className="space-y-8">

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Search, Plus, ShoppingCart, Trash2, AlertTriangle, CheckCircle2, ChevronRight, Eye } from 'lucide-react';
+import { Search, Plus, ShoppingCart, Trash2, AlertTriangle, CheckCircle2, ChevronRight, Eye, X, Minus } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PACKAGING_MATERIALS, PRODUCT_CATEGORIES, getRawMaterialId } from '../../data/products';
 import { calcGST, isInterState } from '../../utils/gst';
@@ -67,7 +67,7 @@ function getStockAlerts(
   for (const [id, needed] of Object.entries(rawNeeded)) {
     const avail = rawStock[id] ?? 0;
     if (avail < needed) {
-      const names: Record<string, string> = { 'RM-WF': 'Shikharji Atta', 'RM-BS': 'Shikharji Besan', 'RM-DL': 'Shikharji Dalia' };
+      const names: Record<string, string> = { 'RM-WF': 'Shikharji Atta', 'RM-BS': 'Shikharji Besan', 'RM-DL': 'Shikharji Dalia', 'RM-BR': 'Shikharji Bran' };
       alerts.push({ label: `${names[id] ?? id} (Bulk kg)`, required: needed, available: avail });
     }
   }
@@ -151,7 +151,8 @@ export default function NewOrder() {
   const cartWithCalc = (currentOrder?.items ?? []).map(item => {
     const sku = PRODUCTS.find(p => p.id === item.skuId)!;
     const tv = item.quantity * item.rate;
-    const { cgst, sgst, igst } = gstEnabled ? calcGST(tv, sku.gstRate, inter) : { cgst: 0, sgst: 0, igst: 0 };
+    const gstRate = sku.weight > 25 ? 0 : sku.gstRate;
+    const { cgst, sgst, igst } = gstEnabled ? calcGST(tv, gstRate, inter) : { cgst: 0, sgst: 0, igst: 0 };
     return { ...item, sku, taxableValue: tv, cgst, sgst, igst, lineTotal: tv + cgst + sgst + igst };
   });
 
@@ -188,10 +189,11 @@ export default function NewOrder() {
     const items: OrderItem[] = currentOrder.items.map(cartItem => {
       const sku = PRODUCTS.find(p => p.id === cartItem.skuId)!;
       const taxableValue = cartItem.quantity * cartItem.rate;
-      const raw = gstEnabled ? calcGST(taxableValue, sku.gstRate, inter) : { cgst: 0, sgst: 0, igst: 0 };
+      const gstRate = sku.weight > 25 ? 0 : sku.gstRate;
+      const raw = gstEnabled ? calcGST(taxableValue, gstRate, inter) : { cgst: 0, sgst: 0, igst: 0 };
       const { cgst, sgst, igst } = raw;
-      return { ...cartItem, product: sku.product, variant: sku.variant, weight: sku.weight,
-        hsnCode: sku.hsnCode, gstRate: sku.gstRate, unit: sku.unit,
+      return { ...cartItem, product: sku.product, variant: (sku.innerSkuId || sku.useIdAsLabel) ? sku.id : sku.variant, weight: sku.weight,
+        hsnCode: sku.hsnCode, gstRate, unit: sku.unit,
         taxableValue, cgst, sgst, igst, lineTotal: taxableValue + cgst + sgst + igst };
     });
     const sub  = items.reduce((a, i) => a + i.taxableValue, 0);
@@ -247,10 +249,9 @@ export default function NewOrder() {
           font-weight: bold; line-height: 1.35; color: #000; background: #fff; }
         pre { white-space: pre; margin: 0; width: 100%; font-weight: bold; }
       </style>
-    </head><body><pre>${escaped}</pre></body></html>`);
+    </head><body><pre>${escaped}</pre><script>window.onafterprint=function(){window.close()};window.print();<\/script></body></html>`);
     w.document.close();
     w.focus();
-    w.onload = () => { w.print(); w.onafterprint = () => w.close(); };
   };
 
   return (
@@ -335,7 +336,8 @@ export default function NewOrder() {
 
       {/* ─── Step 2: Add Products ─── */}
       {step === 2 && (
-        <div className="grid grid-cols-5 gap-6">
+        <>
+        <div className={`grid grid-cols-5 gap-6 transition-all ${selectedSKU ? 'pb-28' : ''}`}>
           {/* Left: Product Selector */}
           <div className="col-span-3 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h2 className="font-semibold text-gray-700 mb-4">Add Products</h2>
@@ -359,11 +361,63 @@ export default function NewOrder() {
             {(() => {
               const skuCard = (sku: ProductSKU) => {
                 const badge = packagingBadge(sku.variant);
+                const isSelected = selectedSKU?.id === sku.id;
+                const isBundle = !!(sku.innerSkuId && sku.innerSkuQty);
+
+                // ── Bundle card (AT30 outer bags) ──────────────────────────
+                if (isBundle) {
+                  const innerSku = PRODUCTS.find(p => p.id === sku.innerSkuId);
+                  const innerWeight = innerSku?.weight ?? 0;
+                  const innerType = sku.variant.includes('Pouch') ? 'Pouch' : 'Handle Bag';
+                  const isInnerPouch = innerType === 'Pouch';
+                  const bundleCls = isInnerPouch
+                    ? `p-3 rounded-lg border text-left transition-all ${
+                        isSelected
+                          ? 'border-purple-400 ring-2 ring-purple-300 bg-gradient-to-br from-purple-600 to-indigo-600'
+                          : 'border-purple-300 bg-gradient-to-br from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600'
+                      }`
+                    : `p-3 rounded-lg border text-left transition-colors ${
+                        isSelected
+                          ? 'border-indigo-500 bg-indigo-50'
+                          : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                      }`;
+                  const tc = (normal: string, pouch: string) => isInnerPouch ? pouch : normal;
+                  return (
+                    <button key={sku.id} onClick={() => handleSelectSKU(sku)} className={bundleCls}>
+                      {/* SKU ID */}
+                      <div className={`text-xs font-mono font-bold tracking-wide mb-1 ${tc('text-indigo-500', 'text-purple-200')}`}>
+                        {sku.id}
+                      </div>
+                      {/* Inner breakdown: e.g. 3 × 10 kg */}
+                      <div className="flex items-end gap-0.5 leading-none mb-1">
+                        <span className={`text-xl font-extrabold leading-none ${tc('text-gray-800', 'text-white')}`}>
+                          {sku.innerSkuQty} × {innerWeight}
+                        </span>
+                        <span className={`text-sm font-semibold mb-0.5 ${tc('text-gray-500', 'text-white/80')}`}>kg</span>
+                      </div>
+                      {/* Inner type */}
+                      <div className={`text-sm font-bold ${tc('text-gray-700', 'text-white')}`}>{innerType}</div>
+                      {/* Outer bag total */}
+                      <div className={`text-[10px] mt-0.5 ${tc('text-gray-400', 'text-purple-200')}`}>{sku.weight} kg outer bag</div>
+                      {/* Price */}
+                      <div className={`text-xs mt-2 font-semibold ${tc('text-indigo-600', 'text-white/90')}`}>
+                        {fmtINR(priceList[sku.id] ?? 0)} / {sku.unit}
+                      </div>
+                      {addedSku === sku.id && (
+                        <div className={`text-xs font-medium mt-0.5 ${tc('text-green-600', 'text-green-200')}`}>✓ Added!</div>
+                      )}
+                    </button>
+                  );
+                }
+
+                // ── Standard card ──────────────────────────────────────────
                 // Split weight into number + unit, e.g. "500 gm" or "26 kg"
                 const parts = sku.variant.split(' ');
-                const weightNum  = parts[0];  // "26", "5", "500"
-                const weightUnit = parts[1];  // "kg", "gm"
-                const isSelected = selectedSKU?.id === sku.id;
+                const weightNum  = parts[0];
+                const weightUnit = parts[1];
+                // Extra weight badge, e.g. "+ 100 gm" in "25 kg + 100 gm Bag"
+                const extraMatch = sku.variant.match(/\+\s*(\d+(?:\.\d+)?)\s*(gm|kg)/);
+                const extraLabel = extraMatch ? `+${extraMatch[1]} ${extraMatch[2]}` : null;
 
                 const cardCls = badge.isPouch
                   ? `p-3 rounded-lg border text-left transition-all ${
@@ -384,9 +438,12 @@ export default function NewOrder() {
                     className={cardCls}
                   >
                     {/* Big weight number */}
-                    <div className="flex items-end gap-1 leading-none mb-2">
+                    <div className="flex items-end gap-1 leading-none mb-2 flex-wrap">
                       <span className={`text-3xl font-extrabold leading-none ${ badge.isPouch ? 'text-white' : 'text-gray-800' }`}>{weightNum}</span>
                       <span className={`text-base font-semibold mb-0.5 ${ badge.isPouch ? 'text-white/80' : 'text-gray-500' }`}>{weightUnit}</span>
+                      {extraLabel && (
+                        <span className="text-xs font-bold text-orange-500 mb-0.5 bg-orange-50 border border-orange-200 rounded px-1">{extraLabel}</span>
+                      )}
                     </div>
                     {/* Packaging type — larger text */}
                     <div className={`text-sm font-bold mt-1 ${ badge.isPouch ? 'text-white' : 'text-gray-700' }`}>
@@ -407,8 +464,8 @@ export default function NewOrder() {
                 );
               };
 
-              const bags    = skusInCategory.filter(s => s.variant.includes('Bag'));
               const pouches = skusInCategory.filter(s => s.variant.includes('Pouch'));
+              const bags    = skusInCategory.filter(s => s.variant.includes('Bag') && !s.variant.includes('Pouch'));
               const others  = skusInCategory.filter(s => !s.variant.includes('Bag') && !s.variant.includes('Pouch'));
               const hasGroups = bags.length > 0 && pouches.length > 0;
 
@@ -453,64 +510,6 @@ export default function NewOrder() {
               );
             })()}
 
-            {/* Add form */}
-            {selectedSKU && (
-              <div className="border border-indigo-200 bg-indigo-50 rounded-lg p-4">
-                <div className="text-sm font-semibold text-indigo-800 mb-3">
-                  {selectedSKU.product} – {selectedSKU.variant}
-                </div>
-                <div className="grid grid-cols-4 gap-3 items-end">
-                  <div>
-                    <label className="text-xs text-gray-600 font-medium">Quantity</label>
-                    <input
-                      type="number" min="1"
-                      value={qty}
-                      onChange={e => setQty(Number(e.target.value))}
-                      className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-600 font-medium">₹ per kg</label>
-                    <input
-                      type="number" min="0" step="0.01"
-                      value={perKgRate || ''}
-                      placeholder="0.00"
-                      onChange={e => {
-                        const v = parseFloat(e.target.value) || 0;
-                        setPerKgRate(v);
-                        setRate(parseFloat((v * (selectedSKU?.weight ?? 1)).toFixed(2)));
-                      }}
-                      className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-600 font-medium">₹ per {selectedSKU.unit.toLowerCase()}</label>
-                    <input
-                      type="number" min="0" step="0.01"
-                      value={rate || ''}
-                      placeholder="0.00"
-                      onChange={e => {
-                        const v = parseFloat(e.target.value) || 0;
-                        setRate(v);
-                        setPerKgRate(selectedSKU.weight > 0 ? parseFloat((v / selectedSKU.weight).toFixed(2)) : 0);
-                      }}
-                      className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                    />
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500 font-medium mb-1">Amount</div>
-                    <div className="text-indigo-700 font-bold">{fmtINR(qty * rate)}</div>
-                  </div>
-                </div>
-                <button
-                  onClick={handleAddToCart}
-                  disabled={qty <= 0 || rate <= 0}
-                  className="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
-                >
-                  <Plus size={14} /> Add to Cart
-                </button>
-              </div>
-            )}
           </div>
 
           {/* Right: Cart */}
@@ -574,6 +573,98 @@ export default function NewOrder() {
             </div>
           </div>
         </div>
+
+        {/* ─── Sticky add bar ─── */}
+        {selectedSKU && (
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t-2 border-indigo-300 shadow-[0_-4px_24px_rgba(0,0,0,0.12)]">
+            <div className="max-w-screen-xl mx-auto px-6 py-3 flex items-center gap-4 flex-wrap">
+
+              {/* SKU label */}
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-indigo-500 font-semibold uppercase tracking-wide">Selected</div>
+                <div className="text-sm font-bold text-gray-800 truncate">
+                  {selectedSKU.product} &mdash; {(selectedSKU.innerSkuId || selectedSKU.useIdAsLabel) ? selectedSKU.id : selectedSKU.variant}
+                </div>
+              </div>
+
+              {/* Qty stepper */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 font-medium">Qty</span>
+                <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setQty(q => Math.max(1, q - 1))}
+                    className="px-2.5 py-2 bg-gray-50 hover:bg-gray-100 text-gray-600"
+                  ><Minus size={14} /></button>
+                  <input
+                    type="number" min="1"
+                    value={qty}
+                    onChange={e => setQty(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-14 px-2 py-2 text-center text-sm border-x border-gray-300 focus:outline-none focus:bg-indigo-50"
+                  />
+                  <button
+                    onClick={() => setQty(q => q + 1)}
+                    className="px-2.5 py-2 bg-gray-50 hover:bg-gray-100 text-gray-600"
+                  ><Plus size={14} /></button>
+                </div>
+              </div>
+
+              {/* Rate per kg */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-500 font-medium whitespace-nowrap">₹ / kg</span>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={perKgRate || ''}
+                  placeholder="0.00"
+                  onChange={e => {
+                    const v = parseFloat(e.target.value) || 0;
+                    setPerKgRate(v);
+                    setRate(parseFloat((v * (selectedSKU.weight ?? 1)).toFixed(2)));
+                  }}
+                  className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                />
+              </div>
+
+              {/* Rate per unit */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-500 font-medium whitespace-nowrap">₹ / {selectedSKU.unit.toLowerCase()}</span>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={rate || ''}
+                  placeholder="0.00"
+                  onChange={e => {
+                    const v = parseFloat(e.target.value) || 0;
+                    setRate(v);
+                    setPerKgRate(selectedSKU.weight > 0 ? parseFloat((v / selectedSKU.weight).toFixed(2)) : 0);
+                  }}
+                  className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                />
+              </div>
+
+              {/* Amount */}
+              <div className="text-right min-w-[90px]">
+                <div className="text-xs text-gray-400">Amount</div>
+                <div className="text-base font-bold text-indigo-700">{fmtINR(qty * rate)}</div>
+              </div>
+
+              {/* Add button */}
+              <button
+                onClick={handleAddToCart}
+                disabled={qty <= 0 || rate <= 0}
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-1.5 shrink-0"
+              >
+                <Plus size={15} /> Add to Cart
+              </button>
+
+              {/* Dismiss */}
+              <button
+                onClick={() => setSelectedSKU(null)}
+                className="text-gray-400 hover:text-gray-600 p-1 shrink-0"
+              ><X size={18} /></button>
+
+            </div>
+          </div>
+        )}
+        </>
       )}
 
       {/* ─── Step 3: Review & Confirm ─── */}

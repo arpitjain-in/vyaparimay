@@ -548,15 +548,16 @@ export const useStore = create<AppState>()(
         const items: OrderItem[] = currentOrder.items.map(cartItem => {
           const sku = PRODUCTS.find(p => p.id === cartItem.skuId)!;
           const taxableValue = cartItem.quantity * cartItem.rate;
-          const raw = gstEnabled ? calcGST(taxableValue, sku.gstRate, inter) : { cgst: 0, sgst: 0, igst: 0 };
+          const gstRate = sku.weight > 25 ? 0 : sku.gstRate;
+          const raw = gstEnabled ? calcGST(taxableValue, gstRate, inter) : { cgst: 0, sgst: 0, igst: 0 };
           const { cgst, sgst, igst } = raw;
           return {
             ...cartItem,
             product: sku.product,
-            variant: sku.variant,
+            variant: (sku.innerSkuId || sku.useIdAsLabel) ? sku.id : sku.variant,
             weight: sku.weight,
             hsnCode: sku.hsnCode,
-            gstRate: sku.gstRate,
+            gstRate,
             unit: sku.unit,
             taxableValue,
             cgst,
@@ -617,35 +618,86 @@ export const useStore = create<AppState>()(
         // Deduct from ready stock per SKU
         const newReady = { ...s.readyStock };
         const newReadyTxns: ReadyStockTransaction[] = [];
+        const newPkgStock = { ...s.packagingStock };
+        const newPkgEntries: PackagingEntry[] = [];
         const dateStr = formatDate(now);
         const timeStr = formatTime(now);
 
         for (const item of items) {
           const sku = PRODUCTS.find(p => p.id === item.skuId)!;
-          const skuName = `${sku.product} – ${sku.variant}`;
-          const prevReady = newReady[item.skuId] ?? 0;
-          newReady[item.skuId] = prevReady - item.quantity;
-          newReadyTxns.push({
-            id: crypto.randomUUID(),
-            date: dateStr, time: timeStr,
-            skuId: item.skuId, skuName,
-            type: 'DEDUCT',
-            quantity: item.quantity,
-            previousStock: prevReady,
-            newStock: newReady[item.skuId],
-            reason: `Sale – ${invoiceNo}`,
-            invoiceNo,
-          });
+          if (sku.innerSkuId && sku.innerSkuQty) {
+            // Bundle SKU (AT30): deduct from inner SKU's ready stock
+            const innerSku = PRODUCTS.find(p => p.id === sku.innerSkuId)!;
+            const innerSkuName = `${innerSku.product} – ${innerSku.variant}`;
+            const innerQty = item.quantity * sku.innerSkuQty;
+            const prevReady = newReady[sku.innerSkuId] ?? 0;
+            newReady[sku.innerSkuId] = prevReady - innerQty;
+            newReadyTxns.push({
+              id: crypto.randomUUID(),
+              date: dateStr, time: timeStr,
+              skuId: sku.innerSkuId, skuName: innerSkuName,
+              type: 'DEDUCT',
+              quantity: innerQty,
+              previousStock: prevReady,
+              newStock: newReady[sku.innerSkuId],
+              reason: `Sale via ${sku.id} – ${invoiceNo}`,
+              invoiceNo,
+            });
+            // Deduct the outer bag packaging at invoice time
+            const outerMat = PACKAGING_MATERIALS.find(m => m.id === sku.packagingId);
+            if (outerMat) {
+              const prevPkg = newPkgStock[sku.packagingId] ?? 0;
+              newPkgStock[sku.packagingId] = Math.max(0, prevPkg - item.quantity);
+              newPkgEntries.push({
+                id: crypto.randomUUID(),
+                date: dateStr, time: timeStr,
+                materialId: sku.packagingId,
+                materialName: outerMat.name,
+                entryType: 'used',
+                quantity: item.quantity,
+                notes: `Auto-deducted for Sale: ${sku.product} – ${sku.variant} (${invoiceNo})`,
+              });
+            }
+          } else {
+            // Normal SKU: deduct from own ready stock
+            const skuName = `${sku.product} – ${sku.variant}`;
+            const prevReady = newReady[item.skuId] ?? 0;
+            newReady[item.skuId] = prevReady - item.quantity;
+            newReadyTxns.push({
+              id: crypto.randomUUID(),
+              date: dateStr, time: timeStr,
+              skuId: item.skuId, skuName,
+              type: 'DEDUCT',
+              quantity: item.quantity,
+              previousStock: prevReady,
+              newStock: newReady[item.skuId],
+              reason: `Sale – ${invoiceNo}`,
+              invoiceNo,
+            });
+          }
         }
 
-        // Guard: reject if any SKU would go below zero
-        const insufficient = items.filter(i => (newReady[i.skuId] ?? 0) < 0);
-        if (insufficient.length > 0) {
-          const lines = insufficient.map(i => {
-            const sku = PRODUCTS.find(p => p.id === i.skuId)!;
-            return `${sku.product} – ${sku.variant}: available ${s.readyStock[i.skuId] ?? 0}, requested ${i.quantity}`;
-          });
-          set({ dialog: { title: 'Insufficient Ready Stock', variant: 'error', message: lines } });
+        // Guard: reject if any ready stock goes below zero
+        const insufficientLines: string[] = [];
+        for (const item of items) {
+          const sku = PRODUCTS.find(p => p.id === item.skuId)!;
+          if (sku.innerSkuId && sku.innerSkuQty) {
+            if ((newReady[sku.innerSkuId] ?? 0) < 0) {
+              const innerSku = PRODUCTS.find(p => p.id === sku.innerSkuId)!;
+              insufficientLines.push(
+                `${sku.product} – ${sku.variant}: needs ${item.quantity * sku.innerSkuQty} × ${innerSku.variant} (available ${s.readyStock[sku.innerSkuId] ?? 0})`
+              );
+            }
+          } else {
+            if ((newReady[item.skuId] ?? 0) < 0) {
+              insufficientLines.push(
+                `${sku.product} – ${sku.variant}: available ${s.readyStock[item.skuId] ?? 0}, requested ${item.quantity}`
+              );
+            }
+          }
+        }
+        if (insufficientLines.length > 0) {
+          set({ dialog: { title: 'Insufficient Ready Stock', variant: 'error', message: insufficientLines } });
           return null;
         }
 
@@ -654,6 +706,8 @@ export const useStore = create<AppState>()(
           invoiceCounters: { ...s.invoiceCounters, [fyMonth]: seq },
           readyStock: newReady,
           readyStockTransactions: [...s.readyStockTransactions, ...newReadyTxns],
+          packagingStock: newPkgStock,
+          packagingEntries: [...s.packagingEntries, ...newPkgEntries],
           currentOrder: null,
           currentPage: 'invoice-view',
           selectedInvoiceId: invoice.id,
@@ -678,6 +732,10 @@ export const useStore = create<AppState>()(
                 ],
               } });
             });
+          // Save outer bag packaging deductions for bundle SKUs (AT30)
+          for (const entry of newPkgEntries) {
+            db.savePackagingEntry(orgId, entry, newPkgStock[entry.materialId]).catch(console.error);
+          }
         }
 
         return invoice;
@@ -694,32 +752,78 @@ export const useStore = create<AppState>()(
         const newReady = { ...s.readyStock };
         const restorationTxns: ReadyStockTransaction[] = [];
 
+        const cancelPkgStock = { ...s.packagingStock };
+        const cancelPkgEntries: PackagingEntry[] = [];
+
         for (const item of invoice.items) {
           const sku = PRODUCTS.find(p => p.id === item.skuId)!;
-          const skuName = `${sku.product} – ${sku.variant}`;
-          const prevReady = newReady[item.skuId] ?? 0;
-          newReady[item.skuId] = prevReady + item.quantity;
-          restorationTxns.push({
-            id: crypto.randomUUID(),
-            date: dateStr, time: timeStr,
-            skuId: item.skuId, skuName,
-            type: 'ADD',
-            quantity: item.quantity,
-            previousStock: prevReady,
-            newStock: newReady[item.skuId],
-            reason: `Cancellation – ${invoice.invoiceNo}`,
-            invoiceNo: invoice.invoiceNo,
-          });
+          if (sku.innerSkuId && sku.innerSkuQty) {
+            // Bundle SKU (AT30): restore inner SKU's ready stock
+            const innerSku = PRODUCTS.find(p => p.id === sku.innerSkuId)!;
+            const innerSkuName = `${innerSku.product} – ${innerSku.variant}`;
+            const innerQty = item.quantity * sku.innerSkuQty;
+            const prevReady = newReady[sku.innerSkuId] ?? 0;
+            newReady[sku.innerSkuId] = prevReady + innerQty;
+            restorationTxns.push({
+              id: crypto.randomUUID(),
+              date: dateStr, time: timeStr,
+              skuId: sku.innerSkuId, skuName: innerSkuName,
+              type: 'ADD',
+              quantity: innerQty,
+              previousStock: prevReady,
+              newStock: newReady[sku.innerSkuId],
+              reason: `Cancellation via ${sku.id} – ${invoice.invoiceNo}`,
+              invoiceNo: invoice.invoiceNo,
+            });
+            // Restore outer bag packaging
+            const outerMat = PACKAGING_MATERIALS.find(m => m.id === sku.packagingId);
+            if (outerMat) {
+              const prevPkg = cancelPkgStock[sku.packagingId] ?? 0;
+              cancelPkgStock[sku.packagingId] = prevPkg + item.quantity;
+              cancelPkgEntries.push({
+                id: crypto.randomUUID(),
+                date: dateStr, time: timeStr,
+                materialId: sku.packagingId,
+                materialName: outerMat.name,
+                entryType: 'used',
+                quantity: item.quantity,
+                notes: `Restored on cancellation: ${sku.product} – ${sku.variant} (${invoice.invoiceNo})`,
+              });
+            }
+          } else {
+            // Normal SKU: restore own ready stock
+            const skuName = `${sku.product} – ${sku.variant}`;
+            const prevReady = newReady[item.skuId] ?? 0;
+            newReady[item.skuId] = prevReady + item.quantity;
+            restorationTxns.push({
+              id: crypto.randomUUID(),
+              date: dateStr, time: timeStr,
+              skuId: item.skuId, skuName,
+              type: 'ADD',
+              quantity: item.quantity,
+              previousStock: prevReady,
+              newStock: newReady[item.skuId],
+              reason: `Cancellation – ${invoice.invoiceNo}`,
+              invoiceNo: invoice.invoiceNo,
+            });
+          }
         }
 
         set(cur => ({
           invoices: cur.invoices.map(inv => inv.id === id ? { ...inv, cancelled: true } : inv),
           readyStock: newReady,
           readyStockTransactions: [...cur.readyStockTransactions, ...restorationTxns],
+          packagingStock: cancelPkgStock,
+          packagingEntries: [...cur.packagingEntries, ...cancelPkgEntries],
         }));
 
         const { orgId } = get();
-        if (orgId) db.cancelInvoiceInDb(orgId, id, restorationTxns, newReady).catch(console.error);
+        if (orgId) {
+          db.cancelInvoiceInDb(orgId, id, restorationTxns, newReady).catch(console.error);
+          for (const entry of cancelPkgEntries) {
+            db.savePackagingEntry(orgId, entry, cancelPkgStock[entry.materialId]).catch(console.error);
+          }
+        }
       },
 
       updateInvoicePaymentMode(id, mode) {
@@ -984,11 +1088,15 @@ export const useStore = create<AppState>()(
           const old = s.readyStockTransactions[idx];
           const delta = newQty - old.quantity;
           const signedDelta = old.type === 'DEDUCT' ? -delta : delta;
-          const updatedTxns = s.readyStockTransactions.map(t =>
-            t.id === txId
-              ? { ...t, quantity: newQty, newStock: old.newStock + signedDelta, reason: newReason }
-              : t
-          );
+          const updatedTxns = s.readyStockTransactions.map((t, i) => {
+            if (t.id === txId) {
+              return { ...t, quantity: newQty, newStock: old.newStock + signedDelta, reason: newReason };
+            }
+            if (i > idx && t.skuId === old.skuId) {
+              return { ...t, previousStock: t.previousStock + signedDelta, newStock: t.newStock + signedDelta };
+            }
+            return t;
+          });
           const newCurrentStock = (s.readyStock[old.skuId] ?? 0) + signedDelta;
           updatedTxn = updatedTxns[idx];
           return {
@@ -1004,13 +1112,23 @@ export const useStore = create<AppState>()(
         let deletedSkuId = '';
         let newCurrentStock = 0;
         set(s => {
-          const txn = s.readyStockTransactions.find(t => t.id === txId);
-          if (!txn) return {};
+          const deletedIdx = s.readyStockTransactions.findIndex(t => t.id === txId);
+          if (deletedIdx === -1) return {};
+          const txn = s.readyStockTransactions[deletedIdx];
           deletedSkuId = txn.skuId;
           const signedQty = txn.type === 'DEDUCT' ? txn.quantity : -txn.quantity;
           newCurrentStock = (s.readyStock[txn.skuId] ?? 0) + signedQty;
+          const updatedTxns = s.readyStockTransactions
+            .map((t, i) => {
+              if (i === deletedIdx) return null;
+              if (i > deletedIdx && t.skuId === txn.skuId) {
+                return { ...t, previousStock: t.previousStock + signedQty, newStock: t.newStock + signedQty };
+              }
+              return t;
+            })
+            .filter(Boolean) as ReadyStockTransaction[];
           return {
-            readyStockTransactions: s.readyStockTransactions.filter(t => t.id !== txId),
+            readyStockTransactions: updatedTxns,
             readyStock: { ...s.readyStock, [txn.skuId]: newCurrentStock },
           };
         });

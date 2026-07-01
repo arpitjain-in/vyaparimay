@@ -293,7 +293,7 @@ export default function ReadyStockPage() {
 
   const groupedProducts = PRODUCT_CATEGORIES.map(cat => ({
     category: cat,
-    skus: PRODUCTS.filter(p => p.product === cat),
+    skus: PRODUCTS.filter(p => p.product === cat && !p.innerSkuId),
     style: CATEGORY_STYLE[cat] ?? { border: 'border-slate-200 hover:border-slate-400', header: 'bg-slate-50', badge: 'bg-slate-100 text-slate-600', icon: 'text-slate-400' },
   }));
 

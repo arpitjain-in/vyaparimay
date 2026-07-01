@@ -183,6 +183,7 @@ function fmtRupees(n: number): string {
 
 export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?: string): string {
   const c = invoice.customerSnapshot;
+  const hasGST = invoice.totalGST > 0;
 
   const totalWeightKg = invoice.items.reduce((sum, i) => sum + i.weight * i.quantity, 0);
   const totalWeightStr = totalWeightKg % 1 === 0 ? totalWeightKg.toFixed(0) : totalWeightKg.toFixed(1);
@@ -199,7 +200,6 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
       <td class="c mono">${esc(item.hsnCode)}</td>
       <td class="c">${item.quantity}&nbsp;${esc(unitPlural)}<br/><span class="s">${totalKgStr}&nbsp;kg</span></td>
       <td class="r">${fmtRupees(item.rate)}/${esc(item.unit.toLowerCase())}<br/><span class="s">&#8377;${perKgStr}/kg</span></td>
-      <td class="c">${item.gstRate}%</td>
       <td class="r b">${fmtRupees(item.lineTotal)}</td>
     </tr>`;
   }).join('');
@@ -282,8 +282,7 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
       <th class="c" style="width:52px">HSN</th>
       <th class="c" style="width:72px">Qty / Wt</th>
       <th class="r" style="width:88px">Rate</th>
-      <th class="c" style="width:36px">GST%</th>
-      <th class="r" style="width:72px">Total</th>
+      <th class="r" style="width:72px">Amount</th>
     </tr></thead>
     <tbody>${itemRows}</tbody>
   </table>
@@ -295,8 +294,7 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
     </div>
     <div>
       <table class="stbl">
-        <tr><td>Taxable Amount</td><td class="r">${fmtRupees(invoice.subtotal)}</td></tr>
-        ${gstSummary}
+        ${hasGST ? `<tr><td>Taxable Amount</td><td class="r">${fmtRupees(invoice.subtotal)}</td></tr>${gstSummary}` : ''}
         ${extraSummary}
         <tr class="wt"><td>Total Weight</td><td class="r">${totalWeightStr}&nbsp;kg</td></tr>
         <tr class="grand"><td>Grand Total</td><td class="r">${fmtRupees(invoice.grandTotal)}</td></tr>
@@ -460,6 +458,7 @@ ${buildHalf('Customer Copy')}
 
 export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: string, logoUrl?: string): string {
   const c = invoice.customerSnapshot;
+  const hasGST = invoice.items.some(i => i.gstRate > 0);
 
   const totalWeightKg = invoice.items.reduce((sum, i) => sum + i.weight * i.quantity, 0);
   const totalWeightStr = totalWeightKg % 1 === 0 ? totalWeightKg.toFixed(0) : totalWeightKg.toFixed(1);
@@ -469,9 +468,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     const totalKgStr = totalKg % 1 === 0 ? totalKg.toFixed(0) : totalKg.toFixed(1);
     const perKg = item.weight > 0 ? item.rate / item.weight : 0;
     const perKgStr = perKg % 1 === 0 ? perKg.toFixed(0) : perKg.toFixed(2);
-    const gstAmt = item.cgst + item.sgst + item.igst;
     const unitPlural = item.quantity === 1 ? item.unit : item.unit + 's';
-
     return `
       <tr>
         <td class="center">${idx + 1}</td>
@@ -482,9 +479,6 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
         <td class="center mono">${esc(item.hsnCode)}</td>
         <td class="center">${item.quantity} ${esc(unitPlural)}<br/><span class="sub">${totalKgStr} kg</span></td>
         <td class="right">${fmtRupees(item.rate)}<br/><span class="sub">\u20B9${perKgStr}/kg</span></td>
-        <td class="right">${fmtRupees(item.taxableValue)}</td>
-        <td class="center">${item.gstRate}%</td>
-        <td class="right">${fmtRupees(gstAmt)}</td>
         <td class="right bold">${fmtRupees(item.lineTotal)}</td>
       </tr>`;
   }).join('');
@@ -874,10 +868,7 @@ ${cancelledBanner}
       <th class="center" style="width:60px">HSN</th>
       <th class="center" style="width:80px">Qty / Weight</th>
       <th class="right" style="width:90px">Rate</th>
-      <th class="right" style="width:80px">Taxable</th>
-      <th class="center" style="width:40px">GST%</th>
-      <th class="right" style="width:72px">GST Amt</th>
-      <th class="right" style="width:80px">Total</th>
+      <th class="right" style="width:88px">Amount</th>
     </tr>
   </thead>
   <tbody>
@@ -900,11 +891,7 @@ ${cancelledBanner}
   </div>
   <div class="totals-right">
     <table class="summary-table">
-      <tr class="subtotal-row">
-        <td>Taxable Amount</td>
-        <td class="right">${fmtRupees(invoice.subtotal)}</td>
-      </tr>
-      ${gstRows}
+      ${hasGST ? `<tr class="subtotal-row"><td>Taxable Amount</td><td class="right">${fmtRupees(invoice.subtotal)}</td></tr>${gstRows}` : ''}
       ${discountRow}
       ${transportRow}
       ${loadingRow}
