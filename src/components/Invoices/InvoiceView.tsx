@@ -32,7 +32,26 @@ export default function InvoiceView() {
     );
   }
 
-  const PRINT_SCRIPT = `<script>window.onafterprint=function(){window.close()};window.print();<\/script>`;
+  // Wait for every <img> (logo/watermark) to finish loading before printing —
+  // calling print() right after document.write() can otherwise fire before
+  // the top-left logo has loaded, leaving it blank in the printed output.
+  // A timeout fallback guards against printing never happening if an image
+  // request stalls.
+  const PRINT_SCRIPT = `<script>
+    window.onafterprint=function(){window.close()};
+    var __printed=false;
+    function __doPrint(){ if(__printed) return; __printed=true; window.print(); }
+    var __imgs=document.images, __pending=0;
+    for (var i=0;i<__imgs.length;i++) {
+      if (!__imgs[i].complete) {
+        __pending++;
+        __imgs[i].addEventListener('load', function(){ if(--__pending<=0) __doPrint(); });
+        __imgs[i].addEventListener('error', function(){ if(--__pending<=0) __doPrint(); });
+      }
+    }
+    if (__pending===0) __doPrint();
+    setTimeout(__doPrint, 3000);
+  <\/script>`;
 
   const handlePrint = (text: string, title: string) => {
     const w = window.open('', '_blank', 'width=302,height=600');
