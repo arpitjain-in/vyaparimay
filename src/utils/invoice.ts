@@ -191,6 +191,7 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
   const itemRows = invoice.items.map((item, idx) => {
     const totalKg = item.weight * item.quantity;
     const totalKgStr = totalKg % 1 === 0 ? totalKg.toFixed(0) : totalKg.toFixed(1);
+    const weightStr = item.weight % 1 === 0 ? item.weight.toFixed(0) : item.weight.toFixed(2);
     const perKg = item.weight > 0 ? item.rate / item.weight : 0;
     const perKgStr = perKg % 1 === 0 ? perKg.toFixed(0) : perKg.toFixed(2);
     const unitPlural = item.quantity === 1 ? item.unit : item.unit + 's';
@@ -198,8 +199,10 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
       <td class="c">${idx + 1}</td>
       <td><div class="pn">${esc(item.product)}</div><div class="vr">${esc(item.variant)}</div></td>
       <td class="c mono">${esc(item.hsnCode)}</td>
-      <td class="c">${item.quantity}&nbsp;${esc(unitPlural)}<br/><span class="s">${totalKgStr}&nbsp;kg</span></td>
-      <td class="r">${fmtRupees(item.rate)}/${esc(item.unit.toLowerCase())}<br/><span class="s">&#8377;${perKgStr}/kg</span></td>
+      <td class="c">${item.quantity}&nbsp;${esc(unitPlural)}</td>
+      <td class="c">${weightStr}&nbsp;kg${item.quantity > 1 ? `<br/><span class="s">${totalKgStr}&nbsp;kg</span>` : ''}</td>
+      <td class="r">&#8377;${perKgStr}</td>
+      <td class="r">${fmtRupees(item.rate)}</td>
       <td class="r b">${fmtRupees(item.lineTotal)}</td>
     </tr>`;
   }).join('');
@@ -277,12 +280,14 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
   <!-- Items table -->
   <table class="itbl">
     <thead><tr>
-      <th style="width:20px">#</th>
+      <th style="width:16px">#</th>
       <th>Product / Variant</th>
-      <th class="c" style="width:52px">HSN</th>
-      <th class="c" style="width:72px">Qty / Wt</th>
-      <th class="r" style="width:88px">Rate</th>
-      <th class="r" style="width:72px">Amount</th>
+      <th class="c" style="width:38px">HSN</th>
+      <th class="c" style="width:34px">Qty</th>
+      <th class="c" style="width:46px">Weight</th>
+      <th class="r" style="width:50px">Rate/Kg</th>
+      <th class="r" style="width:54px">Bag Rate</th>
+      <th class="r" style="width:60px">Amount</th>
     </tr></thead>
     <tbody>${itemRows}</tbody>
   </table>
@@ -350,9 +355,9 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
     justify-content: center;
     gap: 8px;
     font-size: 7pt;
-    color: #999;
-    border-top: 1px dashed #bbb;
-    border-bottom: 1px dashed #bbb;
+    color: #555;
+    border-top: 1px dashed #888;
+    border-bottom: 1px dashed #888;
     letter-spacing: 0.5px;
     flex-shrink: 0;
   }
@@ -384,11 +389,11 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
   .hdr-left { display: flex; align-items: flex-start; gap: 6px; }
   .hlogo { width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; }
   .biz-name { font-size: 11pt; font-weight: 800; color: #1a3a6b; line-height: 1.2; }
-  .biz-meta { font-size: 6.5pt; color: #222; line-height: 1.5; margin-top: 1px; }
+  .biz-meta { font-size: 6.5pt; color: #000; line-height: 1.5; margin-top: 1px; }
   .hdr-right { text-align: right; }
   .inv-label { font-size: 8pt; font-weight: 700; color: #1a3a6b; letter-spacing: 0.5px; }
-  .inv-no { font-size: 10pt; font-weight: 800; color: #cc1122; line-height: 1.2; }
-  .inv-meta { font-size: 6.5pt; color: #222; line-height: 1.55; margin-top: 1px; }
+  .inv-no { font-size: 10pt; font-weight: 800; color: #b91c1c; line-height: 1.2; }
+  .inv-meta { font-size: 6.5pt; color: #000; line-height: 1.55; margin-top: 1px; }
 
   /* ── Customer strip ── */
   .cust-strip {
@@ -397,13 +402,14 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
     align-items: start;
     gap: 8px;
     background: #f4f6fb;
-    border: 1px solid #d0d8e8;
+    border: 1px solid #a8b3c9;
+    border-left: 3px solid #1a3a6b;
     border-radius: 3px;
-    padding: 3px 7px;
+    padding: 3px 7px 3px 6px;
     flex-shrink: 0;
   }
   .cust-name { font-size: 9pt; font-weight: 700; line-height: 1.3; }
-  .cust-detail { font-size: 6.5pt; color: #222; line-height: 1.5; margin-top: 1px; }
+  .cust-detail { font-size: 6.5pt; color: #000; line-height: 1.5; margin-top: 1px; }
   .tag { display: inline-block; font-size: 6.5pt; font-weight: 700; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
   .intra { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
   .inter { background: #ffedd5; color: #9a3412; border: 1px solid #fed7aa; }
@@ -412,38 +418,38 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
   .cancelled { text-align: center; font-size: 14pt; font-weight: 900; color: #c00; border: 3px solid #c00; padding: 1px 12px; letter-spacing: 3px; flex-shrink: 0; }
 
   /* ── Items table ── */
-  .itbl { width: 100%; border-collapse: collapse; font-size: 7pt; flex-shrink: 1; min-height: 0; }
+  .itbl { width: 100%; border-collapse: collapse; font-size: 7.5pt; flex-shrink: 1; min-height: 0; }
   .itbl thead tr { background: #1a3a6b; color: #fff; }
-  .itbl th { padding: 2px 4px; font-size: 6.5pt; font-weight: 600; text-align: left; }
+  .itbl th { padding: 2px 4px; font-size: 7pt; font-weight: 600; text-align: left; }
   .itbl th.c { text-align: center; }
   .itbl th.r { text-align: right; }
-  .itbl tbody tr { border-bottom: 1px solid #e5e7eb; }
+  .itbl tbody tr { border-bottom: 1px solid #c3cad6; }
   .itbl tbody tr:nth-child(even) { background: #f8f9fc; }
-  .itbl td { padding: 2px 4px; vertical-align: top; }
+  .itbl td { padding: 2px 4px; vertical-align: middle; }
   .itbl td.c { text-align: center; }
   .itbl td.r { text-align: right; }
   .itbl td.b { font-weight: 700; }
-  .itbl td.mono { font-family: monospace; font-size: 6.5pt; text-align: center; }
-  .pn { font-weight: 600; color: #000; }
-  .vr { font-size: 6.5pt; color: #4f46e5; margin-top: 1px; }
-  .s { font-size: 6.5pt; color: #555; }
+  .itbl td.mono { font-family: monospace; font-size: 7pt; text-align: center; }
+  .pn { font-weight: 600; color: #000; font-size: 8pt; }
+  .vr { font-size: 7pt; color: #3730a3; margin-top: 1px; }
+  .s { font-size: 7pt; color: #333; }
 
   /* ── Totals section ── */
-  .totals { display: grid; grid-template-columns: 1fr 165px; gap: 8px; align-items: start; flex-shrink: 0; }
-  .amt-box { background: #f0f4ff; border: 1px solid #c7d2fe; border-radius: 3px; padding: 3px 6px; font-size: 6.5pt; color: #3730a3; font-style: italic; margin-bottom: 3px; line-height: 1.5; }
+  .totals { display: grid; grid-template-columns: 1fr 165px; gap: 8px; align-items: start; flex-shrink: 0; margin-top: auto; }
+  .amt-box { background: #f0f4ff; border: 1px solid #9aa8f0; border-radius: 3px; padding: 3px 6px; font-size: 6.5pt; color: #3730a3; font-style: italic; margin-bottom: 3px; line-height: 1.5; }
   .amt-box b { font-style: normal; color: #000; }
-  .bank-box { font-size: 6.5pt; color: #222; line-height: 1.55; }
+  .bank-box { font-size: 6.5pt; color: #000; line-height: 1.55; }
   .stbl { width: 100%; border-collapse: collapse; font-size: 7pt; }
   .stbl td { padding: 1px 4px; }
   .stbl td.r { text-align: right; }
   .stbl .disc td { color: #15803d; }
   .stbl .xtra td { color: #c2410c; }
-  .stbl .wt td { color: #555; font-size: 6.5pt; border-top: 1px solid #e5e7eb; }
-  .stbl .grand td { font-size: 9pt; font-weight: 800; color: #1a3a6b; border-top: 2px solid #1a3a6b; border-bottom: 2px solid #1a3a6b; padding: 3px 4px; }
+  .stbl .wt td { color: #333; font-size: 6.5pt; border-top: 1px solid #c3cad6; }
+  .stbl .grand td { font-size: 9pt; font-weight: 800; color: #fff; background: #1a3a6b; padding: 4px; }
 
   /* ── Footer ── */
-  .footer { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #d0d8e8; padding-top: 3px; flex-shrink: 0; margin-top: auto; }
-  .footer-left { font-size: 6pt; color: #444; max-width: 65%; line-height: 1.4; }
+  .footer { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #a8b3c9; padding-top: 3px; flex-shrink: 0; }
+  .footer-left { font-size: 6pt; color: #222; max-width: 65%; line-height: 1.4; }
   .sig-block { text-align: right; }
   .sig-line { width: 110px; border-top: 1px solid #333; margin-left: auto; margin-top: 16px; font-size: 6.5pt; font-weight: 600; color: #1a3a6b; padding-top: 2px; text-align: center; }
 </style>
@@ -466,6 +472,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
   const itemRows = invoice.items.map((item, idx) => {
     const totalKg = item.weight * item.quantity;
     const totalKgStr = totalKg % 1 === 0 ? totalKg.toFixed(0) : totalKg.toFixed(1);
+    const weightStr = item.weight % 1 === 0 ? item.weight.toFixed(0) : item.weight.toFixed(2);
     const perKg = item.weight > 0 ? item.rate / item.weight : 0;
     const perKgStr = perKg % 1 === 0 ? perKg.toFixed(0) : perKg.toFixed(2);
     const unitPlural = item.quantity === 1 ? item.unit : item.unit + 's';
@@ -477,8 +484,10 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
           <span class="variant">${esc(item.variant)}</span>
         </td>
         <td class="center mono">${esc(item.hsnCode)}</td>
-        <td class="center">${item.quantity} ${esc(unitPlural)}<br/><span class="sub">${totalKgStr} kg</span></td>
-        <td class="right">${fmtRupees(item.rate)}<br/><span class="sub">\u20B9${perKgStr}/kg</span></td>
+        <td class="center">${item.quantity} ${esc(unitPlural)}</td>
+        <td class="center">${weightStr} kg${item.quantity > 1 ? `<br/><span class="sub">${totalKgStr} kg</span>` : ''}</td>
+        <td class="right">\u20B9${perKgStr}</td>
+        <td class="right">${fmtRupees(item.rate)}</td>
         <td class="right bold">${fmtRupees(item.lineTotal)}</td>
       </tr>`;
   }).join('');
@@ -543,6 +552,9 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     background: #fff;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    display: flex;
+    flex-direction: column;
+    min-height: 273mm;
   }
 
   /* ── Copy banner ── */
@@ -552,9 +564,17 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     font-weight: bold;
     letter-spacing: 2px;
     color: #000;
-    border-bottom: 1px dashed #aaa;
+    border-bottom: 1px dashed #888;
     padding-bottom: 4px;
     margin-bottom: 8px;
+  }
+
+  /* ── Letterhead accent bar ── */
+  .letterhead-bar {
+    height: 4px;
+    background: #1a3a6b;
+    margin-bottom: 10px;
+    border-radius: 2px;
   }
 
   /* ── Header ── */
@@ -585,7 +605,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
   .inv-no {
     font-size: 11pt;
     font-weight: 800;
-    color: #d14;
+    color: #b91c1c;
     margin-top: 2px;
   }
   .inv-meta { font-size: 9pt; color: #000; line-height: 1.7; margin-top: 4px; }
@@ -613,9 +633,10 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
   }
   .party-box {
     flex: 1;
-    border: 1px solid #d0d8e8;
+    border: 1px solid #a8b3c9;
+    border-left: 3px solid #1a3a6b;
     border-radius: 4px;
-    padding: 7px 10px;
+    padding: 7px 10px 7px 9px;
   }
   .party-box-title {
     font-size: 7.5pt;
@@ -623,7 +644,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     color: #1a3a6b;
     text-transform: uppercase;
     letter-spacing: 0.8px;
-    border-bottom: 1px solid #d0d8e8;
+    border-bottom: 1px solid #a8b3c9;
     padding-bottom: 3px;
     margin-bottom: 5px;
   }
@@ -636,7 +657,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     font-weight: 700;
     background: #eef2ff;
     color: #3730a3;
-    border: 1px solid #c7d2fe;
+    border: 1px solid #9aa8f0;
     border-radius: 3px;
     padding: 0px 5px;
     margin-top: 4px;
@@ -659,38 +680,39 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     width: 100%;
     border-collapse: collapse;
     margin-bottom: 6px;
-    font-size: 9pt;
+    font-size: 10pt;
   }
   .items-table thead tr {
     background: #1a3a6b;
     color: #fff;
   }
   .items-table thead th {
-    padding: 5px 6px;
+    padding: 6px 6px;
     text-align: left;
-    font-size: 7.5pt;
+    font-size: 8pt;
     font-weight: 600;
     letter-spacing: 0.3px;
   }
   .items-table thead th.center { text-align: center; }
   .items-table thead th.right { text-align: right; }
-  .items-table tbody tr { border-bottom: 1px solid #e5e7eb; }
+  .items-table tbody tr { border-bottom: 1px solid #c3cad6; }
   .items-table tbody tr:nth-child(even) { background: #f8f9fc; }
-  .items-table td { padding: 5px 6px; vertical-align: top; }
+  .items-table td { padding: 7px 6px; vertical-align: middle; }
   .items-table td.center { text-align: center; }
   .items-table td.right { text-align: right; }
   .items-table td.bold { font-weight: 700; }
-  .items-table td.mono { font-family: monospace; font-size: 8pt; }
-  .product-name { font-weight: 600; color: #000; }
-  .variant { font-size: 8pt; color: #5b6ee1; }
-  .sub { font-size: 8.5pt; color: #000; }
+  .items-table td.mono { font-family: monospace; font-size: 8.5pt; }
+  .product-name { font-weight: 600; color: #000; font-size: 10.5pt; }
+  .variant { font-size: 8.5pt; color: #3730a3; }
+  .sub { font-size: 9pt; color: #000; }
 
   /* ── Totals Row ── */
   .totals-section {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-top: 4px;
+    margin-top: auto;
+    padding-top: 4px;
     gap: 16px;
   }
   .totals-left { flex: 1; }
@@ -702,19 +724,18 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
   .summary-table tr.grand-total td {
     font-size: 11pt;
     font-weight: 800;
-    color: #1a3a6b;
-    border-top: 2px solid #1a3a6b;
-    border-bottom: 2px solid #1a3a6b;
-    padding: 5px 6px;
+    color: #fff;
+    background: #1a3a6b;
+    padding: 6px 8px;
   }
   .summary-table tr.weight-row td { color: #000; font-size: 9pt; }
-  .summary-table tr.subtotal-row td { border-top: 1px solid #e5e7eb; }
+  .summary-table tr.subtotal-row td { border-top: 1px solid #c3cad6; }
 
   /* ── Amount in words ── */
   .amt-words {
     margin-top: 6px;
     background: #f0f4ff;
-    border: 1px solid #c7d2fe;
+    border: 1px solid #9aa8f0;
     border-radius: 4px;
     padding: 5px 8px;
     font-size: 8.5pt;
@@ -726,9 +747,10 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
   /* ── Bank & Payment ── */
   .bank-section {
     margin-top: 8px;
-    border: 1px solid #d0d8e8;
+    border: 1px solid #a8b3c9;
+    border-left: 3px solid #1a3a6b;
     border-radius: 4px;
-    padding: 7px 10px;
+    padding: 7px 10px 7px 9px;
     font-size: 9pt;
     line-height: 1.8;
     color: #000;
@@ -742,6 +764,15 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     margin-bottom: 4px;
   }
 
+  /* ── Thank-you note ── */
+  .thanks {
+    margin-top: 10px;
+    font-size: 9.5pt;
+    font-weight: 700;
+    color: #1a3a6b;
+    text-align: center;
+  }
+
   /* ── Footer ── */
   .footer {
     display: flex;
@@ -749,7 +780,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     align-items: flex-end;
     margin-top: 14px;
     padding-top: 8px;
-    border-top: 1px solid #d0d8e8;
+    border-top: 1px solid #a8b3c9;
     font-size: 9pt;
     color: #000;
   }
@@ -803,6 +834,8 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
 ${logoUrl ? `<img class="watermark" src="${logoUrl}" alt="" aria-hidden="true"/>` : ''}
 
 ${copyBanner}
+
+<div class="letterhead-bar"></div>
 
 <!-- Header -->
 <div class="header">
@@ -863,12 +896,14 @@ ${cancelledBanner}
 <table class="items-table">
   <thead>
     <tr>
-      <th style="width:28px">#</th>
+      <th style="width:24px">#</th>
       <th>Product / Description</th>
-      <th class="center" style="width:60px">HSN</th>
-      <th class="center" style="width:80px">Qty / Weight</th>
-      <th class="right" style="width:90px">Rate</th>
-      <th class="right" style="width:88px">Amount</th>
+      <th class="center" style="width:50px">HSN</th>
+      <th class="center" style="width:52px">Qty</th>
+      <th class="center" style="width:62px">Weight</th>
+      <th class="right" style="width:70px">Rate/Kg</th>
+      <th class="right" style="width:74px">Bag Rate</th>
+      <th class="right" style="width:80px">Amount</th>
     </tr>
   </thead>
   <tbody>
@@ -907,6 +942,8 @@ ${cancelledBanner}
     </table>
   </div>
 </div>
+
+<div class="thanks">Thank you for your business!</div>
 
 <!-- Footer -->
 <div class="footer">
