@@ -6,16 +6,17 @@ export const PRODUCTS: ProductSKU[] = [
   { id: 'WF-26K',   product: 'Shikharji Atta', productId: 'WF', variant: '26 kg Bag',            weight: 26,   packagingId: 'PKG-WF-26K',  hsnCode: '1101', gstRate: 0, unit: 'Bag'    },
   { id: 'WF-25K',   product: 'Shikharji Atta', productId: 'WF', variant: '25 kg Bag',            weight: 25,   packagingId: 'PKG-WF-26K',  hsnCode: '1101', gstRate: 5, unit: 'Bag'    },
   { id: 'WF-25HUN', product: 'Shikharji Atta', productId: 'WF', variant: '25 kg + 100 gm Bag',   weight: 25.1, packagingId: 'PKG-WF-26K',  hsnCode: '1101', gstRate: 0, unit: 'Bag', useIdAsLabel: true },
-  { id: 'WF-5P',   product: 'Shikharji Atta', productId: 'WF', variant: '5 kg Pouch',        weight: 5,    packagingId: 'PKG-WF-5P',   hsnCode: '1101', gstRate: 5, unit: 'Pouch'  },
-  { id: 'WF-10P',  product: 'Shikharji Atta', productId: 'WF', variant: '10 kg Pouch',       weight: 10,   packagingId: 'PKG-WF-10P',  hsnCode: '1101', gstRate: 5, unit: 'Pouch'  },
+  { id: 'WF-5P',   product: 'Shikharji Atta', productId: 'WF', variant: 'PREM-5 kg Pouch',        weight: 5,    packagingId: 'PKG-WF-5P',   hsnCode: '1101', gstRate: 5, unit: 'Pouch'  },
+  { id: 'WF-10P',  product: 'Shikharji Atta', productId: 'WF', variant: 'PREM-10 kg Pouch',       weight: 10,   packagingId: 'PKG-WF-10P',  hsnCode: '1101', gstRate: 5, unit: 'Pouch'  },
   { id: 'WF-5H',   product: 'Shikharji Atta', productId: 'WF', variant: '5 kg Handle Bag',   weight: 5,    packagingId: 'PKG-WF-5H',   hsnCode: '1101', gstRate: 5, unit: 'Bag'    },
   { id: 'WF-10H',  product: 'Shikharji Atta', productId: 'WF', variant: '10 kg Handle Bag',  weight: 10,   packagingId: 'PKG-WF-10H',  hsnCode: '1101', gstRate: 5, unit: 'Bag'    },
   { id: 'WF-50K',  product: 'Shikharji Atta', productId: 'WF', variant: '50 kg Bag',          weight: 50,   packagingId: 'PKG-WF-50K',  hsnCode: '1101', gstRate: 0, unit: 'Bag'    },
+  { id: 'WF-30K',  product: 'Shikharji Atta', productId: 'WF', variant: '30 kg Bag',          weight: 30,   packagingId: 'PKG-WF-30K',  hsnCode: '1101', gstRate: 0, unit: 'Bag'    },
   // Shikharji Atta – 30 kg Outer Bag bundles (AT30)
   { id: 'AT30-HB3', product: 'Shikharji Atta', productId: 'WF', variant: '30 kg Outer Bag (3 × 10 kg Handle Bag)', weight: 30, packagingId: 'PKG-OUTER-10X3', innerSkuId: 'WF-10H', innerSkuQty: 3, hsnCode: '1101', gstRate: 0, unit: 'Bag' },
   { id: 'AT30-HB6', product: 'Shikharji Atta', productId: 'WF', variant: '30 kg Outer Bag (6 × 5 kg Handle Bag)',  weight: 30, packagingId: 'PKG-OUTER-5X6',  innerSkuId: 'WF-5H',  innerSkuQty: 6, hsnCode: '1101', gstRate: 0, unit: 'Bag' },
-  { id: 'AT30-PO3', product: 'Shikharji Atta', productId: 'WF', variant: '30 kg Outer Bag (3 × 10 kg Pouch)',     weight: 30, packagingId: 'PKG-OUTER-10X3', innerSkuId: 'WF-10P', innerSkuQty: 3, hsnCode: '1101', gstRate: 0, unit: 'Bag' },
-  { id: 'AT30-PO6', product: 'Shikharji Atta', productId: 'WF', variant: '30 kg Outer Bag (6 × 5 kg Pouch)',      weight: 30, packagingId: 'PKG-OUTER-5X6',  innerSkuId: 'WF-5P',  innerSkuQty: 6, hsnCode: '1101', gstRate: 0, unit: 'Bag' },
+  { id: 'AT30-PO3', product: 'Shikharji Atta', productId: 'WF', variant: 'PREM-30 kg Outer Bag (3 × 10 kg Pouch)',     weight: 30, packagingId: 'PKG-OUTER-10X3', innerSkuId: 'WF-10P', innerSkuQty: 3, hsnCode: '1101', gstRate: 0, unit: 'Bag' },
+  { id: 'AT30-PO6', product: 'Shikharji Atta', productId: 'WF', variant: 'PREM-30 kg Outer Bag (6 × 5 kg Pouch)',      weight: 30, packagingId: 'PKG-OUTER-5X6',  innerSkuId: 'WF-5P',  innerSkuQty: 6, hsnCode: '1101', gstRate: 0, unit: 'Bag' },
   // Shikharji Besan
   { id: 'BS-40K',  product: 'Shikharji Besan',       productId: 'BS', variant: '40 kg Bag',         weight: 40,   packagingId: 'PKG-BS-40K',  hsnCode: '1106', gstRate: 0, unit: 'Bag'    },
   { id: 'BS-500G', product: 'Shikharji Besan',       productId: 'BS', variant: '500 gm Packet',     weight: 0.5,  packagingId: 'PKG-BS-500G', hsnCode: '1106', gstRate: 5, unit: 'Packet' },
@@ -28,6 +29,7 @@ export const PRODUCTS: ProductSKU[] = [
 export const PACKAGING_MATERIALS: PackagingMaterial[] = [
   { id: 'PKG-WF-26K',  name: '25/26 kg Bags (Shikharji Atta)',    usedFor: ['WF-26K', 'WF-25K', 'WF-25HUN']  },
   { id: 'PKG-WF-50K',  name: '50 kg Bags (Shikharji Atta)',       usedFor: ['WF-50K']            },
+  { id: 'PKG-WF-30K',  name: '30 kg Bags (Shikharji Atta)',       usedFor: ['WF-30K']            },
   { id: 'PKG-WF-5P',   name: '5 kg Pouches (Shikharji Atta)',     usedFor: ['WF-5P']   },
   { id: 'PKG-WF-10P',  name: '10 kg Pouches (Shikharji Atta)',    usedFor: ['WF-10P']  },
   { id: 'PKG-WF-5H',   name: '5 kg Handle Bags (Shikharji Atta)', usedFor: ['WF-5H']   },
@@ -41,7 +43,7 @@ export const PACKAGING_MATERIALS: PackagingMaterial[] = [
 ];
 
 export const RAW_MATERIALS: RawMaterialDef[] = [
-  { id: 'RM-WF', name: 'Shikharji Atta', products: ['WF-26K', 'WF-25K', 'WF-25HUN', 'WF-5P', 'WF-10P', 'WF-5H', 'WF-10H', 'WF-50K', 'AT30-HB3', 'AT30-HB6', 'AT30-PO3', 'AT30-PO6'] },
+  { id: 'RM-WF', name: 'Shikharji Atta', products: ['WF-26K', 'WF-25K', 'WF-25HUN', 'WF-5P', 'WF-10P', 'WF-5H', 'WF-10H', 'WF-50K', 'WF-30K', 'AT30-HB3', 'AT30-HB6', 'AT30-PO3', 'AT30-PO6'] },
   { id: 'RM-BS', name: 'Shikharji Besan',       products: ['BS-40K', 'BS-500G'] },
   { id: 'RM-DL', name: 'Shikharji Dalia', products: ['DL-500G'] },
   { id: 'RM-BR', name: 'Shikharji Bran',   products: ['BR-40K'] },

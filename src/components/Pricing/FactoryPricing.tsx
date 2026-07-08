@@ -94,6 +94,7 @@ export default function FactoryPricing() {
   // Default packaging costs (Rs/kg) from factory pricing
   const DEFAULT_PACKAGING_COSTS: Record<string, number> = {
     'WF-50K_pkg_cost': 0.37,   // 50 kg Bag
+    'WF-30K_pkg_cost': 0.43,   // 30 kg Bag (Rs 13/bag ÷ 30 kg)
     'WF-26K_pkg_cost': 0.60,   // 26 kg Bag
     'WF-25K_pkg_cost': 0.60,   // 25 kg Bag (same as 26 kg)
     'WF-10H_pkg_cost': 1.20,   // 10 kg Handle Bag
