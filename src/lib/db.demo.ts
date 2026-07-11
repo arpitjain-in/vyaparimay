@@ -346,6 +346,15 @@ export async function savePackagingEntry(
   lsSet('packaging_stock', stock);
 }
 
+export async function saveRecalculatedPackagingStock(
+  _orgId: string,
+  balances: { materialId: string; quantity: number }[],
+): Promise<void> {
+  const stock = lsGet<Record<string, number>>('packaging_stock', {});
+  for (const b of balances) stock[b.materialId] = b.quantity;
+  lsSet('packaging_stock', stock);
+}
+
 export async function clearAllPackagingData(_orgId: string): Promise<void> {
   lsSet('packaging_entries', []);
   lsSet('packaging_stock', {});

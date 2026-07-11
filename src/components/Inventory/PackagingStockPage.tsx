@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, CheckCircle, AlertTriangle, XCircle, Package, Upload, ShieldAlert, RefreshCw, Trash2 } from 'lucide-react';
+import { X, CheckCircle, AlertTriangle, XCircle, Package, Upload, ShieldAlert, RefreshCw, Trash2, Calculator } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PACKAGING_MATERIALS, PRODUCTS } from '../../data/products';
 import Layout from '../Layout/Layout';
@@ -15,8 +15,25 @@ export default function PackagingStockPage() {
   const {
     packagingStock, packagingEntries, reorderLevels,
     addPackagingEntry, getStockStatus, syncPackagingFromReadyStock, revertLastPackagingSync,
-    readyStockTransactions, clearAllPackagingData,
+    readyStockTransactions, clearAllPackagingData, recalculatePackagingStock,
   } = useStore();
+
+  // Recalculate stock from ledger state
+  const [showRecalcConfirm, setShowRecalcConfirm] = useState(false);
+  const [recalcDiffs, setRecalcDiffs] = useState<{ materialId: string; materialName: string; before: number; after: number }[] | null>(null);
+  const [recalcDone, setRecalcDone] = useState(false);
+
+  const openRecalcModal = () => {
+    setRecalcDiffs(null);
+    setRecalcDone(false);
+    setShowRecalcConfirm(true);
+  };
+
+  const handleRecalcConfirm = () => {
+    const diffs = recalculatePackagingStock();
+    setRecalcDiffs(diffs);
+    setRecalcDone(true);
+  };
 
   const SYNC_NOTE = 'One-time sync: deducted for existing Ready Stock';
   const hasSyncEntries = packagingEntries.some(e => e.notes === SYNC_NOTE && e.entryType === 'used');
@@ -182,7 +199,18 @@ export default function PackagingStockPage() {
     : [];
 
   return (
-    <Layout title="Packaging Materials">
+    <Layout
+      title="Packaging Materials"
+      actions={
+        <button
+          onClick={openRecalcModal}
+          className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 rounded-lg px-3 py-1.5 transition-colors"
+        >
+          <Calculator size={14} />
+          Recalculate Stock
+        </button>
+      }
+    >
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
         {PACKAGING_MATERIALS.map(pm => {
@@ -391,6 +419,72 @@ export default function PackagingStockPage() {
                     className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold"
                   >
                     Undo Sync
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Recalculate Stock Modal */}
+      {showRecalcConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2 text-indigo-600">
+                <Calculator size={18} />
+                <span className="font-bold text-base text-slate-800">Recalculate Stock</span>
+              </div>
+              <button onClick={() => setShowRecalcConfirm(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={18} />
+              </button>
+            </div>
+
+            {recalcDone ? (
+              <div className="flex flex-col items-center py-6 px-6 gap-3">
+                <CheckCircle size={36} className="text-emerald-500 shrink-0" />
+                <p className="font-semibold text-slate-700 text-center">
+                  {recalcDiffs && recalcDiffs.length > 0
+                    ? `${recalcDiffs.length} material${recalcDiffs.length > 1 ? 's' : ''} corrected.`
+                    : 'All stock counts already match their entry history.'}
+                </p>
+                {recalcDiffs && recalcDiffs.length > 0 && (
+                  <div className="w-full max-h-64 overflow-y-auto space-y-2">
+                    {recalcDiffs.map(d => (
+                      <div key={d.materialId} className="flex items-center justify-between py-2 px-3 bg-slate-50 rounded-lg text-sm">
+                        <span className="text-slate-700 truncate mr-2">{d.materialName}</span>
+                        <span className="font-semibold text-slate-800 shrink-0">{d.before} → {d.after}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  onClick={() => setShowRecalcConfirm(false)}
+                  className="mt-2 px-6 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="px-6 py-3 bg-indigo-50 border-b border-indigo-100 shrink-0">
+                  <p className="text-xs text-indigo-700">
+                    This recomputes each material's "units in hand" as (total purchased) − (total used + damaged) from its entry history, and corrects any drift. Use this if a count looks wrong after adding new stock.
+                  </p>
+                </div>
+                <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 shrink-0 flex gap-2">
+                  <button
+                    onClick={() => setShowRecalcConfirm(false)}
+                    className="flex-1 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleRecalcConfirm}
+                    className="flex-1 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold"
+                  >
+                    Recalculate
                   </button>
                 </div>
               </>

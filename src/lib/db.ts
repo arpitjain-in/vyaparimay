@@ -658,6 +658,19 @@ export async function savePackagingEntry(
   if (stockErr) throw stockErr;
 }
 
+export async function saveRecalculatedPackagingStock(
+  orgId: string,
+  balances: { materialId: string; quantity: number }[],
+): Promise<void> {
+  const { error } = await supabase
+    .from('packaging_stock')
+    .upsert(
+      balances.map(b => ({ org_id: orgId, material_id: b.materialId, quantity: b.quantity })),
+      { onConflict: 'org_id,material_id' },
+    );
+  if (error) throw error;
+}
+
 export async function clearAllPackagingData(orgId: string): Promise<void> {
   const { error: entryErr } = await supabase
     .from('packaging_entries')

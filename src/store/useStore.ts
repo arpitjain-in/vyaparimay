@@ -138,6 +138,7 @@ interface AppState {
   getReadyStockStatus(skuId: string): StockStatus;
   syncPackagingFromReadyStock(): { materialId: string; materialName: string; qty: number }[];
   revertLastPackagingSync(): void;
+  recalculatePackagingStock(): { materialId: string; materialName: string; before: number; after: number }[];
   clearAllPackagingData(): void;
 
   // Pricing
@@ -1355,6 +1356,32 @@ export const useStore = create<AppState>()(
             db.savePackagingEntry(orgId, e, newStocks[e.materialId]).catch(console.error),
           );
         }
+      },
+
+      recalculatePackagingStock() {
+        const { packagingEntries, packagingStock, orgId } = get();
+        const diffs: { materialId: string; materialName: string; before: number; after: number }[] = [];
+        const newStocks: Record<string, number> = {};
+        for (const mat of PACKAGING_MATERIALS) {
+          let balance = 0;
+          for (const e of packagingEntries) {
+            if (e.materialId !== mat.id) continue;
+            balance += e.entryType === 'purchase' ? e.quantity : -e.quantity;
+          }
+          const after = Math.max(0, balance);
+          const before = packagingStock[mat.id] ?? 0;
+          if (after !== before) diffs.push({ materialId: mat.id, materialName: mat.name, before, after });
+          newStocks[mat.id] = after;
+        }
+        if (diffs.length === 0) return diffs;
+        set(s => ({ packagingStock: { ...s.packagingStock, ...newStocks } }));
+        if (orgId) {
+          db.saveRecalculatedPackagingStock(
+            orgId,
+            diffs.map(d => ({ materialId: d.materialId, quantity: d.after })),
+          ).catch(console.error);
+        }
+        return diffs;
       },
 
       clearAllPackagingData() {
