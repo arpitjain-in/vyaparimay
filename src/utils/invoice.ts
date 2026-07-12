@@ -250,8 +250,8 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
       <div>
         <div class="biz-name">${esc(bp.name)}</div>
         <div class="biz-meta">
-          ${esc(bp.address1)}, ${esc(bp.city)} &ndash; ${esc(bp.pinCode)}<br/>
-          GSTIN: ${esc(bp.gstin)}&emsp;FSSAI: ${esc(bp.fssai)}&emsp;Ph: ${esc(bp.mobile)}
+          <div class="biz-address">${esc(bp.address1)}, ${esc(bp.city)} &ndash; ${esc(bp.pinCode)}</div>
+          <div class="biz-reg">GSTIN: <b>${esc(bp.gstin)}</b>&emsp;FSSAI: <b>${esc(bp.fssai)}</b>&emsp;Ph: ${esc(bp.mobile)}</div>
         </div>
       </div>
     </div>
@@ -260,8 +260,8 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
       <div class="inv-label">TAX INVOICE</div>
       <div class="inv-no">${esc(invoice.invoiceNo)}</div>
       <div class="inv-meta">
-        Date: ${esc(invoice.invoiceDate)}&emsp;Time: ${esc(invoice.invoiceTime)}<br/>
-        Payment: ${esc(invoice.paymentMode)}
+        <div class="inv-datetime">Date: ${esc(invoice.invoiceDate)}&emsp;Time: ${esc(invoice.invoiceTime)}</div>
+        <div class="inv-payment">Payment: ${esc(invoice.paymentMode)}</div>
       </div>
     </div>
   </div>
@@ -301,7 +301,7 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
       <table class="stbl">
         ${hasGST ? `<tr><td>Taxable Amount</td><td class="r">${fmtRupees(invoice.subtotal)}</td></tr>${gstSummary}` : ''}
         ${extraSummary}
-        <tr class="wt"><td>Total Weight</td><td class="r">${totalWeightStr}&nbsp;kg</td></tr>
+        <tr class="wt"><td><b>Total Weight</b></td><td class="r"><b>${totalWeightStr}&nbsp;kg</b></td></tr>
         <tr class="grand"><td>Grand Total</td><td class="r">${fmtRupees(invoice.grandTotal)}</td></tr>
       </table>
     </div>
@@ -365,7 +365,7 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
   /* ── Copy label badge ── */
   .copy-label {
     display: inline-block;
-    font-size: 6.5pt;
+    font-size: 7pt;
     font-weight: 700;
     letter-spacing: 1px;
     color: #fff;
@@ -386,14 +386,18 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
     padding-bottom: 4px;
     flex-shrink: 0;
   }
-  .hdr-left { display: flex; align-items: flex-start; gap: 6px; }
-  .hlogo { width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; }
-  .biz-name { font-size: 11pt; font-weight: 800; color: #1a3a6b; line-height: 1.2; }
-  .biz-meta { font-size: 6.5pt; color: #000; line-height: 1.5; margin-top: 1px; }
+  .hdr-left { display: flex; align-items: flex-start; gap: 7px; }
+  .hlogo { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; }
+  .biz-name { font-size: 12.5pt; font-weight: 800; color: #1a3a6b; line-height: 1.2; }
+  .biz-meta { color: #000; line-height: 1.35; margin-top: 2px; }
+  .biz-address { font-size: 10.5pt; }
+  .biz-reg { font-size: 8.5pt; margin-top: 2px; }
   .hdr-right { text-align: right; }
   .inv-label { font-size: 8pt; font-weight: 700; color: #1a3a6b; letter-spacing: 0.5px; }
   .inv-no { font-size: 10pt; font-weight: 800; color: #b91c1c; line-height: 1.2; }
-  .inv-meta { font-size: 6.5pt; color: #000; line-height: 1.55; margin-top: 1px; }
+  .inv-meta { color: #000; line-height: 1.4; margin-top: 1px; }
+  .inv-datetime { font-size: 8.5pt; font-weight: 700; }
+  .inv-payment { font-size: 6.5pt; margin-top: 1px; }
 
   /* ── Customer strip ── */
   .cust-strip {
@@ -408,9 +412,9 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
     padding: 3px 7px 3px 6px;
     flex-shrink: 0;
   }
-  .cust-name { font-size: 9pt; font-weight: 700; line-height: 1.3; }
-  .cust-detail { font-size: 6.5pt; color: #000; line-height: 1.5; margin-top: 1px; }
-  .tag { display: inline-block; font-size: 6.5pt; font-weight: 700; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+  .cust-name { font-size: 10pt; font-weight: 700; line-height: 1.25; }
+  .cust-detail { font-size: 7.5pt; color: #000; line-height: 1.3; margin-top: 1px; }
+  .tag { display: inline-block; font-size: 7pt; font-weight: 700; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
   .intra { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
   .inter { background: #ffedd5; color: #9a3412; border: 1px solid #fed7aa; }
 
@@ -430,28 +434,28 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
   .itbl td.r { text-align: right; }
   .itbl td.b { font-weight: 700; }
   .itbl td.mono { font-family: monospace; font-size: 7pt; text-align: center; }
-  .pn { font-weight: 600; color: #000; font-size: 8pt; }
+  .pn { font-weight: 600; color: #000; font-size: 8.5pt; }
   .vr { font-size: 7pt; color: #3730a3; margin-top: 1px; }
   .s { font-size: 7pt; color: #333; }
 
   /* ── Totals section ── */
-  .totals { display: grid; grid-template-columns: 1fr 165px; gap: 8px; align-items: start; flex-shrink: 0; margin-top: auto; }
-  .amt-box { background: #f0f4ff; border: 1px solid #9aa8f0; border-radius: 3px; padding: 3px 6px; font-size: 6.5pt; color: #3730a3; font-style: italic; margin-bottom: 3px; line-height: 1.5; }
+  .totals { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; flex-shrink: 0; margin-top: auto; }
+  .amt-box { background: #f0f4ff; border: 1px solid #9aa8f0; border-radius: 3px; padding: 3px 6px; font-size: 9pt; color: #3730a3; font-style: italic; margin-bottom: 3px; line-height: 1.3; }
   .amt-box b { font-style: normal; color: #000; }
-  .bank-box { font-size: 6.5pt; color: #000; line-height: 1.55; }
-  .stbl { width: 100%; border-collapse: collapse; font-size: 7pt; }
+  .bank-box { font-size: 7.5pt; color: #000; line-height: 1.4; }
+  .stbl { width: 100%; border-collapse: collapse; font-size: 7pt; white-space: nowrap; }
   .stbl td { padding: 1px 4px; }
   .stbl td.r { text-align: right; }
   .stbl .disc td { color: #15803d; }
   .stbl .xtra td { color: #c2410c; }
-  .stbl .wt td { color: #333; font-size: 6.5pt; border-top: 1px solid #c3cad6; }
-  .stbl .grand td { font-size: 9pt; font-weight: 800; color: #fff; background: #1a3a6b; padding: 4px; }
+  .stbl .wt td { color: #000; font-size: 9.5pt; border-top: 1px solid #c3cad6; }
+  .stbl .grand td { font-size: 10.5pt; font-weight: 800; color: #fff; background: #1a3a6b; padding: 4px 6px; }
 
   /* ── Footer ── */
   .footer { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #a8b3c9; padding-top: 3px; flex-shrink: 0; }
-  .footer-left { font-size: 6pt; color: #222; max-width: 65%; line-height: 1.4; }
+  .footer-left { font-size: 7pt; color: #222; max-width: 65%; line-height: 1.3; }
   .sig-block { text-align: right; }
-  .sig-line { width: 110px; border-top: 1px solid #333; margin-left: auto; margin-top: 16px; font-size: 6.5pt; font-weight: 600; color: #1a3a6b; padding-top: 2px; text-align: center; }
+  .sig-line { width: 110px; border-top: 1px solid #333; margin-left: auto; margin-top: 12px; font-size: 7pt; font-weight: 600; color: #1a3a6b; padding-top: 2px; text-align: center; }
 </style>
 </head>
 <body>
@@ -592,12 +596,12 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     color: #1a3a6b;
     letter-spacing: 0.5px;
   }
-  .biz-meta { font-size: 9pt; color: #000; line-height: 1.6; margin-top: 3px; }
+  .biz-meta { font-size: 9pt; font-weight: 700; color: #000; line-height: 1.6; margin-top: 3px; }
   .inv-box {
     text-align: right;
   }
   .inv-title {
-    font-size: 13pt;
+    font-size: 10.5pt;
     font-weight: 700;
     color: #1a3a6b;
     letter-spacing: 1px;
@@ -738,11 +742,11 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     border: 1px solid #9aa8f0;
     border-radius: 4px;
     padding: 5px 8px;
-    font-size: 8.5pt;
+    font-size: 10.5pt;
     color: #3730a3;
     font-style: italic;
   }
-  .amt-words strong { font-style: normal; color: #000; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.5px; }
+  .amt-words strong { font-style: normal; color: #000; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.5px; }
 
   /* ── Bank & Payment ── */
   .bank-section {
@@ -855,8 +859,8 @@ ${copyBanner}
     <div class="inv-title">TAX INVOICE</div>
     <div class="inv-no">${esc(invoice.invoiceNo)}</div>
     <div class="inv-meta">
-      Date: ${esc(invoice.invoiceDate)}<br/>
-      Time: ${esc(invoice.invoiceTime)}<br/>
+      <b>Date: ${esc(invoice.invoiceDate)}</b><br/>
+      <b>Time: ${esc(invoice.invoiceTime)}</b><br/>
       Payment: ${esc(invoice.paymentMode)}
     </div>
   </div>
@@ -950,7 +954,7 @@ ${cancelledBanner}
   <div class="declaration">
     <strong>Declaration:</strong><br/>
     We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.
-    ${bp.tagline ? `<br/><em>${esc(bp.tagline)}</em>` : ''}
+    ${bp.tagline ? `<br/><b><em>${esc(bp.tagline)}</em></b>` : ''}
   </div>
   <div class="signatory">
     <div>For <strong>${esc(bp.name)}</strong></div>

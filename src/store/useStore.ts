@@ -1061,7 +1061,7 @@ export const useStore = create<AppState>()(
         let txn!: ReadyStockTransaction;
         set(s => {
           const prev = s.readyStock[skuId] ?? 0;
-          const newStock = prev + qty;
+          const newStock = Math.max(0, prev + qty);
           txn = {
             id: crypto.randomUUID(),
             date: date ?? formatDate(now), time: formatTime(now),

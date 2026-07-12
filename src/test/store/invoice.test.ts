@@ -112,33 +112,35 @@ describe('generateInvoice — invoice numbering', () => {
 
 describe('generateInvoice — intra-state GST (CGST + SGST)', () => {
   it('calculates 5% GST as CGST 2.5% + SGST 2.5% for Rajasthan customer', () => {
-    placeOrder('CUST-001', [{ skuId: 'WF-26K', qty: 1, rate: 780 }]);
+    // WF-26K is a 26 kg bag — bulk packs over 25 kg are GST-exempt, so use a
+    // retail-size SKU (WF-5P, 5 kg pouch) which is taxed at 5%.
+    placeOrder('CUST-001', [{ skuId: 'WF-5P', qty: 1, rate: 165 }]);
     const inv = useStore.getState().generateInvoice('2026-05-09')!;
     expect(inv.isInterState).toBe(false);
-    expect(inv.cgstTotal).toBeCloseTo(19.5);
-    expect(inv.sgstTotal).toBeCloseTo(19.5);
+    expect(inv.cgstTotal).toBeCloseTo(4.125);
+    expect(inv.sgstTotal).toBeCloseTo(4.125);
     expect(inv.igstTotal).toBe(0);
-    expect(inv.totalGST).toBeCloseTo(39);
+    expect(inv.totalGST).toBeCloseTo(8.25);
   });
 
   it('grandTotal = subtotal + GST (rounded)', () => {
-    placeOrder('CUST-001', [{ skuId: 'WF-26K', qty: 3, rate: 780 }]);
+    placeOrder('CUST-001', [{ skuId: 'WF-5P', qty: 3, rate: 165 }]);
     const inv = useStore.getState().generateInvoice('2026-05-09')!;
-    // subtotal = 3*780 = 2340, GST 5% = 117, total = 2457
-    expect(inv.subtotal).toBe(2340);
-    expect(inv.grandTotal).toBe(2457);
+    // subtotal = 3*165 = 495, GST 5% = 24.75, total = 519.75 → round = 520
+    expect(inv.subtotal).toBe(495);
+    expect(inv.grandTotal).toBe(520);
   });
 
   it('multi-line order: subtotals and GST aggregate correctly', () => {
     placeOrder('CUST-001', [
-      { skuId: 'WF-26K', qty: 3, rate: 780 }, // 2340 taxable
+      { skuId: 'WF-10P', qty: 3, rate: 320 }, // 960 taxable
       { skuId: 'WF-5P',  qty: 5, rate: 165 }, // 825 taxable
     ]);
     const inv = useStore.getState().generateInvoice('2026-05-09')!;
-    expect(inv.subtotal).toBe(3165);
-    // 5% on 3165 = 158.25 → cgst = sgst = 79.125 ≈ 79.13
-    expect(inv.totalGST).toBeCloseTo(158.25);
-    expect(inv.grandTotal).toBe(3323);
+    expect(inv.subtotal).toBe(1785);
+    // 5% on 1785 = 89.25 → cgst = sgst = 44.625
+    expect(inv.totalGST).toBeCloseTo(89.25);
+    expect(inv.grandTotal).toBe(1874);
   });
 });
 
@@ -146,10 +148,10 @@ describe('generateInvoice — intra-state GST (CGST + SGST)', () => {
 
 describe('generateInvoice — inter-state GST (IGST)', () => {
   it('uses IGST only for Delhi customer (different state)', () => {
-    placeOrder('CUST-002', [{ skuId: 'WF-26K', qty: 1, rate: 780 }]);
+    placeOrder('CUST-002', [{ skuId: 'WF-5P', qty: 1, rate: 165 }]);
     const inv = useStore.getState().generateInvoice('2026-05-09')!;
     expect(inv.isInterState).toBe(true);
-    expect(inv.igstTotal).toBeCloseTo(39);
+    expect(inv.igstTotal).toBeCloseTo(8.25);
     expect(inv.cgstTotal).toBe(0);
     expect(inv.sgstTotal).toBe(0);
   });
@@ -172,21 +174,21 @@ describe('generateInvoice — GST disabled', () => {
 
 describe('generateInvoice — discount', () => {
   it('applies flat discount to grand total', () => {
-    placeOrder('CUST-001', [{ skuId: 'WF-26K', qty: 1, rate: 780 }]);
+    placeOrder('CUST-001', [{ skuId: 'WF-5P', qty: 1, rate: 165 }]);
     useStore.getState().setOrderDiscount('flat', 50);
     const inv = useStore.getState().generateInvoice('2026-05-09')!;
-    // subtotal=780, GST=39, pre-discount=819, discount=50, before_round=769, grandTotal=769
+    // subtotal=165, GST=8.25, pre-discount=173.25, discount=50, before_round=123.25, grandTotal=123
     expect(inv.discountAmount).toBe(50);
-    expect(inv.grandTotal).toBe(769);
+    expect(inv.grandTotal).toBe(123);
   });
 
   it('applies percent discount correctly', () => {
-    placeOrder('CUST-001', [{ skuId: 'WF-26K', qty: 1, rate: 780 }]);
-    // subtotal=780, GST=39, pre-discount=819
+    placeOrder('CUST-001', [{ skuId: 'WF-5P', qty: 1, rate: 165 }]);
+    // subtotal=165, GST=8.25, pre-discount=173.25
     useStore.getState().setOrderDiscount('percent', 10);
     const inv = useStore.getState().generateInvoice('2026-05-09')!;
-    expect(inv.discountAmount).toBeCloseTo(81.9);
-    expect(inv.grandTotal).toBe(737); // Math.round(819 - 81.9) = Math.round(737.1) = 737
+    expect(inv.discountAmount).toBeCloseTo(17.32);
+    expect(inv.grandTotal).toBe(156); // Math.round(173.25 - 17.32) = Math.round(155.93) = 156
   });
 
   it('no discount when not set', () => {
@@ -273,10 +275,10 @@ describe('generateInvoice — post-generation state', () => {
   });
 
   it('amountInWords is set correctly', () => {
-    placeOrder('CUST-001', [{ skuId: 'WF-26K', qty: 3, rate: 780 }]);
+    placeOrder('CUST-001', [{ skuId: 'WF-5P', qty: 3, rate: 165 }]);
     const inv = useStore.getState().generateInvoice('2026-05-09')!;
-    // grandTotal = 2457
-    expect(inv.amountInWords).toBe('Two Thousand Four Hundred Fifty Seven Rupees Only');
+    // grandTotal = 520
+    expect(inv.amountInWords).toBe('Five Hundred Twenty Rupees Only');
   });
 });
 

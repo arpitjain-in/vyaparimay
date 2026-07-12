@@ -202,7 +202,7 @@ describe('saveInvoice / loadInvoices / cancelInvoiceInDb', () => {
 
   it('cancels an invoice', async () => {
     await saveInvoice(ORG, SAMPLE_INVOICE, [], [], {});
-    await cancelInvoiceInDb(ORG, 'inv-001');
+    await cancelInvoiceInDb(ORG, 'inv-001', [], {});
     const invoices = await loadInvoices(ORG);
     expect(invoices[0].cancelled).toBe(true);
   });
@@ -442,7 +442,7 @@ describe('Bran DB persistence: packaging → ready stock → invoice → ready s
       cancelled: false,
     };
     await saveInvoice(ORG, branInvoice, [], [], {});
-    await cancelInvoiceInDb(ORG, 'inv-br-cancel-001');
+    await cancelInvoiceInDb(ORG, 'inv-br-cancel-001', [], {});
 
     const invoices = await loadInvoices(ORG);
     const found = invoices.find(i => i.id === 'inv-br-cancel-001');

@@ -74,12 +74,12 @@ describe('startNewOrder + setOrderCustomer', () => {
     expect(useStore.getState().currentOrder?.customerId).toBe('CUST-001');
   });
 
-  it('initialises empty cart and default Cash payment mode', () => {
+  it('initialises empty cart and default Credit payment mode', () => {
     useStore.getState().startNewOrder();
     useStore.getState().setOrderCustomer('CUST-001');
     const order = useStore.getState().currentOrder!;
     expect(order.items).toHaveLength(0);
-    expect(order.paymentMode).toBe('Cash');
+    expect(order.paymentMode).toBe('Credit');
   });
 });
 

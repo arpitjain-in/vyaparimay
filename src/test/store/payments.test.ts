@@ -17,7 +17,7 @@
  *  - Over-payment: outstanding goes negative (credit balance)
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useStore } from '../../store/useStore';
 import { DEFAULT_PRICES } from '../../data/products';
 
@@ -136,7 +136,17 @@ function buildLedger(customerId: string) {
   return { ledger, totalDebit, totalCredit, outstanding };
 }
 
-beforeEach(resetStore);
+// Tests hardcode transaction dates from 01/05/2026 onward and rely on
+// customer.createdOn (= "today") sorting before all of them in the ledger.
+// Pin the clock so this doesn't depend on when the suite actually runs.
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-20T10:00:00'));
+  resetStore();
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 // ─── addPaymentReceipt ────────────────────────────────────────────────────────
 

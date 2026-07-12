@@ -103,8 +103,10 @@ describe('E2E Flow 1: create customer → place order → generate invoice', () 
     // 3. Generate invoice
     const inv = generateInvoice('2026-05-09')!;
     expect(inv).not.toBeNull();
-    expect(inv.invoiceNo).toBe('INV-2627-001');
-    expect(inv.grandTotal).toBe(3323); // 2340+825 = 3165 + 5%GST = 3323.25 → round = 3323
+    expect(inv.invoiceNo).toBe('INV/2627/05/01');
+    // WF-26K (26 kg bag) is GST-exempt (bulk packs over 25 kg); only WF-5P is taxed.
+    // 2340 (WF-26K, 0% GST) + 825 (WF-5P) + 5%GST on 825 = 41.25 → 3206.25 → round = 3206
+    expect(inv.grandTotal).toBe(3206);
 
     // 4. Verify ready stock deductions
     const { readyStock } = useStore.getState();
@@ -118,7 +120,7 @@ describe('E2E Flow 1: create customer → place order → generate invoice', () 
     const txns = useStore.getState().readyStockTransactions;
     expect(txns).toHaveLength(2);
     expect(txns.every(t => t.type === 'DEDUCT')).toBe(true);
-    expect(txns.every(t => t.reason?.includes('INV-2627-001'))).toBe(true);
+    expect(txns.every(t => t.reason?.includes('INV/2627/05/01'))).toBe(true);
   });
 });
 
@@ -183,7 +185,7 @@ describe('E2E Flow 3: multiple invoices in sequence', () => {
       setOrderGst(true);
       upsertCartItem('WF-26K', 1, 780);
       const inv = generateInvoice('2026-05-09')!;
-      const expectedNo = `INV-2627-${String(i + 1).padStart(3, '0')}`;
+      const expectedNo = `INV/2627/05/${String(i + 1).padStart(2, '0')}`;
       expect(inv.invoiceNo).toBe(expectedNo);
     }
 
@@ -211,14 +213,14 @@ describe('E2E Flow 4: intra-state vs inter-state GST comparison', () => {
       creditLimit: 0, paymentTerms: 'Cash', openingBalance: 0,
     });
 
-    // Intra-state order
+    // Intra-state order (WF-5P: 5 kg pouch, taxed at 5% — WF-26K bulk bags are GST-exempt)
     startNewOrder(); setOrderCustomer(raj); setOrderGst(true);
-    upsertCartItem('WF-26K', 1, 780);
+    upsertCartItem('WF-5P', 1, 165);
     const intraInv = generateInvoice('2026-05-09')!;
 
     // Inter-state order
     startNewOrder(); setOrderCustomer(del); setOrderGst(true);
-    upsertCartItem('WF-26K', 1, 780);
+    upsertCartItem('WF-5P', 1, 165);
     const interInv = generateInvoice('2026-05-09')!;
 
     expect(intraInv.isInterState).toBe(false);
@@ -237,7 +239,7 @@ describe('E2E Flow 4: intra-state vs inter-state GST comparison', () => {
 // ─── Flow 5: Edge case — stock goes to 0 ──────────────────────────────────────
 
 describe('E2E Flow 5: edge cases and data integrity', () => {
-  it('ready stock floors at 0 even when invoice exceeds available stock', () => {
+  it('rejects the invoice and leaves stock untouched when quantity exceeds available stock', () => {
     const { addCustomer, startNewOrder, setOrderCustomer,
             upsertCartItem, setOrderGst, generateInvoice } = useStore.getState();
 
@@ -251,9 +253,12 @@ describe('E2E Flow 5: edge cases and data integrity', () => {
 
     startNewOrder(); setOrderCustomer(custId); setOrderGst(true);
     upsertCartItem('WF-26K', 100, 780); // more than available
-    generateInvoice('2026-05-09');
+    const inv = generateInvoice('2026-05-09');
 
-    expect(useStore.getState().readyStock['WF-26K']).toBe(0);
+    // generateInvoice rejects the whole invoice (returns null) rather than
+    // silently clamping stock to 0, so the ready stock is left untouched.
+    expect(inv).toBeNull();
+    expect(useStore.getState().readyStock['WF-26K']).toBe(3);
   });
 
   it('no double-counting: two separate invoice lines deduct correctly', () => {
@@ -280,7 +285,7 @@ describe('E2E Flow 5: edge cases and data integrity', () => {
     expect(readyStock['BS-40K']).toBe(10);  // unchanged
   });
 
-  it('cancel invoice does not restore ready stock (by design)', () => {
+  it('cancel invoice restores ready stock', () => {
     const { addCustomer, startNewOrder, setOrderCustomer,
             upsertCartItem, setOrderGst, generateInvoice, cancelInvoice } = useStore.getState();
 
@@ -293,12 +298,12 @@ describe('E2E Flow 5: edge cases and data integrity', () => {
     startNewOrder(); setOrderCustomer(custId); setOrderGst(true);
     upsertCartItem('WF-26K', 5, 780);
     const inv = generateInvoice('2026-05-09')!;
-    const stockAfterSale = useStore.getState().readyStock['WF-26K'];
+    const stockBeforeSale = useStore.getState().readyStock['WF-26K'] + 5;
 
     cancelInvoice(inv.id);
 
-    // Ready stock is NOT restored on cancel (business rule: manual adjustment needed)
-    expect(useStore.getState().readyStock['WF-26K']).toBe(stockAfterSale);
+    // Ready stock is restored on cancel back to its pre-sale level
+    expect(useStore.getState().readyStock['WF-26K']).toBe(stockBeforeSale);
     expect(useStore.getState().invoices.find(i => i.id === inv.id)!.cancelled).toBe(true);
   });
 });
@@ -356,10 +361,10 @@ describe('E2E Flow 7: new customer → discounted invoice → ready stock deduct
     expect(custId).toBe('CUST-001');
     expect(useStore.getState().customers).toHaveLength(1);
 
-    // 2. Create order: 4 × 26 kg Bag + 6 × 5 kg Pouch
+    // 2. Create order: 4 × 26 kg Bag (GST-exempt bulk pack) + 6 × 5 kg Pouch (taxed)
     //    Subtotal = 4×780 + 6×165 = 3120 + 990 = 4110
-    //    GST 5% intra-state = 205.5 → CGST 102.75, SGST 102.75
-    //    Pre-discount total = 4110 + 205.5 = 4315.5 → ~4316
+    //    GST 5% applies only to the WF-5P line: 990 × 5% = 49.5
+    //    Pre-discount total = 4110 + 49.5 = 4159.5
     startNewOrder();
     setOrderCustomer(custId);
     setOrderGst(true);
@@ -372,14 +377,14 @@ describe('E2E Flow 7: new customer → discounted invoice → ready stock deduct
     // 4. Generate invoice
     const inv = generateInvoice('2026-05-09')!;
     expect(inv).not.toBeNull();
-    expect(inv.invoiceNo).toBe('INV-2627-001');
+    expect(inv.invoiceNo).toBe('INV/2627/05/01');
 
     // 5. Validate discount on invoice
     expect(inv.discountType).toBe('flat');
     expect(inv.discountAmount).toBe(100);
     // Grand total must be lower than pre-discount total by exactly ₹100
     const subtotal = 4 * 780 + 6 * 165; // 4110
-    const gst = Math.round(subtotal * 0.05 * 100) / 100;
+    const gst = Math.round(6 * 165 * 0.05 * 100) / 100; // only WF-5P is taxed
     const expectedGrandTotal = Math.round(subtotal + gst - 100);
     expect(inv.grandTotal).toBe(expectedGrandTotal);
 
@@ -398,7 +403,7 @@ describe('E2E Flow 7: new customer → discounted invoice → ready stock deduct
     expect(txns.every(t => t.type === 'DEDUCT')).toBe(true);
     expect(txns.find(t => t.skuId === 'WF-26K')!.quantity).toBe(4);
     expect(txns.find(t => t.skuId === 'WF-5P')!.quantity).toBe(6);
-    expect(txns.every(t => t.reason?.includes('INV-2627-001'))).toBe(true);
+    expect(txns.every(t => t.reason?.includes('INV/2627/05/01'))).toBe(true);
   });
 
   it('percent discount: grand total reduced by percentage AND ready stock deducted', () => {
@@ -411,24 +416,24 @@ describe('E2E Flow 7: new customer → discounted invoice → ready stock deduct
       creditLimit: 0, paymentTerms: 'Cash', openingBalance: 0,
     });
 
-    // Order: 2 × 26 kg Bag
-    // Subtotal = 2×780 = 1560, GST 5% = 78, pre-discount = 1638
-    // 10% discount = 163.8, grand total = round(1638 - 163.8) = 1474
+    // Order: 2 × 5 kg Pouch (WF-26K bulk bags are GST-exempt; use a taxed SKU here)
+    // Subtotal = 2×165 = 330, GST 5% = 16.5, pre-discount = 346.5
+    // 10% discount = 34.65, grand total = round(346.5 - 34.65) = 312
     startNewOrder();
     setOrderCustomer(custId);
     setOrderGst(true);
-    upsertCartItem('WF-26K', 2, 780);
+    upsertCartItem('WF-5P', 2, 165);
     setOrderDiscount('percent', 10);
 
     const inv = generateInvoice('2026-05-09')!;
     expect(inv.discountType).toBe('percent');
-    expect(inv.discountAmount).toBeCloseTo(163.8, 1);
+    expect(inv.discountAmount).toBeCloseTo(34.65, 1);
 
-    const expectedGrandTotal = Math.round(1560 * 1.05 - 1560 * 1.05 * 0.10);
+    const expectedGrandTotal = Math.round(330 * 1.05 - 330 * 1.05 * 0.10);
     expect(inv.grandTotal).toBe(expectedGrandTotal);
 
     // Ready stock deducted regardless of discount type
-    expect(useStore.getState().readyStock['WF-26K']).toBe(48); // 50 - 2
+    expect(useStore.getState().readyStock['WF-5P']).toBe(98); // 100 - 2
     expect(useStore.getState().readyStockTransactions).toHaveLength(1);
     expect(useStore.getState().readyStockTransactions[0].type).toBe('DEDUCT');
     expect(useStore.getState().readyStockTransactions[0].quantity).toBe(2);
@@ -488,15 +493,15 @@ describe('E2E Flow 8: Bran — add packaging → add ready stock → order → i
 
     // ── Step 5: Generate invoice ──────────────────────────────────────────────
     // Subtotal = 10 × 480 = 4800
-    // GST 5% (intra-state Rajasthan) = 240  → CGST 120 + SGST 120
-    // Grand total = 4800 + 240 = 5040
+    // BR-40K is a 40 kg bulk bag — GST-exempt (bulk packs over 25 kg), so no GST applies
+    // Grand total = 4800
     const inv = generateInvoice('2026-05-10')!;
     expect(inv).not.toBeNull();
-    expect(inv.invoiceNo).toBe('INV-2627-001');
-    expect(inv.grandTotal).toBe(5040);
+    expect(inv.invoiceNo).toBe('INV/2627/05/01');
+    expect(inv.grandTotal).toBe(4800);
     expect(inv.isInterState).toBe(false);
-    expect(inv.cgstTotal).toBe(120);
-    expect(inv.sgstTotal).toBe(120);
+    expect(inv.cgstTotal).toBe(0);
+    expect(inv.sgstTotal).toBe(0);
     expect(inv.igstTotal).toBe(0);
 
     // ── Step 6: Verify ready stock deduction after invoice ────────────────────
@@ -522,7 +527,7 @@ describe('E2E Flow 8: Bran — add packaging → add ready stock → order → i
     expect(deductTxn).toBeDefined();
     expect(deductTxn.skuId).toBe('BR-40K');
     expect(deductTxn.quantity).toBe(10);
-    expect(deductTxn.reason).toContain('INV-2627-001');
+    expect(deductTxn.reason).toContain('INV/2627/05/01');
 
     // Other SKUs must be completely untouched
     const { readyStock } = useStore.getState();
