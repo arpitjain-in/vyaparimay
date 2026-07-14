@@ -198,6 +198,130 @@ describe('generateInvoice — discount', () => {
   });
 });
 
+// ─── Twin25 billing combo (2 × WF-25K → 1 × Twin25) ────────────────────────────
+
+describe('generateInvoice — Twin25 split', () => {
+  it('splits an odd WF-25K quantity into a Twin25 line (0% GST) + a leftover 25kg line (5% GST)', () => {
+    placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 3, rate: 750 }]);
+    const inv = useStore.getState().generateInvoice('2026-05-09')!;
+    expect(inv.items).toHaveLength(2);
+
+    const twin = inv.items.find(i => i.skuId === 'Twin25')!;
+    expect(twin.quantity).toBe(1);
+    expect(twin.weight).toBe(50);
+    expect(twin.rate).toBe(1500);
+    expect(twin.taxableValue).toBe(1500);
+    expect(twin.gstRate).toBe(0);
+    expect(twin.cgst + twin.sgst + twin.igst).toBe(0);
+    expect(twin.variant).toBe('Twin25'); // bundle SKUs show the SKU id as the label
+
+    const remainder = inv.items.find(i => i.skuId === 'WF-25K')!;
+    expect(remainder.quantity).toBe(1);
+    expect(remainder.weight).toBe(25);
+    expect(remainder.rate).toBe(750);
+    expect(remainder.taxableValue).toBe(750);
+    expect(remainder.gstRate).toBe(5);
+    expect(remainder.cgst).toBeCloseTo(18.75);
+    expect(remainder.sgst).toBeCloseTo(18.75);
+
+    // Subtotal is unaffected by the split — same as 3 × rate.
+    expect(inv.subtotal).toBe(2250);
+    expect(inv.totalGST).toBeCloseTo(37.5);
+  });
+
+  it('produces a single pure Twin25 line for an even quantity, with no remainder line', () => {
+    placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 4, rate: 750 }]);
+    const inv = useStore.getState().generateInvoice('2026-05-09')!;
+    expect(inv.items).toHaveLength(1);
+    expect(inv.items[0].skuId).toBe('Twin25');
+    expect(inv.items[0].quantity).toBe(2);
+    expect(inv.totalGST).toBe(0);
+    expect(inv.subtotal).toBe(3000);
+  });
+
+  it('does not split a lone bag (qty 1)', () => {
+    placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 1, rate: 750 }]);
+    const inv = useStore.getState().generateInvoice('2026-05-09')!;
+    expect(inv.items).toHaveLength(1);
+    expect(inv.items[0].skuId).toBe('WF-25K');
+    expect(inv.items[0].gstRate).toBe(5);
+  });
+
+  it('deducts the full original bag count from WF-25K ready stock, not the split unit count', () => {
+    placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 3, rate: 750 }]);
+    useStore.getState().generateInvoice('2026-05-09');
+    expect(useStore.getState().readyStock['WF-25K']).toBe(7); // 10 - 3
+  });
+
+  it('does not create a separate ready-stock bucket for Twin25', () => {
+    placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 3, rate: 750 }]);
+    useStore.getState().generateInvoice('2026-05-09');
+    expect(useStore.getState().readyStock['Twin25']).toBeUndefined();
+  });
+
+  it('does not deduct outer packaging for the Twin25 line (same physical bags as WF-25K)', () => {
+    placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 3, rate: 750 }]);
+    useStore.getState().generateInvoice('2026-05-09');
+    // PKG-WF-26K is shared packaging for WF-25K/26K; normal (non-bundle) SKUs never
+    // deduct packaging at sale time (only bundle SKUs do), so it should be untouched.
+    expect(useStore.getState().packagingStock['PKG-WF-26K']).toBe(100);
+  });
+
+  it('rejects the invoice when the aggregate WF-25K deduction would exceed available stock', () => {
+    useStore.setState({ readyStock: { 'WF-25K': 2 } });
+    placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 3, rate: 750 }]); // needs 3, only 2 available
+    const inv = useStore.getState().generateInvoice('2026-05-09');
+    expect(inv).toBeNull();
+    expect(useStore.getState().readyStock['WF-25K']).toBe(2);
+  });
+
+  it('uses IGST for the taxable remainder line on an inter-state order, and stays 0 on the Twin25 line', () => {
+    placeOrder('CUST-002', [{ skuId: 'WF-25K', qty: 3, rate: 750 }]);
+    const inv = useStore.getState().generateInvoice('2026-05-09')!;
+    const twin = inv.items.find(i => i.skuId === 'Twin25')!;
+    const remainder = inv.items.find(i => i.skuId === 'WF-25K')!;
+    expect(twin.igst).toBe(0);
+    expect(remainder.igst).toBeCloseTo(37.5);
+    expect(remainder.cgst).toBe(0);
+    expect(remainder.sgst).toBe(0);
+  });
+
+  it('both split lines carry 0 tax when GST is disabled for the order', () => {
+    placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 3, rate: 750 }], false);
+    const inv = useStore.getState().generateInvoice('2026-05-09')!;
+    expect(inv.totalGST).toBe(0);
+    expect(inv.subtotal).toBe(2250);
+    expect(inv.grandTotal).toBe(2250);
+  });
+
+  it('cancelling a Twin25 invoice restores the full bag count to WF-25K ready stock', () => {
+    placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 3, rate: 750 }]);
+    const inv = useStore.getState().generateInvoice('2026-05-09')!;
+    expect(useStore.getState().readyStock['WF-25K']).toBe(7);
+    useStore.getState().cancelInvoice(inv.id);
+    expect(useStore.getState().readyStock['WF-25K']).toBe(10);
+  });
+
+  it('cancelling a Twin25 invoice does not touch packaging stock', () => {
+    placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 3, rate: 750 }]);
+    const inv = useStore.getState().generateInvoice('2026-05-09')!;
+    useStore.getState().cancelInvoice(inv.id);
+    expect(useStore.getState().packagingStock['PKG-WF-26K']).toBe(100);
+  });
+
+  it('a mixed cart only splits the WF-25K line, leaving other lines intact', () => {
+    placeOrder('CUST-001', [
+      { skuId: 'WF-26K', qty: 2, rate: 780 },
+      { skuId: 'WF-25K', qty: 3, rate: 750 },
+    ]);
+    const inv = useStore.getState().generateInvoice('2026-05-09')!;
+    expect(inv.items).toHaveLength(3);
+    expect(inv.items.map(i => i.skuId).sort()).toEqual(['Twin25', 'WF-25K', 'WF-26K'].sort());
+    expect(useStore.getState().readyStock['WF-26K']).toBe(23); // 25 - 2
+    expect(useStore.getState().readyStock['WF-25K']).toBe(7);  // 10 - 3
+  });
+});
+
 // ─── Ready stock deduction on invoice ─────────────────────────────────────────
 
 describe('generateInvoice — ready stock deduction', () => {

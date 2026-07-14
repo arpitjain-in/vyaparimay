@@ -89,7 +89,7 @@ export default function FactoryPricing() {
 
   const costs = useMemo(() => computeCosts(localParams), [localParams]);
 
-  const packagingSkus = PRODUCTS.filter(p => p.product === 'Shikharji Atta');
+  const packagingSkus = PRODUCTS.filter(p => p.product === 'Shikharji Atta' && !p.hidden);
 
   // Default packaging costs (Rs/kg) from factory pricing
   const DEFAULT_PACKAGING_COSTS: Record<string, number> = {

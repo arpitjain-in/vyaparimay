@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Search, Plus, ShoppingCart, Trash2, AlertTriangle, CheckCircle2, ChevronRight, Eye, X, Minus } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { PRODUCTS, PACKAGING_MATERIALS, PRODUCT_CATEGORIES, getRawMaterialId } from '../../data/products';
+import { PRODUCTS, PACKAGING_MATERIALS, PRODUCT_CATEGORIES, getRawMaterialId, applyTwinPackSplit } from '../../data/products';
 import { calcGST, isInterState } from '../../utils/gst';
 import { fmtINR, formatDate, formatTime, getFYFromDate } from '../../utils/format';
 import { numberToWords } from '../../utils/numberToWords';
@@ -121,8 +121,8 @@ export default function NewOrder() {
 
   // Step 2 product helpers
   const skusInCategory = category
-    ? PRODUCTS.filter(p => p.product === category)
-    : PRODUCTS;
+    ? PRODUCTS.filter(p => p.product === category && !p.hidden)
+    : PRODUCTS.filter(p => !p.hidden);
 
   const handleSelectSKU = (sku: ProductSKU) => {
     setSelectedSKU(sku);
@@ -148,7 +148,7 @@ export default function NewOrder() {
     ? isInterState(businessProfile.state, selectedCustomer.state)
     : false;
 
-  const cartWithCalc = (currentOrder?.items ?? []).map(item => {
+  const cartWithCalc = applyTwinPackSplit(currentOrder?.items ?? []).map(item => {
     const sku = PRODUCTS.find(p => p.id === item.skuId)!;
     const tv = item.quantity * item.rate;
     const gstRate = sku.weight > 25 ? 0 : sku.gstRate;
@@ -186,7 +186,7 @@ export default function NewOrder() {
       : new Date();
     const fy = getFYFromDate(invoiceDateObj);
     const now = new Date();
-    const items: OrderItem[] = currentOrder.items.map(cartItem => {
+    const items: OrderItem[] = applyTwinPackSplit(currentOrder.items).map(cartItem => {
       const sku = PRODUCTS.find(p => p.id === cartItem.skuId)!;
       const taxableValue = cartItem.quantity * cartItem.rate;
       const gstRate = sku.weight > 25 ? 0 : sku.gstRate;

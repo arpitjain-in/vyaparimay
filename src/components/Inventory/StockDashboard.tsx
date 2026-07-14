@@ -136,7 +136,7 @@ export default function StockDashboard() {
 
   const groupedProducts = PRODUCT_CATEGORIES.map(cat => ({
     category: cat,
-    skus: PRODUCTS.filter(p => p.product === cat),
+    skus: PRODUCTS.filter(p => p.product === cat && !p.hidden),
     style: CATEGORY_STYLE[cat] ?? { header: 'bg-gray-50 border-gray-200', badge: 'bg-gray-100 text-gray-700', icon: 'text-gray-500' },
   }));
 

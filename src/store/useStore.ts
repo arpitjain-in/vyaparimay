@@ -6,7 +6,7 @@ import {
   ReadyStockTransaction, StockStatus, Expense,
   Employee, EmployeeLeave, EmployeeAdvance, SalaryRecord,
 } from '../types';
-import { PACKAGING_MATERIALS, PRODUCTS, DEFAULT_PRICES } from '../data/products';
+import { PACKAGING_MATERIALS, PRODUCTS, DEFAULT_PRICES, applyTwinPackSplit } from '../data/products';
 import { isInterState, calcGST } from '../utils/gst';
 import { numberToWords } from '../utils/numberToWords';
 import { formatDate, formatTime, getCurrentFY, getFYFromDate } from '../utils/format';
@@ -55,6 +55,7 @@ interface AppState {
   // Invoices
   invoices: Invoice[];
   invoiceCounters: Record<string, number>; // FY-MM -> seq
+  testInvoiceCounters: Record<string, number>; // FY-MM -> seq, isolated series for the "Test Customer"
 
   // Payment Receipts
   paymentReceipts: PaymentReceipt[];
@@ -214,6 +215,7 @@ export const useStore = create<AppState>()(
       // Invoices
       invoices: [],
       invoiceCounters: {},
+      testInvoiceCounters: {},
 
       // Payment Receipts
       paymentReceipts: [],
@@ -338,12 +340,14 @@ export const useStore = create<AppState>()(
 
           // Derive invoice counters from loaded invoices
           const invoiceCounters: Record<string, number> = {};
+          const testInvoiceCounters: Record<string, number> = {};
           for (const inv of invoices) {
-            const match = inv.invoiceNo.match(/INV\/(\d{4})\/(\d{2})\/(\d+)/);
+            const match = inv.invoiceNo.match(/^(INV|TEST)\/(\d{4})\/(\d{2})\/(\d+)/);
             if (match) {
-              const key = `${match[1]}-${match[2]}`;
-              const seq = parseInt(match[3], 10);
-              invoiceCounters[key] = Math.max(invoiceCounters[key] ?? 0, seq);
+              const key = `${match[2]}-${match[3]}`;
+              const seq = parseInt(match[4], 10);
+              const counters = match[1] === 'TEST' ? testInvoiceCounters : invoiceCounters;
+              counters[key] = Math.max(counters[key] ?? 0, seq);
             }
           }
 
@@ -358,6 +362,7 @@ export const useStore = create<AppState>()(
             customerSeq,
             invoices,
             invoiceCounters,
+            testInvoiceCounters,
             paymentReceipts,
             receiptSeq,
             packagingEntries,
@@ -527,11 +532,20 @@ export const useStore = create<AppState>()(
 
       generateInvoice(saleDate?: string) {
         const s = get();
-        const { currentOrder, businessProfile, invoiceCounters, customers } = s;
+        const { currentOrder, businessProfile, invoiceCounters, testInvoiceCounters, customers } = s;
         if (!currentOrder || !businessProfile) return null;
 
         const customer = customers.find(c => c.id === currentOrder.customerId);
         if (!customer) return null;
+
+        // The designated test customer gets its own TEST/... numbering series so
+        // testing orders never consume or disturb the real INV/... invoice sequence.
+        const TEST_CUSTOMER_NAMES = ['test', 'test customer'];
+        const isTestCustomer =
+          TEST_CUSTOMER_NAMES.includes(customer.name.trim().toLowerCase()) ||
+          TEST_CUSTOMER_NAMES.includes((customer.firmName ?? '').trim().toLowerCase());
+        const prefix = isTestCustomer ? 'TEST' : 'INV';
+        const activeCounters = isTestCustomer ? testInvoiceCounters : invoiceCounters;
 
         // Use saleDate if provided (YYYY-MM-DD), otherwise use today
         const invoiceDateObj = saleDate
@@ -540,13 +554,13 @@ export const useStore = create<AppState>()(
         const fy = getFYFromDate(invoiceDateObj);
         const mm = String(invoiceDateObj.getMonth() + 1).padStart(2, '0');
         const fyMonth = `${fy}-${mm}`;
-        const seq = (invoiceCounters[fyMonth] ?? 0) + 1;
-        const invoiceNo = `INV/${fy}/${mm}/${String(seq).padStart(2, '0')}`;
+        const seq = (activeCounters[fyMonth] ?? 0) + 1;
+        const invoiceNo = `${prefix}/${fy}/${mm}/${String(seq).padStart(2, '0')}`;
         const inter = isInterState(businessProfile.state, customer.state);
         const gstEnabled = currentOrder.gstEnabled ?? businessProfile.gstEnabled ?? false;
         const now = new Date();
 
-        const items: OrderItem[] = currentOrder.items.map(cartItem => {
+        const items: OrderItem[] = applyTwinPackSplit(currentOrder.items).map(cartItem => {
           const sku = PRODUCTS.find(p => p.id === cartItem.skuId)!;
           const taxableValue = cartItem.quantity * cartItem.rate;
           const gstRate = sku.weight > 25 ? 0 : sku.gstRate;
@@ -645,7 +659,7 @@ export const useStore = create<AppState>()(
               invoiceNo,
             });
             // Deduct the outer bag packaging at invoice time
-            const outerMat = PACKAGING_MATERIALS.find(m => m.id === sku.packagingId);
+            const outerMat = sku.skipOuterPackaging ? undefined : PACKAGING_MATERIALS.find(m => m.id === sku.packagingId);
             if (outerMat) {
               const prevPkg = newPkgStock[sku.packagingId] ?? 0;
               newPkgStock[sku.packagingId] = Math.max(0, prevPkg - item.quantity);
@@ -704,7 +718,9 @@ export const useStore = create<AppState>()(
 
         set({
           invoices: [...s.invoices, invoice],
-          invoiceCounters: { ...s.invoiceCounters, [fyMonth]: seq },
+          ...(isTestCustomer
+            ? { testInvoiceCounters: { ...s.testInvoiceCounters, [fyMonth]: seq } }
+            : { invoiceCounters: { ...s.invoiceCounters, [fyMonth]: seq } }),
           readyStock: newReady,
           readyStockTransactions: [...s.readyStockTransactions, ...newReadyTxns],
           packagingStock: newPkgStock,
@@ -719,9 +735,11 @@ export const useStore = create<AppState>()(
           db.saveInvoice(orgId, invoice, items, newReadyTxns, newReady)
             .catch((err) => {
               // Revert the invoice counter so the next attempt reuses the same sequence number.
-              set(cur => ({
-                invoiceCounters: { ...cur.invoiceCounters, [fyMonth]: s.invoiceCounters[fyMonth] ?? 0 },
-              }));
+              set(cur => (
+                isTestCustomer
+                  ? { testInvoiceCounters: { ...cur.testInvoiceCounters, [fyMonth]: s.testInvoiceCounters[fyMonth] ?? 0 } }
+                  : { invoiceCounters: { ...cur.invoiceCounters, [fyMonth]: s.invoiceCounters[fyMonth] ?? 0 } }
+              ));
               console.error('[saveInvoice] Failed to save invoice items:', err);
               set({ dialog: {
                 title: `Invoice ${invoiceNo} Not Saved`,
@@ -777,7 +795,7 @@ export const useStore = create<AppState>()(
               invoiceNo: invoice.invoiceNo,
             });
             // Restore outer bag packaging
-            const outerMat = PACKAGING_MATERIALS.find(m => m.id === sku.packagingId);
+            const outerMat = sku.skipOuterPackaging ? undefined : PACKAGING_MATERIALS.find(m => m.id === sku.packagingId);
             if (outerMat) {
               const prevPkg = cancelPkgStock[sku.packagingId] ?? 0;
               cancelPkgStock[sku.packagingId] = prevPkg + item.quantity;

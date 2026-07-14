@@ -1,4 +1,4 @@
-import { ProductSKU, PackagingMaterial, RawMaterialDef } from '../types';
+import { ProductSKU, PackagingMaterial, RawMaterialDef, CartItem } from '../types';
 import factoryPrices from './factory_prices.json';
 
 export const PRODUCTS: ProductSKU[] = [
@@ -12,6 +12,9 @@ export const PRODUCTS: ProductSKU[] = [
   { id: 'WF-10H',  product: 'Shikharji Atta', productId: 'WF', variant: '10 kg Handle Bag',  weight: 10,   packagingId: 'PKG-WF-10H',  hsnCode: '1101', gstRate: 5, unit: 'Bag'    },
   { id: 'WF-50K',  product: 'Shikharji Atta', productId: 'WF', variant: '50 kg Bag',          weight: 50,   packagingId: 'PKG-WF-50K',  hsnCode: '1101', gstRate: 0, unit: 'Bag'    },
   { id: 'WF-30K',  product: 'Shikharji Atta', productId: 'WF', variant: '30 kg Bag',          weight: 30,   packagingId: 'PKG-WF-30K',  hsnCode: '1101', gstRate: 0, unit: 'Bag'    },
+  // Twin25 — billing combo: 2 × WF-25K bags sold/billed together as one 50 kg unit (GST-exempt, >25kg rule).
+  // Not manually selectable; auto-derived from WF-25K order quantity (see applyTwinPackSplit below).
+  { id: 'Twin25',  product: 'Shikharji Atta', productId: 'WF', variant: 'Twin25 (2 × 25 kg Bag)', weight: 50, packagingId: 'PKG-WF-26K', innerSkuId: 'WF-25K', innerSkuQty: 2, skipOuterPackaging: true, hidden: true, hsnCode: '1101', gstRate: 0, unit: 'Bag' },
   // Shikharji Atta – 30 kg Outer Bag bundles (AT30)
   { id: 'AT30-HB3', product: 'Shikharji Atta', productId: 'WF', variant: '30 kg Outer Bag (3 × 10 kg Handle Bag)', weight: 30, packagingId: 'PKG-OUTER-10X3', innerSkuId: 'WF-10H', innerSkuQty: 3, hsnCode: '1101', gstRate: 0, unit: 'Bag' },
   { id: 'AT30-HB6', product: 'Shikharji Atta', productId: 'WF', variant: '30 kg Outer Bag (6 × 5 kg Handle Bag)',  weight: 30, packagingId: 'PKG-OUTER-5X6',  innerSkuId: 'WF-5H',  innerSkuQty: 6, hsnCode: '1101', gstRate: 0, unit: 'Bag' },
@@ -92,4 +95,30 @@ export function getRawMaterialId(productId: string): string {
   if (productId === 'BS') return 'RM-BS';
   if (productId === 'BR') return 'RM-BR';
   return 'RM-DL';
+}
+
+// ─── Twin-pack billing rule ────────────────────────────────────────────────
+// Every `pairSize` units of a base SKU in the cart are re-billed as one unit
+// of the combo SKU (e.g. 2 × WF-25K → 1 × Twin25, priced at 2× the bag rate,
+// weight 50kg so the existing >25kg GST exemption applies). Leftover units
+// stay billed under the base SKU. Ready stock is still deducted per WF-25K
+// bag, via the combo SKU's innerSkuId/innerSkuQty (see useStore.generateInvoice).
+export const TWIN_PACK_RULES: Record<string, { comboSkuId: string; pairSize: number }> = {
+  'WF-25K': { comboSkuId: 'Twin25', pairSize: 2 },
+};
+
+export function applyTwinPackSplit(items: CartItem[]): CartItem[] {
+  const result: CartItem[] = [];
+  for (const item of items) {
+    const rule = TWIN_PACK_RULES[item.skuId];
+    const pairs = rule ? Math.floor(item.quantity / rule.pairSize) : 0;
+    if (!rule || pairs === 0) {
+      result.push(item);
+      continue;
+    }
+    result.push({ skuId: rule.comboSkuId, quantity: pairs, rate: item.rate * rule.pairSize });
+    const remainder = item.quantity % rule.pairSize;
+    if (remainder > 0) result.push({ skuId: item.skuId, quantity: remainder, rate: item.rate });
+  }
+  return result;
 }

@@ -52,7 +52,7 @@ export default function PriceList() {
         </div>
 
         {categories.map(cat => {
-          const catSkus = PRODUCTS.filter(p => p.product === cat);
+          const catSkus = PRODUCTS.filter(p => p.product === cat && !p.hidden);
           return (
             <div key={cat} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
               <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50">

@@ -55,6 +55,8 @@ export interface ProductSKU {
   innerSkuId?: string;  // for bundle SKUs: the inner SKU whose ready stock is consumed
   innerSkuQty?: number; // inner SKU units consumed per outer bag unit sold
   useIdAsLabel?: boolean; // show SKU ID instead of variant string on invoices/orders
+  skipOuterPackaging?: boolean; // bundle SKU that consumes no extra packaging material of its own (e.g. Twin25 — same physical bags as the inner SKU, just billed together)
+  hidden?: boolean;     // computed/billing-only SKU — excluded from manual product pickers, price list, etc.
   hsnCode: string;
   gstRate: number;      // 5
   unit: string;         // 'Bag' | 'Pouch' | 'Packet'

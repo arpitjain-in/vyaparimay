@@ -41,7 +41,7 @@ export default function AddStock() {
   // Group SKUs by category for the select dropdown
   const grouped = PRODUCT_CATEGORIES.map(cat => ({
     category: cat,
-    skus: PRODUCTS.filter(p => p.product === cat),
+    skus: PRODUCTS.filter(p => p.product === cat && !p.hidden),
   }));
 
   return (
