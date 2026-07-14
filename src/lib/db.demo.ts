@@ -377,17 +377,23 @@ export async function saveProductionLog(
 
 // ─── Stock Data ───────────────────────────────────────────────────────────────
 
-export async function loadStockData(_orgId: string): Promise<{
+export async function loadCurrentStockLevels(_orgId: string): Promise<{
   rawMaterialStock: Record<string, number>;
   packagingStock: Record<string, number>;
   readyStock: Record<string, number>;
-  stockTransactions: StockTransaction[];
-  readyStockTransactions: ReadyStockTransaction[];
 }> {
   return {
     rawMaterialStock: lsGet<Record<string, number>>('raw_material_stock', {}),
     packagingStock: lsGet<Record<string, number>>('packaging_stock', {}),
     readyStock: lsGet<Record<string, number>>('ready_stock', {}),
+  };
+}
+
+export async function loadStockHistory(_orgId: string): Promise<{
+  stockTransactions: StockTransaction[];
+  readyStockTransactions: ReadyStockTransaction[];
+}> {
+  return {
     stockTransactions: lsGet<StockTransaction[]>('stock_transactions', []),
     readyStockTransactions: lsGet<ReadyStockTransaction[]>('ready_stock_transactions', []),
   };

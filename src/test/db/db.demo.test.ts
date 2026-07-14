@@ -18,7 +18,8 @@ import {
   loadPackagingEntries,
   savePackagingEntry,
   saveReadyStockTransaction,
-  loadStockData,
+  loadCurrentStockLevels,
+  loadStockHistory,
   loadPaymentReceipts,
   savePaymentReceipt,
   resetDemoData,
@@ -296,7 +297,7 @@ describe('Bran DB persistence: packaging → ready stock → invoice → ready s
     const entries = await loadPackagingEntries(ORG);
     expect(entries.some(e => e.materialId === 'PKG-BR-40K' && e.entryType === 'purchase')).toBe(true);
 
-    const { packagingStock } = await loadStockData(ORG);
+    const { packagingStock } = await loadCurrentStockLevels(ORG);
     expect(packagingStock['PKG-BR-40K']).toBe(200);
   });
 
@@ -315,7 +316,8 @@ describe('Bran DB persistence: packaging → ready stock → invoice → ready s
     };
     await saveReadyStockTransaction(ORG, addTxn);
 
-    const { readyStock, readyStockTransactions } = await loadStockData(ORG);
+    const { readyStock } = await loadCurrentStockLevels(ORG);
+    const { readyStockTransactions } = await loadStockHistory(ORG);
     expect(readyStock['BR-40K']).toBe(37);
     expect(readyStockTransactions.some(t => t.skuId === 'BR-40K' && t.type === 'ADD')).toBe(true);
   });
@@ -334,7 +336,7 @@ describe('Bran DB persistence: packaging → ready stock → invoice → ready s
     // Packaging was at 200 (from previous test state), now 200 - 25 = 175
     await savePackagingEntry(ORG, autoDeductEntry, 175);
 
-    const { packagingStock } = await loadStockData(ORG);
+    const { packagingStock } = await loadCurrentStockLevels(ORG);
     expect(packagingStock['PKG-BR-40K']).toBe(175);
   });
 
@@ -408,7 +410,8 @@ describe('Bran DB persistence: packaging → ready stock → invoice → ready s
     expect(saved!.items[0].quantity).toBe(10);
 
     // Verify ready stock was deducted in DB: 37 - 10 = 27
-    const { readyStock, readyStockTransactions } = await loadStockData(ORG);
+    const { readyStock } = await loadCurrentStockLevels(ORG);
+    const { readyStockTransactions } = await loadStockHistory(ORG);
     expect(readyStock['BR-40K']).toBe(27);
     const deduct = readyStockTransactions.find(t => t.type === 'DEDUCT' && t.skuId === 'BR-40K');
     expect(deduct).toBeDefined();

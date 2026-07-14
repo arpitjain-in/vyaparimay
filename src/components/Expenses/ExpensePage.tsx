@@ -2,19 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { formatDate, isValidDDMMYYYY } from '../../utils/format';
-import { supabase } from '../../lib/supabase';
+import { getSession } from '../../lib/gotrue';
 import Layout from '../Layout/Layout';
 import ExpensePasswordModal from './ExpensePasswordModal';
 import Modal from '../common/Modal';
+import { PageLoadingState, PageErrorState } from '../common/PageLoadingState';
 
 export default function ExpensePage() {
-  const { expenses, addExpense, deleteExpense, orgId } = useStore();
+  const { expenses, addExpense, deleteExpense, orgId, loadExpensesForPage } = useStore();
   const [passwordVerified, setPasswordVerified] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedExpenseId, setSelectedExpenseId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -27,10 +30,19 @@ export default function ExpensePage() {
   const [errors, setErrors] = useState({ amount: '', date: '', notes: '' });
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    getSession().then((session) => {
       if (session?.user?.id) setUserId(session.user.id);
     });
   }, []);
+
+  useEffect(() => {
+    if (!passwordVerified) return;
+    setLoading(true);
+    setLoadError(null);
+    loadExpensesForPage()
+      .catch(err => setLoadError(err instanceof Error ? err.message : 'Failed to load expenses'))
+      .finally(() => setLoading(false));
+  }, [passwordVerified]);
 
   const handlePasswordConfirm = () => setPasswordVerified(true);
   const handlePasswordCancel = () => useStore.getState().navigate('dashboard');
@@ -87,6 +99,22 @@ export default function ExpensePage() {
 
   if (!passwordVerified) {
     return <ExpensePasswordModal onConfirm={handlePasswordConfirm} onCancel={handlePasswordCancel} />;
+  }
+
+  if (loading) {
+    return (
+      <Layout title="Expense Log" subtitle="Password Protected">
+        <PageLoadingState />
+      </Layout>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Layout title="Expense Log" subtitle="Password Protected">
+        <PageErrorState message={loadError} />
+      </Layout>
+    );
   }
 
   const sortedExpenses = [...expenses].sort((a, b) => {

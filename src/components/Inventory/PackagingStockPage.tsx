@@ -1,9 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { X, CheckCircle, AlertTriangle, XCircle, Package, Upload, ShieldAlert, RefreshCw, Trash2, Calculator } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PACKAGING_MATERIALS, PRODUCTS } from '../../data/products';
 import Layout from '../Layout/Layout';
 import { formatDate, parseDDMMYYYY, isValidDDMMYYYY } from '../../utils/format';
+import { PageLoadingState, PageErrorState } from '../common/PageLoadingState';
 
 function StatusBadge({ status }: { status: 'adequate' | 'low' | 'out' }) {
   if (status === 'out') return <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Out</span>;
@@ -16,7 +17,19 @@ export default function PackagingStockPage() {
     packagingStock, packagingEntries, reorderLevels,
     addPackagingEntry, getStockStatus, syncPackagingFromReadyStock, revertLastPackagingSync,
     readyStockTransactions, clearAllPackagingData, recalculatePackagingStock,
+    loadPackagingDataForPage, loadReorderLevelsForPage, loadStockHistoryForPage,
   } = useStore();
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
+    Promise.all([loadPackagingDataForPage(), loadReorderLevelsForPage(), loadStockHistoryForPage()])
+      .catch(err => setLoadError(err instanceof Error ? err.message : 'Failed to load packaging data'))
+      .finally(() => setLoading(false));
+  }, []);
 
   // Recalculate stock from ledger state
   const [showRecalcConfirm, setShowRecalcConfirm] = useState(false);
@@ -197,6 +210,22 @@ export default function PackagingStockPage() {
   const panelEntries    = panelMaterialId
     ? [...packagingEntries].filter(e => e.materialId === panelMaterialId).sort((a, b) => parseDDMMYYYY(b.date, b.time) - parseDDMMYYYY(a.date, a.time))
     : [];
+
+  if (loading) {
+    return (
+      <Layout title="Packaging Materials">
+        <PageLoadingState />
+      </Layout>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Layout title="Packaging Materials">
+        <PageErrorState message={loadError} />
+      </Layout>
+    );
+  }
 
   return (
     <Layout

@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, UserCheck, IndianRupee, Calendar, ChevronRight, UserX } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { formatDate, isValidDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
 import Modal from '../common/Modal';
+import { PageLoadingState, PageErrorState } from '../common/PageLoadingState';
 
 function getCurrentMonth(): string {
   const now = new Date();
@@ -11,7 +12,17 @@ function getCurrentMonth(): string {
 }
 
 export default function SalaryListPage() {
-  const { employees, employeeAdvances, salaryRecords, addEmployee, navigate } = useStore();
+  const { employees, employeeAdvances, salaryRecords, addEmployee, navigate, loadSalaryDataForPage } = useStore();
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
+    loadSalaryDataForPage()
+      .catch(err => setLoadError(err instanceof Error ? err.message : 'Failed to load salary data'))
+      .finally(() => setLoading(false));
+  }, []);
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
@@ -74,6 +85,22 @@ export default function SalaryListPage() {
     if (status === 'partial') return <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">Partial</span>;
     return <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium">Pending</span>;
   };
+
+  if (loading) {
+    return (
+      <Layout title="Salary Management" subtitle="Employee salaries, leaves & advances">
+        <PageLoadingState />
+      </Layout>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Layout title="Salary Management" subtitle="Employee salaries, leaves & advances">
+        <PageErrorState message={loadError} />
+      </Layout>
+    );
+  }
 
   return (
     <Layout title="Salary Management" subtitle="Employee salaries, leaves & advances">

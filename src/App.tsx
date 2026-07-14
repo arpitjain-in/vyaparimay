@@ -1,7 +1,6 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Session } from '@supabase/supabase-js';
 import { useStore } from './store/useStore';
-import { supabase } from './lib/supabase';
+import { getSession, onAuthStateChange, type RestSession } from './lib/gotrue';
 import AuthPage from './components/Auth/AuthPage';
 import DemoBanner from './components/common/DemoBanner';
 import AlertDialog from './components/common/AlertDialog';
@@ -41,8 +40,8 @@ function PageLoader() {
 
 export default function App() {
   const { currentPage, businessProfile, isInitialized, initError, initializeApp, dialog, closeDialog } = useStore();
-  const [session, setSession] = useState<Session | null | 'loading'>(
-    DEMO_MODE ? ({} as Session) : 'loading',
+  const [session, setSession] = useState<RestSession | null | 'loading'>(
+    DEMO_MODE ? ({} as RestSession) : 'loading',
   );
   // Guard against duplicate initializeApp() calls when both getSession() and
   // onAuthStateChange(INITIAL_SESSION) resolve with the same session object.
@@ -55,11 +54,11 @@ export default function App() {
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    getSession().then((s) => {
       setSession(s);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: { subscription } } = onAuthStateChange((_event, s) => {
       if (!s) {
         // Reset on sign-out so the next sign-in triggers a fresh init.
         initCalledRef.current = false;

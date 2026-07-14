@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { signInWithOtp, verifyOtp } from '../../lib/gotrue';
 import { Mail, ArrowRight, RefreshCw, CheckCircle2 } from 'lucide-react';
 
 type Step = 'email' | 'otp' | 'success';
@@ -42,14 +42,7 @@ export default function AuthPage() {
     setError(null);
     setLoading(true);
     try {
-      const { error: err } = await supabase.auth.signInWithOtp({
-        email: email.trim().toLowerCase(),
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: window.location.origin,
-        },
-      });
-      if (err) throw err;
+      await signInWithOtp(email.trim().toLowerCase());
       setStep('otp');
       startResendTimer();
     } catch (err: unknown) {
@@ -64,12 +57,7 @@ export default function AuthPage() {
     setError(null);
     setLoading(true);
     try {
-      const { error: err } = await supabase.auth.verifyOtp({
-        email: email.trim().toLowerCase(),
-        token: otp.trim(),
-        type: 'email',
-      });
-      if (err) throw err;
+      await verifyOtp(email.trim().toLowerCase(), otp.trim());
       setStep('success');
     } catch (err: unknown) {
       setError(friendlyError(err));
@@ -84,14 +72,7 @@ export default function AuthPage() {
     setError(null);
     setLoading(true);
     try {
-      const { error: err } = await supabase.auth.signInWithOtp({
-        email: email.trim().toLowerCase(),
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: window.location.origin,
-        },
-      });
-      if (err) throw err;
+      await signInWithOtp(email.trim().toLowerCase());
       startResendTimer();
     } catch (err: unknown) {
       setError(friendlyError(err));

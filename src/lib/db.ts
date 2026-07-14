@@ -5,7 +5,8 @@
 // DB times: HH:MM:SS    ↔  App times: HH:MM
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { supabase } from './supabase';
+import { pgSelect, pgInsert, pgUpsert, pgUpdate, pgDelete } from './postgrest';
+import * as gotrue from './gotrue';
 import type {
   BusinessProfile,
   Customer,
@@ -64,10 +65,7 @@ export async function initializeCatalog(orgId: string): Promise<void> {
     name: m.name,
     used_for: m.usedFor,
   }));
-  const { error: pkgErr } = await supabase
-    .from('packaging_materials')
-    .upsert(pkgRows, { onConflict: 'id', ignoreDuplicates: true });
-  if (pkgErr) throw pkgErr;
+  await pgUpsert('packaging_materials', pkgRows, { onConflict: 'id', ignoreDuplicates: true });
 
   // 2. Product SKUs
   const skuRows = PRODUCTS.map((p) => ({
@@ -82,23 +80,19 @@ export async function initializeCatalog(orgId: string): Promise<void> {
     gst_rate: p.gstRate,
     unit: p.unit,
   }));
-  const { error: skuErr } = await supabase
-    .from('product_skus')
-    .upsert(skuRows, { onConflict: 'id', ignoreDuplicates: true });
-  if (skuErr) throw skuErr;
+  await pgUpsert('product_skus', skuRows, { onConflict: 'id', ignoreDuplicates: true });
 }
 
 /** Returns the authenticated user's id, or throws if no session exists. */
 export async function initAuth(): Promise<string> {
-  const { data: { session }, error } = await supabase.auth.getSession();
-  if (error) throw error;
+  const session = await gotrue.getSession();
   if (!session?.user) throw new Error('Not authenticated');
   return session.user.id;
 }
 
 /** Signs the current user out. */
 export async function signOut(): Promise<void> {
-  await supabase.auth.signOut();
+  await gotrue.signOut();
 }
 
 // ─── Organisation ─────────────────────────────────────────────────────────────
@@ -113,31 +107,29 @@ export async function getOrCreateOrg(_userId: string): Promise<string> {
 export async function loadBusinessProfile(
   orgId: string,
 ): Promise<BusinessProfile | null> {
-  const { data, error } = await supabase
-    .from('business_profiles')
-    .select('*')
-    .eq('org_id', orgId)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) return null;
+  const { data } = await pgSelect<Record<string, unknown>>('business_profiles', {
+    eq: { org_id: orgId },
+    maybeSingle: true,
+  });
+  const row = data[0];
+  if (!row) return null;
   return {
-    name: data.name,
-    address1: data.address1,
-    address2: data.address2 ?? undefined,
-    city: data.city,
-    state: data.state,
-    pinCode: data.pin_code,
-    gstin: data.gstin,
-    fssai: data.fssai,
-    mobile: data.mobile,
-    email: data.email ?? undefined,
-    tagline: data.tagline ?? undefined,
-    bankName: data.bank_name ?? undefined,
-    accountNo: data.account_no ?? undefined,
-    ifscCode: data.ifsc_code ?? undefined,
-    upiId: data.upi_id ?? undefined,
-    gstEnabled: data.gst_enabled,
+    name: row.name as string,
+    address1: row.address1 as string,
+    address2: (row.address2 as string | null) ?? undefined,
+    city: row.city as string,
+    state: row.state as string,
+    pinCode: row.pin_code as string,
+    gstin: row.gstin as string,
+    fssai: row.fssai as string,
+    mobile: row.mobile as string,
+    email: (row.email as string | null) ?? undefined,
+    tagline: (row.tagline as string | null) ?? undefined,
+    bankName: (row.bank_name as string | null) ?? undefined,
+    accountNo: (row.account_no as string | null) ?? undefined,
+    ifscCode: (row.ifsc_code as string | null) ?? undefined,
+    upiId: (row.upi_id as string | null) ?? undefined,
+    gstEnabled: row.gst_enabled as boolean,
   };
 }
 
@@ -145,7 +137,8 @@ export async function saveBusinessProfile(
   orgId: string,
   profile: BusinessProfile,
 ): Promise<void> {
-  const { error } = await supabase.from('business_profiles').upsert(
+  await pgUpsert(
+    'business_profiles',
     {
       org_id: orgId,
       name: profile.name,
@@ -167,7 +160,6 @@ export async function saveBusinessProfile(
     },
     { onConflict: 'org_id' },
   );
-  if (error) throw error;
 }
 
 // ─── Customers ────────────────────────────────────────────────────────────────
@@ -199,16 +191,14 @@ function rowToCustomer(row: Record<string, unknown>): Customer {
 export async function loadCustomers(
   orgId: string,
 ): Promise<{ customers: Customer[]; seq: number }> {
-  const { data, error } = await supabase
-    .from('customers')
-    .select('*')
-    .eq('org_id', orgId)
-    .order('seq', { ascending: true });
-  if (error) throw error;
+  const { data } = await pgSelect<Record<string, unknown>>('customers', {
+    eq: { org_id: orgId },
+    order: { column: 'seq', ascending: true },
+  });
 
-  const customers = (data ?? []).map(rowToCustomer);
+  const customers = data.map(rowToCustomer);
   const seq =
-    data && data.length > 0
+    data.length > 0
       ? data.reduce((max, r) => Math.max(max, r.seq as number), 0)
       : 0;
   return { customers, seq };
@@ -224,27 +214,22 @@ export async function loadCustomersPaginated(
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  let query = supabase
-    .from('customers')
-    .select('*', { count: 'exact' })
-    .eq('org_id', orgId)
-    .order('seq', { ascending: true });
-
-  if (!showInactive) {
-    query = query.eq('active', true);
-  }
+  const eq: Record<string, string | number | boolean> = { org_id: orgId };
+  if (!showInactive) eq.active = true;
 
   const s = search.trim();
-  if (s) {
-    query = query.or(
-      `name.ilike.%${s}%,mobile.ilike.%${s}%,id.ilike.%${s}%,city.ilike.%${s}%,firm_name.ilike.%${s}%`,
-    );
-  }
+  const or = s
+    ? `name.ilike.%${s}%,mobile.ilike.%${s}%,id.ilike.%${s}%,city.ilike.%${s}%,firm_name.ilike.%${s}%`
+    : undefined;
 
-  const { data, error, count } = await query.range(from, to);
-  if (error) throw error;
+  const { data, count } = await pgSelect<Record<string, unknown>>('customers', {
+    eq,
+    or,
+    order: { column: 'seq', ascending: true },
+    range: { from, to },
+  });
 
-  return { customers: (data ?? []).map(rowToCustomer), totalCount: count ?? 0 };
+  return { customers: data.map(rowToCustomer), totalCount: count ?? 0 };
 }
 
 export async function saveCustomer(
@@ -252,7 +237,7 @@ export async function saveCustomer(
   customer: Customer,
   seq: number,
 ): Promise<void> {
-  const { error } = await supabase.from('customers').upsert({
+  await pgUpsert('customers', {
     id: customer.id,
     org_id: orgId,
     seq,
@@ -276,7 +261,6 @@ export async function saveCustomer(
     deleted_at: customer.active ? null : new Date().toISOString(),
     created_on: toDbDate(customer.createdOn),
   }, { onConflict: 'id,org_id' });
-  if (error) throw error;
 }
 
 export async function updateCustomerInDb(
@@ -308,12 +292,7 @@ export async function updateCustomerInDb(
     row.deleted_at = data.active ? null : new Date().toISOString();
   }
 
-  const { error } = await supabase
-    .from('customers')
-    .update(row)
-    .eq('id', customerId)
-    .eq('org_id', orgId);
-  if (error) throw error;
+  await pgUpdate('customers', row, { eq: { id: customerId, org_id: orgId } });
 }
 
 // ─── Invoices ─────────────────────────────────────────────────────────────────
@@ -366,13 +345,12 @@ function rowToInvoice(row: Record<string, unknown>): Invoice {
 }
 
 export async function loadInvoices(orgId: string): Promise<Invoice[]> {
-  const { data, error } = await supabase
-    .from('invoices')
-    .select('*, invoice_items(*)')
-    .eq('org_id', orgId)
-    .order('invoice_date', { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(rowToInvoice);
+  const { data } = await pgSelect<Record<string, unknown>>('invoices', {
+    select: '*, invoice_items(*)',
+    eq: { org_id: orgId },
+    order: { column: 'invoice_date', ascending: false },
+  });
+  return data.map(rowToInvoice);
 }
 
 export async function saveInvoice(
@@ -382,7 +360,7 @@ export async function saveInvoice(
   readyStockTxns: ReadyStockTransaction[],
   newReadyStock: Record<string, number>,
 ): Promise<void> {
-  const { error: invErr } = await supabase.from('invoices').insert({
+  await pgInsert('invoices', {
     id: invoice.id,
     org_id: orgId,
     invoice_no: invoice.invoiceNo,
@@ -408,7 +386,6 @@ export async function saveInvoice(
     financial_year: invoice.financialYear,
     cancelled: false,
   });
-  if (invErr) throw invErr;
 
   // If any step below fails, delete the invoice header so the invoice number can
   // be reused on retry instead of hitting a unique-constraint collision.
@@ -430,10 +407,7 @@ export async function saveInvoice(
       line_total: item.lineTotal,
       unit: item.unit,
     }));
-    const { error: itemsErr } = await supabase
-      .from('invoice_items')
-      .insert(itemRows);
-    if (itemsErr) throw itemsErr;
+    await pgInsert('invoice_items', itemRows);
 
     // Record ready stock deductions
     if (readyStockTxns.length > 0) {
@@ -450,10 +424,7 @@ export async function saveInvoice(
         new_stock: t.newStock,
         reason: t.reason,
       }));
-      const { error: txnErr } = await supabase
-        .from('ready_stock_transactions')
-        .insert(txnRows);
-      if (txnErr) throw txnErr;
+      await pgInsert('ready_stock_transactions', txnRows);
     }
 
     // Update ready_stock balance snapshots
@@ -461,14 +432,11 @@ export async function saveInvoice(
       ([skuId, quantity]) => ({ org_id: orgId, sku_id: skuId, quantity }),
     );
     if (readyStockUpserts.length > 0) {
-      const { error: stockErr } = await supabase
-        .from('ready_stock')
-        .upsert(readyStockUpserts, { onConflict: 'org_id,sku_id' });
-      if (stockErr) throw stockErr;
+      await pgUpsert('ready_stock', readyStockUpserts, { onConflict: 'org_id,sku_id' });
     }
   } catch (err) {
     // Remove the orphan invoice header so the invoice number is free to reuse.
-    await supabase.from('invoices').delete().eq('id', invoice.id).eq('org_id', orgId);
+    await pgDelete('invoices', { eq: { id: invoice.id, org_id: orgId } });
     throw err;
   }
 }
@@ -479,12 +447,11 @@ export async function cancelInvoiceInDb(
   restorationTxns: ReadyStockTransaction[],
   newReadyStock: Record<string, number>,
 ): Promise<void> {
-  const { error } = await supabase
-    .from('invoices')
-    .update({ cancelled: true, cancelled_at: new Date().toISOString() })
-    .eq('id', invoiceId)
-    .eq('org_id', orgId);
-  if (error) throw error;
+  await pgUpdate(
+    'invoices',
+    { cancelled: true, cancelled_at: new Date().toISOString() },
+    { eq: { id: invoiceId, org_id: orgId } },
+  );
 
   if (restorationTxns.length > 0) {
     const txnRows = restorationTxns.map((t) => ({
@@ -500,18 +467,12 @@ export async function cancelInvoiceInDb(
       new_stock: t.newStock,
       reason: t.reason ?? null,
     }));
-    const { error: txnErr } = await supabase
-      .from('ready_stock_transactions')
-      .insert(txnRows);
-    if (txnErr) throw txnErr;
+    await pgInsert('ready_stock_transactions', txnRows);
 
     const readyStockUpserts = Object.entries(newReadyStock).map(
       ([skuId, quantity]) => ({ org_id: orgId, sku_id: skuId, quantity }),
     );
-    const { error: stockErr } = await supabase
-      .from('ready_stock')
-      .upsert(readyStockUpserts, { onConflict: 'org_id,sku_id' });
-    if (stockErr) throw stockErr;
+    await pgUpsert('ready_stock', readyStockUpserts, { onConflict: 'org_id,sku_id' });
   }
 }
 
@@ -520,12 +481,7 @@ export async function updateInvoicePaymentModeInDb(
   invoiceId: string,
   paymentMode: 'Cash' | 'Credit',
 ): Promise<void> {
-  const { error } = await supabase
-    .from('invoices')
-    .update({ payment_mode: paymentMode })
-    .eq('id', invoiceId)
-    .eq('org_id', orgId);
-  if (error) throw error;
+  await pgUpdate('invoices', { payment_mode: paymentMode }, { eq: { id: invoiceId, org_id: orgId } });
 }
 
 // ─── Payment Receipts ─────────────────────────────────────────────────────────
@@ -546,16 +502,14 @@ function rowToReceipt(row: Record<string, unknown>): PaymentReceipt {
 export async function loadPaymentReceipts(
   orgId: string,
 ): Promise<{ receipts: PaymentReceipt[]; seq: number }> {
-  const { data, error } = await supabase
-    .from('payment_receipts')
-    .select('*')
-    .eq('org_id', orgId)
-    .order('date', { ascending: false });
-  if (error) throw error;
+  const { data } = await pgSelect<Record<string, unknown>>('payment_receipts', {
+    eq: { org_id: orgId },
+    order: { column: 'date', ascending: false },
+  });
 
-  const receipts = (data ?? []).map(rowToReceipt);
+  const receipts = data.map(rowToReceipt);
   const seq =
-    data && data.length > 0
+    data.length > 0
       ? data.reduce(
           (max, r) => Math.max(max, parseInt((r.id as string).replace('REC-', ''), 10) || 0),
           0,
@@ -568,7 +522,7 @@ export async function savePaymentReceipt(
   orgId: string,
   receipt: PaymentReceipt,
 ): Promise<void> {
-  const { error } = await supabase.from('payment_receipts').insert({
+  await pgInsert('payment_receipts', {
     id: receipt.id,
     org_id: orgId,
     customer_id: receipt.customerId,
@@ -579,7 +533,6 @@ export async function savePaymentReceipt(
     reference_no: receipt.referenceNo ?? null,
     notes: receipt.notes ?? null,
   });
-  if (error) throw error;
 }
 
 export async function updatePaymentReceiptInDb(
@@ -587,12 +540,7 @@ export async function updatePaymentReceiptInDb(
   receiptId: string,
   amount: number,
 ): Promise<void> {
-  const { error } = await supabase
-    .from('payment_receipts')
-    .update({ amount })
-    .eq('id', receiptId)
-    .eq('org_id', orgId);
-  if (error) throw error;
+  await pgUpdate('payment_receipts', { amount }, { eq: { id: receiptId, org_id: orgId } });
 }
 
 // ─── Packaging Entries ────────────────────────────────────────────────────────
@@ -618,13 +566,11 @@ function rowToPackagingEntry(row: Record<string, unknown>): PackagingEntry {
 export async function loadPackagingEntries(
   orgId: string,
 ): Promise<PackagingEntry[]> {
-  const { data, error } = await supabase
-    .from('packaging_entries')
-    .select('*')
-    .eq('org_id', orgId)
-    .order('date', { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(rowToPackagingEntry);
+  const { data } = await pgSelect<Record<string, unknown>>('packaging_entries', {
+    eq: { org_id: orgId },
+    order: { column: 'date', ascending: false },
+  });
+  return data.map(rowToPackagingEntry);
 }
 
 export async function savePackagingEntry(
@@ -632,7 +578,7 @@ export async function savePackagingEntry(
   entry: PackagingEntry,
   newStock: number,
 ): Promise<void> {
-  const { error: entryErr } = await supabase.from('packaging_entries').insert({
+  await pgInsert('packaging_entries', {
     id: entry.id,
     org_id: orgId,
     date: toDbDate(entry.date),
@@ -647,42 +593,28 @@ export async function savePackagingEntry(
     supplier: entry.supplier ?? null,
     notes: entry.notes ?? null,
   });
-  if (entryErr) throw entryErr;
 
-  const { error: stockErr } = await supabase
-    .from('packaging_stock')
-    .upsert(
-      { org_id: orgId, material_id: entry.materialId, quantity: newStock },
-      { onConflict: 'org_id,material_id' },
-    );
-  if (stockErr) throw stockErr;
+  await pgUpsert(
+    'packaging_stock',
+    { org_id: orgId, material_id: entry.materialId, quantity: newStock },
+    { onConflict: 'org_id,material_id' },
+  );
 }
 
 export async function saveRecalculatedPackagingStock(
   orgId: string,
   balances: { materialId: string; quantity: number }[],
 ): Promise<void> {
-  const { error } = await supabase
-    .from('packaging_stock')
-    .upsert(
-      balances.map(b => ({ org_id: orgId, material_id: b.materialId, quantity: b.quantity })),
-      { onConflict: 'org_id,material_id' },
-    );
-  if (error) throw error;
+  await pgUpsert(
+    'packaging_stock',
+    balances.map(b => ({ org_id: orgId, material_id: b.materialId, quantity: b.quantity })),
+    { onConflict: 'org_id,material_id' },
+  );
 }
 
 export async function clearAllPackagingData(orgId: string): Promise<void> {
-  const { error: entryErr } = await supabase
-    .from('packaging_entries')
-    .delete()
-    .eq('org_id', orgId);
-  if (entryErr) throw entryErr;
-
-  const { error: stockErr } = await supabase
-    .from('packaging_stock')
-    .delete()
-    .eq('org_id', orgId);
-  if (stockErr) throw stockErr;
+  await pgDelete('packaging_entries', { eq: { org_id: orgId } });
+  await pgDelete('packaging_stock', { eq: { org_id: orgId } });
 }
 
 // ─── Production Logs ──────────────────────────────────────────────────────────
@@ -701,20 +633,18 @@ function rowToProductionLog(row: Record<string, unknown>): ProductionLog {
 export async function loadProductionLogs(
   orgId: string,
 ): Promise<ProductionLog[]> {
-  const { data, error } = await supabase
-    .from('production_logs')
-    .select('*')
-    .eq('org_id', orgId)
-    .order('date', { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(rowToProductionLog);
+  const { data } = await pgSelect<Record<string, unknown>>('production_logs', {
+    eq: { org_id: orgId },
+    order: { column: 'date', ascending: false },
+  });
+  return data.map(rowToProductionLog);
 }
 
 export async function saveProductionLog(
   orgId: string,
   log: ProductionLog,
 ): Promise<void> {
-  const { error } = await supabase.from('production_logs').insert({
+  await pgInsert('production_logs', {
     id: log.id,
     org_id: orgId,
     date: toDbDate(log.date),
@@ -723,7 +653,6 @@ export async function saveProductionLog(
     quantity_produced: log.quantityProduced,
     notes: log.notes ?? null,
   });
-  if (error) throw error;
 }
 
 // ─── Stock Data ───────────────────────────────────────────────────────────────
@@ -761,53 +690,53 @@ function rowToReadyStockTx(row: Record<string, unknown>): ReadyStockTransaction 
   };
 }
 
-export async function loadStockData(orgId: string): Promise<{
+export async function loadCurrentStockLevels(orgId: string): Promise<{
   rawMaterialStock: Record<string, number>;
   packagingStock: Record<string, number>;
   readyStock: Record<string, number>;
-  stockTransactions: StockTransaction[];
-  readyStockTransactions: ReadyStockTransaction[];
 }> {
-  const [rawRes, pkgRes, readyRes, stockTxRes, readyTxRes] = await Promise.all([
-    supabase.from('raw_material_stock').select('*').eq('org_id', orgId),
-    supabase.from('packaging_stock').select('*').eq('org_id', orgId),
-    supabase.from('ready_stock').select('*').eq('org_id', orgId),
-    supabase
-      .from('stock_transactions')
-      .select('*')
-      .eq('org_id', orgId)
-      .order('date', { ascending: false }),
-    supabase
-      .from('ready_stock_transactions')
-      .select('*')
-      .eq('org_id', orgId)
-      .order('date', { ascending: false }),
+  const [rawRes, pkgRes, readyRes] = await Promise.all([
+    pgSelect<Record<string, unknown>>('raw_material_stock', { eq: { org_id: orgId } }),
+    pgSelect<Record<string, unknown>>('packaging_stock', { eq: { org_id: orgId } }),
+    pgSelect<Record<string, unknown>>('ready_stock', { eq: { org_id: orgId } }),
   ]);
 
   const rawMaterialStock: Record<string, number> = {};
-  for (const r of rawRes.data ?? []) {
+  for (const r of rawRes.data) {
     rawMaterialStock[r.material_id as string] = Number(r.quantity);
   }
 
   const packagingStock: Record<string, number> = {};
-  for (const r of pkgRes.data ?? []) {
+  for (const r of pkgRes.data) {
     packagingStock[r.material_id as string] = Number(r.quantity);
   }
 
   const readyStock: Record<string, number> = {};
-  for (const r of readyRes.data ?? []) {
+  for (const r of readyRes.data) {
     readyStock[r.sku_id as string] = Number(r.quantity);
   }
 
-  const stockTransactions = (stockTxRes.data ?? []).map(rowToStockTx);
-  const readyStockTransactions = (readyTxRes.data ?? []).map(rowToReadyStockTx);
+  return { rawMaterialStock, packagingStock, readyStock };
+}
+
+export async function loadStockHistory(orgId: string): Promise<{
+  stockTransactions: StockTransaction[];
+  readyStockTransactions: ReadyStockTransaction[];
+}> {
+  const [stockTxRes, readyTxRes] = await Promise.all([
+    pgSelect<Record<string, unknown>>('stock_transactions', {
+      eq: { org_id: orgId },
+      order: { column: 'date', ascending: false },
+    }),
+    pgSelect<Record<string, unknown>>('ready_stock_transactions', {
+      eq: { org_id: orgId },
+      order: { column: 'date', ascending: false },
+    }),
+  ]);
 
   return {
-    rawMaterialStock,
-    packagingStock,
-    readyStock,
-    stockTransactions,
-    readyStockTransactions,
+    stockTransactions: stockTxRes.data.map(rowToStockTx),
+    readyStockTransactions: readyTxRes.data.map(rowToReadyStockTx),
   };
 }
 
@@ -816,7 +745,7 @@ export async function saveStockTransaction(
   txn: StockTransaction,
   newStockQty: number,
 ): Promise<void> {
-  const { error: txErr } = await supabase.from('stock_transactions').insert({
+  await pgInsert('stock_transactions', {
     id: txn.id,
     org_id: orgId,
     type: txn.type,
@@ -832,72 +761,57 @@ export async function saveStockTransaction(
     date: toDbDate(txn.date),
     time: `${txn.time}:00`,
   });
-  if (txErr) throw txErr;
 
   const stockTable =
     txn.itemType === 'raw' ? 'raw_material_stock' : 'packaging_stock';
-  const idCol = txn.itemType === 'raw' ? 'material_id' : 'material_id';
-  const { error: stockErr } = await supabase
-    .from(stockTable)
-    .upsert(
-      { org_id: orgId, [idCol]: txn.itemId, quantity: newStockQty },
-      { onConflict: `org_id,${idCol}` },
-    );
-  if (stockErr) throw stockErr;
+  const idCol = 'material_id';
+  await pgUpsert(
+    stockTable,
+    { org_id: orgId, [idCol]: txn.itemId, quantity: newStockQty },
+    { onConflict: `org_id,${idCol}` },
+  );
 }
 
 export async function saveReadyStockTransaction(
   orgId: string,
   txn: ReadyStockTransaction,
 ): Promise<void> {
-  const { error: txErr } = await supabase
-    .from('ready_stock_transactions')
-    .insert({
-      id: txn.id,
-      org_id: orgId,
-      date: toDbDate(txn.date),
-      time: `${txn.time}:00`,
-      sku_id: txn.skuId,
-      sku_name: txn.skuName,
-      type: txn.type,
-      quantity: txn.quantity,
-      previous_stock: txn.previousStock,
-      new_stock: txn.newStock,
-      reason: txn.reason ?? null,
-    });
-  if (txErr) throw txErr;
+  await pgInsert('ready_stock_transactions', {
+    id: txn.id,
+    org_id: orgId,
+    date: toDbDate(txn.date),
+    time: `${txn.time}:00`,
+    sku_id: txn.skuId,
+    sku_name: txn.skuName,
+    type: txn.type,
+    quantity: txn.quantity,
+    previous_stock: txn.previousStock,
+    new_stock: txn.newStock,
+    reason: txn.reason ?? null,
+  });
 
-  const { error: stockErr } = await supabase
-    .from('ready_stock')
-    .upsert(
-      { org_id: orgId, sku_id: txn.skuId, quantity: txn.newStock },
-      { onConflict: 'org_id,sku_id' },
-    );
-  if (stockErr) throw stockErr;
+  await pgUpsert(
+    'ready_stock',
+    { org_id: orgId, sku_id: txn.skuId, quantity: txn.newStock },
+    { onConflict: 'org_id,sku_id' },
+  );
 }
 
 export async function updateReadyStockTransactionInDb(
   orgId: string,
   txn: ReadyStockTransaction,
 ): Promise<void> {
-  const { error: txErr } = await supabase
-    .from('ready_stock_transactions')
-    .update({
-      quantity: txn.quantity,
-      new_stock: txn.newStock,
-      reason: txn.reason ?? null,
-    })
-    .eq('id', txn.id)
-    .eq('org_id', orgId);
-  if (txErr) throw txErr;
+  await pgUpdate(
+    'ready_stock_transactions',
+    { quantity: txn.quantity, new_stock: txn.newStock, reason: txn.reason ?? null },
+    { eq: { id: txn.id, org_id: orgId } },
+  );
 
-  const { error: stockErr } = await supabase
-    .from('ready_stock')
-    .upsert(
-      { org_id: orgId, sku_id: txn.skuId, quantity: txn.newStock },
-      { onConflict: 'org_id,sku_id' },
-    );
-  if (stockErr) throw stockErr;
+  await pgUpsert(
+    'ready_stock',
+    { org_id: orgId, sku_id: txn.skuId, quantity: txn.newStock },
+    { onConflict: 'org_id,sku_id' },
+  );
 }
 
 export async function deleteReadyStockTransactionInDb(
@@ -906,20 +820,13 @@ export async function deleteReadyStockTransactionInDb(
   skuId: string,
   newCurrentStock: number,
 ): Promise<void> {
-  const { error: txErr } = await supabase
-    .from('ready_stock_transactions')
-    .delete()
-    .eq('id', txnId)
-    .eq('org_id', orgId);
-  if (txErr) throw txErr;
+  await pgDelete('ready_stock_transactions', { eq: { id: txnId, org_id: orgId } });
 
-  const { error: stockErr } = await supabase
-    .from('ready_stock')
-    .upsert(
-      { org_id: orgId, sku_id: skuId, quantity: newCurrentStock },
-      { onConflict: 'org_id,sku_id' },
-    );
-  if (stockErr) throw stockErr;
+  await pgUpsert(
+    'ready_stock',
+    { org_id: orgId, sku_id: skuId, quantity: newCurrentStock },
+    { onConflict: 'org_id,sku_id' },
+  );
 }
 
 // ─── Price List ───────────────────────────────────────────────────────────────
@@ -927,13 +834,9 @@ export async function deleteReadyStockTransactionInDb(
 export async function loadPriceList(
   orgId: string,
 ): Promise<Record<string, number>> {
-  const { data, error } = await supabase
-    .from('price_list')
-    .select('*')
-    .eq('org_id', orgId);
-  if (error) throw error;
+  const { data } = await pgSelect<Record<string, unknown>>('price_list', { eq: { org_id: orgId } });
   const result: Record<string, number> = {};
-  for (const r of data ?? []) result[r.sku_id as string] = Number(r.rate);
+  for (const r of data) result[r.sku_id as string] = Number(r.rate);
   return result;
 }
 
@@ -942,13 +845,7 @@ export async function savePrice(
   skuId: string,
   rate: number,
 ): Promise<void> {
-  const { error } = await supabase
-    .from('price_list')
-    .upsert(
-      { org_id: orgId, sku_id: skuId, rate },
-      { onConflict: 'org_id,sku_id' },
-    );
-  if (error) throw error;
+  await pgUpsert('price_list', { org_id: orgId, sku_id: skuId, rate }, { onConflict: 'org_id,sku_id' });
 }
 
 // ─── Reorder Levels ───────────────────────────────────────────────────────────
@@ -958,18 +855,14 @@ export async function loadReorderLevels(orgId: string): Promise<{
   packaging: Record<string, number>;
   ready: Record<string, number>;
 }> {
-  const { data, error } = await supabase
-    .from('reorder_levels')
-    .select('*')
-    .eq('org_id', orgId);
-  if (error) throw error;
+  const { data } = await pgSelect<Record<string, unknown>>('reorder_levels', { eq: { org_id: orgId } });
 
   const result = {
     raw: {} as Record<string, number>,
     packaging: {} as Record<string, number>,
     ready: {} as Record<string, number>,
   };
-  for (const r of data ?? []) {
+  for (const r of data) {
     const cat = r.category as 'raw' | 'packaging' | 'ready';
     result[cat][r.item_id as string] = Number(r.level);
   }
@@ -982,25 +875,21 @@ export async function saveReorderLevel(
   itemId: string,
   level: number,
 ): Promise<void> {
-  const { error } = await supabase
-    .from('reorder_levels')
-    .upsert(
-      { org_id: orgId, category, item_id: itemId, level },
-      { onConflict: 'org_id,category,item_id' },
-    );
-  if (error) throw error;
+  await pgUpsert(
+    'reorder_levels',
+    { org_id: orgId, category, item_id: itemId, level },
+    { onConflict: 'org_id,category,item_id' },
+  );
 }
 
 // ─── Expenses ──────────────────────────────────────────────────────────────────
 
 export async function loadExpenses(orgId: string): Promise<Expense[]> {
-  const { data, error } = await supabase
-    .from('expenses')
-    .select('*')
-    .eq('org_id', orgId)
-    .order('date', { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map((r) => ({
+  const { data } = await pgSelect<Record<string, unknown>>('expenses', {
+    eq: { org_id: orgId },
+    order: { column: 'date', ascending: false },
+  });
+  return data.map((r) => ({
     id: r.id as string,
     amount: Number(r.amount),
     date: fromDbDate(r.date as string),
@@ -1020,7 +909,7 @@ export async function saveExpense(
   notes: string,
   createdBy: string,
 ): Promise<void> {
-  const { error } = await supabase.from('expenses').insert({
+  await pgInsert('expenses', {
     id,
     org_id: orgId,
     amount,
@@ -1029,24 +918,20 @@ export async function saveExpense(
     notes,
     created_by: createdBy,
   });
-  if (error) throw error;
 }
 
 export async function deleteExpense(id: string): Promise<void> {
-  const { error } = await supabase.from('expenses').delete().eq('id', id);
-  if (error) throw error;
+  await pgDelete('expenses', { eq: { id } });
 }
 
 // ─── Employees ────────────────────────────────────────────────────────────────
 
 export async function loadEmployees(orgId: string): Promise<Employee[]> {
-  const { data, error } = await supabase
-    .from('employees')
-    .select('*')
-    .eq('org_id', orgId)
-    .order('created_at', { ascending: true });
-  if (error) throw error;
-  return (data ?? []).map(r => ({
+  const { data } = await pgSelect<Record<string, unknown>>('employees', {
+    eq: { org_id: orgId },
+    order: { column: 'created_at', ascending: true },
+  });
+  return data.map(r => ({
     id: r.id as string,
     name: r.name as string,
     role: (r.role as string) ?? '',
@@ -1059,7 +944,7 @@ export async function loadEmployees(orgId: string): Promise<Employee[]> {
 }
 
 export async function saveEmployee(orgId: string, employee: Employee): Promise<void> {
-  const { error } = await supabase.from('employees').insert({
+  await pgInsert('employees', {
     id: employee.id,
     org_id: orgId,
     name: employee.name,
@@ -1069,7 +954,6 @@ export async function saveEmployee(orgId: string, employee: Employee): Promise<v
     is_active: employee.isActive,
     created_by: employee.createdBy || null,
   });
-  if (error) throw error;
 }
 
 export async function updateEmployee(
@@ -1081,20 +965,17 @@ export async function updateEmployee(
   if (data.role !== undefined) update.role = data.role;
   if (data.monthlySalary !== undefined) update.monthly_salary = data.monthlySalary;
   if (data.isActive !== undefined) update.is_active = data.isActive;
-  const { error } = await supabase.from('employees').update(update).eq('id', id);
-  if (error) throw error;
+  await pgUpdate('employees', update, { eq: { id } });
 }
 
 // ─── Employee Leaves ──────────────────────────────────────────────────────────
 
 export async function loadEmployeeLeaves(orgId: string): Promise<EmployeeLeave[]> {
-  const { data, error } = await supabase
-    .from('employee_leaves')
-    .select('*')
-    .eq('org_id', orgId)
-    .order('date', { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(r => ({
+  const { data } = await pgSelect<Record<string, unknown>>('employee_leaves', {
+    eq: { org_id: orgId },
+    order: { column: 'date', ascending: false },
+  });
+  return data.map(r => ({
     id: r.id as string,
     employeeId: r.employee_id as string,
     date: fromDbDate(r.date as string),
@@ -1105,7 +986,7 @@ export async function loadEmployeeLeaves(orgId: string): Promise<EmployeeLeave[]
 }
 
 export async function saveEmployeeLeave(orgId: string, leave: EmployeeLeave): Promise<void> {
-  const { error } = await supabase.from('employee_leaves').insert({
+  await pgInsert('employee_leaves', {
     id: leave.id,
     org_id: orgId,
     employee_id: leave.employeeId,
@@ -1113,24 +994,20 @@ export async function saveEmployeeLeave(orgId: string, leave: EmployeeLeave): Pr
     is_half_day: leave.isHalfDay,
     notes: leave.notes,
   });
-  if (error) throw error;
 }
 
 export async function deleteEmployeeLeave(id: string): Promise<void> {
-  const { error } = await supabase.from('employee_leaves').delete().eq('id', id);
-  if (error) throw error;
+  await pgDelete('employee_leaves', { eq: { id } });
 }
 
 // ─── Employee Advances ────────────────────────────────────────────────────────
 
 export async function loadEmployeeAdvances(orgId: string): Promise<EmployeeAdvance[]> {
-  const { data, error } = await supabase
-    .from('employee_advances')
-    .select('*')
-    .eq('org_id', orgId)
-    .order('date', { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(r => ({
+  const { data } = await pgSelect<Record<string, unknown>>('employee_advances', {
+    eq: { org_id: orgId },
+    order: { column: 'date', ascending: false },
+  });
+  return data.map(r => ({
     id: r.id as string,
     employeeId: r.employee_id as string,
     amount: Number(r.amount),
@@ -1141,7 +1018,7 @@ export async function loadEmployeeAdvances(orgId: string): Promise<EmployeeAdvan
 }
 
 export async function saveEmployeeAdvance(orgId: string, advance: EmployeeAdvance): Promise<void> {
-  const { error } = await supabase.from('employee_advances').insert({
+  await pgInsert('employee_advances', {
     id: advance.id,
     org_id: orgId,
     employee_id: advance.employeeId,
@@ -1149,24 +1026,20 @@ export async function saveEmployeeAdvance(orgId: string, advance: EmployeeAdvanc
     date: toDbDate(advance.date),
     notes: advance.notes,
   });
-  if (error) throw error;
 }
 
 export async function deleteEmployeeAdvance(id: string): Promise<void> {
-  const { error } = await supabase.from('employee_advances').delete().eq('id', id);
-  if (error) throw error;
+  await pgDelete('employee_advances', { eq: { id } });
 }
 
 // ─── Salary Records ───────────────────────────────────────────────────────────
 
 export async function loadSalaryRecords(orgId: string): Promise<SalaryRecord[]> {
-  const { data, error } = await supabase
-    .from('salary_records')
-    .select('*')
-    .eq('org_id', orgId)
-    .order('month', { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(r => ({
+  const { data } = await pgSelect<Record<string, unknown>>('salary_records', {
+    eq: { org_id: orgId },
+    order: { column: 'month', ascending: false },
+  });
+  return data.map(r => ({
     id: r.id as string,
     employeeId: r.employee_id as string,
     month: r.month as string,
@@ -1185,7 +1058,8 @@ export async function loadSalaryRecords(orgId: string): Promise<SalaryRecord[]> 
 }
 
 export async function upsertSalaryRecord(orgId: string, record: SalaryRecord): Promise<void> {
-  const { error } = await supabase.from('salary_records').upsert(
+  await pgUpsert(
+    'salary_records',
     {
       id: record.id,
       org_id: orgId,
@@ -1204,5 +1078,4 @@ export async function upsertSalaryRecord(orgId: string, record: SalaryRecord): P
     },
     { onConflict: 'employee_id,month' },
   );
-  if (error) throw error;
 }

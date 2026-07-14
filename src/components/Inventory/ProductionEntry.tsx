@@ -1,12 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, FlaskConical, Save, ChevronDown } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCT_CATEGORIES } from '../../data/products';
 import { formatDate, isValidDDMMYYYY, parseDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
+import { PageLoadingState, PageErrorState } from '../common/PageLoadingState';
 
 export default function ProductionEntry() {
-  const { navigate, productionLogs, addProductionLog } = useStore();
+  const { navigate, productionLogs, addProductionLog, loadProductionLogsForPage } = useStore();
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
+    loadProductionLogsForPage()
+      .catch(err => setLoadError(err instanceof Error ? err.message : 'Failed to load production logs'))
+      .finally(() => setLoading(false));
+  }, []);
 
   const [productName, setProductName] = useState('');
   const [quantityProduced, setQuantityProduced] = useState<number>(0);
@@ -43,6 +54,22 @@ export default function ProductionEntry() {
   productionLogs.forEach(l => {
     totals[l.productName] = (totals[l.productName] ?? 0) + l.quantityProduced;
   });
+
+  if (loading) {
+    return (
+      <Layout title="Production Log">
+        <PageLoadingState />
+      </Layout>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Layout title="Production Log">
+        <PageErrorState message={loadError} />
+      </Layout>
+    );
+  }
 
   return (
     <Layout

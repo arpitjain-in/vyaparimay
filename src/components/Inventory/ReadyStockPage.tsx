@@ -1,10 +1,11 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { X, CheckCircle, AlertTriangle, XCircle, PackageCheck, Pencil, ShieldAlert, Trash2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES } from '../../data/products';
 import Layout from '../Layout/Layout';
 import { formatDate, isValidDDMMYYYY, parseDDMMYYYY } from '../../utils/format';
 import type { ReadyStockTransaction } from '../../types';
+import { PageLoadingState, PageErrorState } from '../common/PageLoadingState';
 
 const EDIT_PASSWORD = import.meta.env.VITE_INVOICE_DELETE_PASSWORD as string;
 
@@ -246,7 +247,19 @@ export default function ReadyStockPage() {
   const {
     readyStock, readyStockTransactions, reorderLevels,
     addReadyStockEntry, adjustReadyStock, getReadyStockStatus, editReadyStockTransaction, deleteReadyStockTransaction,
+    loadStockHistoryForPage, loadReorderLevelsForPage,
   } = useStore();
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
+    Promise.all([loadStockHistoryForPage(), loadReorderLevelsForPage()])
+      .catch(err => setLoadError(err instanceof Error ? err.message : 'Failed to load stock data'))
+      .finally(() => setLoading(false));
+  }, []);
 
   const [panelSkuId, setPanelSkuId] = useState<string | null>(null);
   const [modifyMode, setModifyMode] = useState<'add' | 'remove'>('add');
@@ -304,6 +317,22 @@ export default function ReadyStockPage() {
   const panelTxns     = panelSkuId
     ? [...readyStockTransactions].filter(t => t.skuId === panelSkuId).sort((a, b) => parseDDMMYYYY(b.date, b.time) - parseDDMMYYYY(a.date, a.time))
     : [];
+
+  if (loading) {
+    return (
+      <Layout title="Ready Stock">
+        <PageLoadingState />
+      </Layout>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Layout title="Ready Stock">
+        <PageErrorState message={loadError} />
+      </Layout>
+    );
+  }
 
   return (
     <>

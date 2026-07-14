@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Plus, Edit2, History, CheckCircle, AlertTriangle,
   XCircle, FlaskConical, ChevronDown, ChevronUp, Package,
@@ -10,6 +10,7 @@ import Layout from '../Layout/Layout';
 import Modal from '../common/Modal';
 import { PackagingEntry } from '../../types';
 import { isValidDDMMYYYY, parseDDMMYYYY } from '../../utils/format';
+import { PageLoadingState, PageErrorState } from '../common/PageLoadingState';
 
 function StatusBadge({ status }: { status: 'adequate' | 'low' | 'out' }) {
   if (status === 'out') return (
@@ -55,7 +56,19 @@ export default function StockDashboard() {
     adjustStock, setReorderLevel, navigate,
     getStockStatus, adjustReadyStock, setReadyStockReorderLevel,
     getReadyStockStatus, addReadyStockEntry,
+    loadPackagingDataForPage, loadReorderLevelsForPage, loadStockHistoryForPage,
   } = useStore();
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
+    Promise.all([loadPackagingDataForPage(), loadReorderLevelsForPage(), loadStockHistoryForPage()])
+      .catch(err => setLoadError(err instanceof Error ? err.message : 'Failed to load inventory data'))
+      .finally(() => setLoading(false));
+  }, []);
 
   const [addModal, setAddModal] = useState(false);
   const [addDateError, setAddDateError] = useState('');
@@ -141,6 +154,22 @@ export default function StockDashboard() {
   }));
 
   const recentRSTxns = [...readyStockTransactions].sort((a, b) => parseDDMMYYYY(b.date, b.time) - parseDDMMYYYY(a.date, a.time)).slice(0, 30);
+
+  if (loading) {
+    return (
+      <Layout title="Inventory">
+        <PageLoadingState />
+      </Layout>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Layout title="Inventory">
+        <PageErrorState message={loadError} />
+      </Layout>
+    );
+  }
 
   return (
     <Layout

@@ -9,7 +9,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     coverage: {
       provider: 'v8',
-      include: ['src/utils/**', 'src/store/**', 'src/lib/db.demo.ts', 'src/data/**'],
+      include: ['src/utils/**', 'src/store/**', 'src/lib/db.demo.ts', 'src/lib/postgrest.ts', 'src/lib/gotrue.ts', 'src/data/**'],
       reporter: ['text', 'lcov'],
     },
   },

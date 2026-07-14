@@ -94,6 +94,13 @@ interface AppState {
 
   // Init
   initializeApp(): Promise<void>;
+  // Per-page on-demand loaders — populate a domain the startup batch no longer bulk-loads.
+  loadExpensesForPage(): Promise<void>;
+  loadSalaryDataForPage(): Promise<void>;
+  loadPackagingDataForPage(): Promise<void>;
+  loadProductionLogsForPage(): Promise<void>;
+  loadReorderLevelsForPage(): Promise<void>;
+  loadStockHistoryForPage(): Promise<void>;
   // Navigation
   navigate(page: AppPage, params?: { customerId?: string; invoiceId?: string; editCustomerId?: string; employeeId?: string }): void;
 
@@ -309,31 +316,15 @@ export const useStore = create<AppState>()(
             { customers, seq: customerSeq },
             invoices,
             { receipts: paymentReceipts, seq: receiptSeq },
-            packagingEntries,
-            productionLogs,
-            stockData,
+            currentStockLevels,
             dbPriceList,
-            dbReorderLevels,
-            expenses,
-            employees,
-            employeeLeaves,
-            employeeAdvances,
-            salaryRecords,
           ] = await Promise.all([
             db.loadBusinessProfile(orgId),
             db.loadCustomers(orgId),
             db.loadInvoices(orgId),
             db.loadPaymentReceipts(orgId),
-            db.loadPackagingEntries(orgId),
-            db.loadProductionLogs(orgId),
-            db.loadStockData(orgId),
+            db.loadCurrentStockLevels(orgId),
             db.loadPriceList(orgId),
-            db.loadReorderLevels(orgId),
-            db.loadExpenses(orgId),
-            db.loadEmployees(orgId),
-            db.loadEmployeeLeaves(orgId),
-            db.loadEmployeeAdvances(orgId),
-            db.loadSalaryRecords(orgId),
           ]);
 
           // Derive invoice counters from loaded invoices
@@ -360,28 +351,13 @@ export const useStore = create<AppState>()(
             invoiceCounters,
             paymentReceipts,
             receiptSeq,
-            packagingEntries,
-            productionLogs,
-            ...stockData,
+            ...currentStockLevels,
             // Keep local (factory) prices as the final authority — do not let DB overwrite them.
             priceList: {
               ...DEFAULT_PRICES,
               ...dbPriceList,
               ...s.priceList,
             },
-            reorderLevels: {
-              raw: { ...s.reorderLevels.raw, ...dbReorderLevels.raw },
-              packaging: {
-                ...s.reorderLevels.packaging,
-                ...dbReorderLevels.packaging,
-              },
-              ready: { ...s.reorderLevels.ready, ...dbReorderLevels.ready },
-            },
-            expenses,
-            employees,
-            employeeLeaves,
-            employeeAdvances,
-            salaryRecords,
             currentPage: businessProfile ? 'dashboard' : 'setup',
           });
         } catch (err) {
@@ -389,6 +365,59 @@ export const useStore = create<AppState>()(
           console.error('[initializeApp] Failed to connect to database:', msg);
           set({ isInitialized: true, initError: msg, orgId: db.FIXED_ORG_ID });
         }
+      },
+
+      // Per-page on-demand loaders. Errors intentionally propagate — the calling
+      // page owns its own loading/error UI (see CustomerLedger.tsx for the pattern).
+      async loadExpensesForPage() {
+        const { orgId } = get();
+        if (!orgId) return;
+        set({ expenses: await db.loadExpenses(orgId) });
+      },
+
+      async loadSalaryDataForPage() {
+        const { orgId } = get();
+        if (!orgId) return;
+        const [employees, employeeLeaves, employeeAdvances, salaryRecords] = await Promise.all([
+          db.loadEmployees(orgId),
+          db.loadEmployeeLeaves(orgId),
+          db.loadEmployeeAdvances(orgId),
+          db.loadSalaryRecords(orgId),
+        ]);
+        set({ employees, employeeLeaves, employeeAdvances, salaryRecords });
+      },
+
+      async loadPackagingDataForPage() {
+        const { orgId } = get();
+        if (!orgId) return;
+        set({ packagingEntries: await db.loadPackagingEntries(orgId) });
+      },
+
+      async loadProductionLogsForPage() {
+        const { orgId } = get();
+        if (!orgId) return;
+        set({ productionLogs: await db.loadProductionLogs(orgId) });
+      },
+
+      async loadReorderLevelsForPage() {
+        const { orgId } = get();
+        if (!orgId) return;
+        const dbReorderLevels = await db.loadReorderLevels(orgId);
+        const s = get();
+        set({
+          reorderLevels: {
+            raw: { ...s.reorderLevels.raw, ...dbReorderLevels.raw },
+            packaging: { ...s.reorderLevels.packaging, ...dbReorderLevels.packaging },
+            ready: { ...s.reorderLevels.ready, ...dbReorderLevels.ready },
+          },
+        });
+      },
+
+      async loadStockHistoryForPage() {
+        const { orgId } = get();
+        if (!orgId) return;
+        const { stockTransactions, readyStockTransactions } = await db.loadStockHistory(orgId);
+        set({ stockTransactions, readyStockTransactions });
       },
 
       // ─── Navigation ──────────────────────────────────────────────────

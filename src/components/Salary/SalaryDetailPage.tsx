@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft, Plus, Trash2, ChevronLeft, ChevronRight,
   AlertCircle, CheckCircle, Edit2, UserX, UserCheck,
@@ -7,6 +7,7 @@ import { useStore } from '../../store/useStore';
 import { formatDate, isValidDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
 import Modal from '../common/Modal';
+import { PageLoadingState, PageErrorState } from '../common/PageLoadingState';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -70,9 +71,21 @@ export default function SalaryDetailPage() {
     addEmployeeLeave, deleteEmployeeLeave,
     addEmployeeAdvance, deleteEmployeeAdvance,
     upsertSalaryRecord, updateEmployee,
+    loadSalaryDataForPage,
   } = useStore();
 
   const employee = employees.find(e => e.id === selectedEmployeeId);
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
+    loadSalaryDataForPage()
+      .catch(err => setLoadError(err instanceof Error ? err.message : 'Failed to load salary data'))
+      .finally(() => setLoading(false));
+  }, []);
 
   const [month, setMonth] = useState(currentYM());
   const [successMsg, setSuccessMsg] = useState('');
@@ -101,6 +114,22 @@ export default function SalaryDetailPage() {
   // ── Edit employee ──
   const [showEditEmployee, setShowEditEmployee] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', role: '', monthlySalary: '' });
+
+  if (loading) {
+    return (
+      <Layout title="Salary Detail" subtitle="">
+        <PageLoadingState />
+      </Layout>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Layout title="Salary Detail" subtitle="">
+        <PageErrorState message={loadError} />
+      </Layout>
+    );
+  }
 
   if (!employee) {
     return (
