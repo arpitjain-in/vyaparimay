@@ -15,6 +15,7 @@ export default function CustomerLedger() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddPayment, setShowAddPayment] = useState(false);
+  const [pendingAddPayment, setPendingAddPayment] = useState(false);
   const [pendingEditReceiptId, setPendingEditReceiptId] = useState<string | null>(null);
   const [pendingEditAmount, setPendingEditAmount] = useState(0);
   const [editingReceiptId, setEditingReceiptId] = useState<string | null>(null);
@@ -260,6 +261,20 @@ export default function CustomerLedger() {
         <AddPaymentModal customerId={customer.id} onClose={() => setShowAddPayment(false)} />
       )}
 
+      {pendingAddPayment && (
+        <DeletePasswordModal
+          invoiceNo={customer.id}
+          title="Add Payment"
+          description={`You are about to record a payment received from ${customer.name}. Enter the 4-digit password to continue.`}
+          skipConfirmStep
+          onConfirm={() => {
+            setShowAddPayment(true);
+            setPendingAddPayment(false);
+          }}
+          onCancel={() => setPendingAddPayment(false)}
+        />
+      )}
+
       {pendingEditReceiptId && (
         <DeletePasswordModal
           invoiceNo={pendingEditReceiptId}
@@ -346,7 +361,7 @@ export default function CustomerLedger() {
               <Printer size={15} /> Print
             </button>
             <button
-              onClick={() => setShowAddPayment(true)}
+              onClick={() => setPendingAddPayment(true)}
               className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
             >
               <PlusCircle size={15} /> Add Payment

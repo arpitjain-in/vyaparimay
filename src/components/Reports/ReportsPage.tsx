@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import {
   BarChart3, PackageCheck, Box, FileDown, Weight, Users, BookOpen,
-  TrendingUp, Wallet, Receipt, AlertTriangle, IndianRupee,
+  TrendingUp, Wallet, Receipt, AlertTriangle, IndianRupee, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/products';
@@ -180,6 +180,60 @@ function calcPeriodStats(
     totalUnits,
     totalWeightKg,
   };
+}
+
+// ─── Money Received — per-customer breakdown ─────────────────────────────────
+
+interface MoneyReceivedRow {
+  key: string;
+  date: string;       // DD/MM/YYYY
+  customerId: string;
+  customerName: string;
+  firmName?: string;
+  amount: number;
+  source: 'Cash Sale' | 'Receipt';
+}
+
+function buildMoneyReceivedBreakdown(
+  invoices: Invoice[],
+  receipts: PaymentReceipt[],
+  customers: Customer[],
+  startOrd: number,
+  endOrd: number,
+): MoneyReceivedRow[] {
+  const rows: MoneyReceivedRow[] = [];
+
+  for (const inv of invoices) {
+    if (inv.cancelled || inv.paymentMode !== 'Cash') continue;
+    const ord = toOrd(inv.invoiceDate);
+    if (ord < startOrd || ord > endOrd) continue;
+    rows.push({
+      key: `inv-${inv.id}`,
+      date: inv.invoiceDate,
+      customerId: inv.customerId,
+      customerName: inv.customerSnapshot.name,
+      firmName: inv.customerSnapshot.firmName,
+      amount: inv.grandTotal,
+      source: 'Cash Sale',
+    });
+  }
+
+  for (const r of receipts) {
+    const ord = toOrd(r.date);
+    if (ord < startOrd || ord > endOrd) continue;
+    const cust = customers.find(c => c.id === r.customerId);
+    rows.push({
+      key: `rec-${r.id}`,
+      date: r.date,
+      customerId: r.customerId,
+      customerName: cust?.name ?? r.customerId,
+      firmName: cust?.firmName,
+      amount: r.amount,
+      source: 'Receipt',
+    });
+  }
+
+  return rows.sort((a, b) => toOrd(a.date) - toOrd(b.date));
 }
 
 // ─── PDF helpers ─────────────────────────────────────────────────────────────
@@ -399,7 +453,8 @@ function openPdfWindow(html: string): void {
 // ─── Sales Summary Table ──────────────────────────────────────────────────────
 
 function SalesSummaryTable() {
-  const { invoices, paymentReceipts } = useStore();
+  const { invoices, paymentReceipts, customers } = useStore();
+  const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
 
   // Filter out the individual month rows that have zero sales (keep week/today rows always)
   const periods = useMemo(
@@ -466,30 +521,79 @@ function SalesSummaryTable() {
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ label, sublabel, stats: s }) => {
+            {rows.map(({ label, sublabel, startOrd, endOrd, stats: s }) => {
               const empty = s.invoiceCount === 0;
+              const isExpanded = expandedPeriod === label;
+              const breakdown = isExpanded
+                ? buildMoneyReceivedBreakdown(invoices, paymentReceipts, customers, startOrd, endOrd)
+                : [];
               return (
-                <tr key={label} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
-                  <td className="px-5 py-3">
-                    <div className="font-semibold text-slate-800">{label}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">{sublabel}</div>
-                  </td>
-                  <td className="px-3 py-3 text-right">
-                    {empty ? <span className="text-slate-300">—</span> : <span className="font-semibold text-slate-700">{s.invoiceCount}</span>}
-                  </td>
-                  <td className="px-3 py-3 text-right">
-                    {empty ? <span className="text-slate-300">—</span> : <span className="font-bold text-indigo-600">{fmtINR(s.invoiceTotal)}</span>}
-                  </td>
-                  <td className="px-3 py-3 text-right">
-                    {empty ? <span className="text-slate-300">—</span> : <span className="font-bold text-emerald-600">{fmtINR(s.moneyReceived)}</span>}
-                  </td>
-                  <td className="px-3 py-3 text-right">
-                    {empty ? <span className="text-slate-300">—</span> : <span className="font-semibold text-slate-700">{s.totalUnits.toLocaleString('en-IN')}</span>}
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    {empty ? <span className="text-slate-300">—</span> : <span className="font-semibold text-slate-600">{fmtKg(s.totalWeightKg)}</span>}
-                  </td>
-                </tr>
+                <React.Fragment key={label}>
+                  <tr className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
+                    <td className="px-5 py-3">
+                      <div className="font-semibold text-slate-800">{label}</div>
+                      <div className="text-xs text-slate-400 mt-0.5">{sublabel}</div>
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      {empty ? <span className="text-slate-300">—</span> : <span className="font-semibold text-slate-700">{s.invoiceCount}</span>}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      {empty ? <span className="text-slate-300">—</span> : <span className="font-bold text-indigo-600">{fmtINR(s.invoiceTotal)}</span>}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      {empty || s.moneyReceived === 0 ? (
+                        <span className="text-slate-300">—</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedPeriod(isExpanded ? null : label)}
+                          className="inline-flex items-center gap-1 font-bold text-emerald-600 hover:text-emerald-700"
+                          title="Show which customers this was received from"
+                        >
+                          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          {fmtINR(s.moneyReceived)}
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      {empty ? <span className="text-slate-300">—</span> : <span className="font-semibold text-slate-700">{s.totalUnits.toLocaleString('en-IN')}</span>}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      {empty ? <span className="text-slate-300">—</span> : <span className="font-semibold text-slate-600">{fmtKg(s.totalWeightKg)}</span>}
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="border-b border-slate-50 last:border-0 bg-emerald-50/40">
+                      <td colSpan={6} className="px-5 py-3">
+                        <div className="text-xs font-medium text-emerald-700 mb-2">Money Received — by customer ({label})</div>
+                        <div className="rounded-lg border border-emerald-100 overflow-hidden bg-white">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-xs text-slate-400 bg-slate-50">
+                                <th className="text-left px-4 py-2 font-medium">Date</th>
+                                <th className="text-left px-4 py-2 font-medium">Customer</th>
+                                <th className="text-left px-4 py-2 font-medium">Firm</th>
+                                <th className="text-left px-4 py-2 font-medium">Source</th>
+                                <th className="text-right px-4 py-2 font-medium">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {breakdown.map(b => (
+                                <tr key={b.key} className="border-t border-slate-50">
+                                  <td className="px-4 py-2 text-slate-500">{b.date}</td>
+                                  <td className="px-4 py-2 text-slate-700">{b.customerName}</td>
+                                  <td className="px-4 py-2 text-slate-500">{b.firmName ?? '—'}</td>
+                                  <td className="px-4 py-2 text-slate-500">{b.source}</td>
+                                  <td className="px-4 py-2 text-right font-semibold text-emerald-600">{fmtINR(b.amount)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               );
             })}
           </tbody>

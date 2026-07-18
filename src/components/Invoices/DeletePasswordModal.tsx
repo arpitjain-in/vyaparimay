@@ -12,6 +12,7 @@ interface DeletePasswordModalProps {
   invoiceDate?: string;
   grandTotal?: number;
   paymentMode?: string;
+  skipConfirmStep?: boolean;
 }
 
 const PASSWORD = import.meta.env.VITE_INVOICE_DELETE_PASSWORD as string;
@@ -26,6 +27,7 @@ export default function DeletePasswordModal({
   invoiceDate,
   grandTotal,
   paymentMode,
+  skipConfirmStep,
 }: DeletePasswordModalProps) {
   const [step, setStep] = useState<'password' | 'confirm'>('password');
   const [digits, setDigits] = useState(['', '', '', '']);
@@ -51,7 +53,11 @@ export default function DeletePasswordModal({
     if (next.every(d => d !== '') && value) {
       const entered = next.join('');
       if (entered === PASSWORD) {
-        setStep('confirm');
+        if (skipConfirmStep) {
+          onConfirm();
+        } else {
+          setStep('confirm');
+        }
       } else {
         setError('Incorrect password. Try again.');
         setDigits(['', '', '', '']);

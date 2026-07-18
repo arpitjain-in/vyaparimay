@@ -3,6 +3,7 @@ import { Search, Plus, Edit2, UserX, BookOpen, Wallet, Loader2, AlertCircle, Ref
 import { useStore } from '../../store/useStore';
 import Layout from '../Layout/Layout';
 import AddPaymentModal from '../common/AddPaymentModal';
+import DeletePasswordModal from '../Invoices/DeletePasswordModal';
 import * as db from '../../lib/db';
 import { FIXED_ORG_ID } from '../../lib/db';
 import { fmtINR } from '../../utils/format';
@@ -19,6 +20,7 @@ export default function CustomerList() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [paymentCustomerId, setPaymentCustomerId] = useState<string | null>(null);
+  const [pendingPaymentCustomerId, setPendingPaymentCustomerId] = useState<string | null>(null);
   const [deactivating, setDeactivating] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -85,6 +87,20 @@ export default function CustomerList() {
           customerId={paymentCustomerId}
           customerName={customers.find(c => c.id === paymentCustomerId)?.name}
           onClose={() => { setPaymentCustomerId(null); loadPage(page); }}
+        />
+      )}
+
+      {pendingPaymentCustomerId && (
+        <DeletePasswordModal
+          invoiceNo={pendingPaymentCustomerId}
+          title="Add Payment"
+          description={`You are about to record a payment received from ${customers.find(c => c.id === pendingPaymentCustomerId)?.name ?? pendingPaymentCustomerId}. Enter the 4-digit password to continue.`}
+          skipConfirmStep
+          onConfirm={() => {
+            setPaymentCustomerId(pendingPaymentCustomerId);
+            setPendingPaymentCustomerId(null);
+          }}
+          onCancel={() => setPendingPaymentCustomerId(null)}
         />
       )}
 
@@ -212,7 +228,7 @@ export default function CustomerList() {
                           <BookOpen size={15} />
                         </button>
                         <button
-                          onClick={() => setPaymentCustomerId(c.id)}
+                          onClick={() => setPendingPaymentCustomerId(c.id)}
                           className="text-emerald-500 hover:text-emerald-700 transition-colors" title="Receive Payment"
                         >
                           <Wallet size={15} />
