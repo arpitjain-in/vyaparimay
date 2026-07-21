@@ -161,6 +161,13 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function bizNameHtml(name: string): string {
+  const [first, ...rest] = name.trim().split(/\s+/);
+  if (!first) return '';
+  const restStr = rest.join(' ');
+  return `<span class="biz-name-first">${esc(first)}</span>${restStr ? ' <span class="biz-name-rest">' + esc(restStr) + '</span>' : ''}`;
+}
+
 function fmtRupees(n: number): string {
   const neg = n < 0;
   const abs = Math.abs(n);
@@ -248,7 +255,7 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
     <div class="hdr-left">
       ${logoUrl ? `<img class="hlogo" src="${logoUrl}" alt=""/>` : ''}
       <div>
-        <div class="biz-name">${esc(bp.name)}</div>
+        <div class="biz-name">${bizNameHtml(bp.name)}</div>
         <div class="biz-meta">
           <div class="biz-address">${esc(bp.address1)}, ${esc(bp.city)} &ndash; ${esc(bp.pinCode)}</div>
           <div class="biz-reg">GSTIN: <b>${esc(bp.gstin)}</b>&emsp;FSSAI: <b>${esc(bp.fssai)}</b>&emsp;Ph: ${esc(bp.mobile)}</div>
@@ -326,11 +333,14 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
 <head>
 <meta charset="utf-8"/>
 <title>Invoice ${esc(invoice.invoiceNo)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400..800&family=Roboto:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
   @page { size: A4 portrait; margin: 8mm 12mm; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: 'Segoe UI', Arial, sans-serif;
+    font-family: 'Roboto', 'Segoe UI', Arial, sans-serif;
     font-size: 8pt;
     color: #000;
     background: #fff;
@@ -388,7 +398,9 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
   }
   .hdr-left { display: flex; align-items: flex-start; gap: 7px; }
   .hlogo { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; }
-  .biz-name { font-size: 12.5pt; font-weight: 800; color: #1a3a6b; line-height: 1.2; }
+  .biz-name { font-family: 'Baloo 2', 'Segoe UI', Arial, sans-serif; font-size: calc(12.5pt + 2px); color: #1a3a6b; line-height: 1.2; }
+  .biz-name-first { font-weight: 800; }
+  .biz-name-rest { font-weight: 500; }
   .biz-meta { color: #000; line-height: 1.35; margin-top: 2px; }
   .biz-address { font-size: 10.5pt; }
   .biz-reg { font-size: 8.5pt; margin-top: 2px; }
@@ -543,6 +555,9 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
 <head>
 <meta charset="utf-8"/>
 <title>Invoice ${esc(invoice.invoiceNo)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400..800&family=Roboto:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
   @page {
     size: A4 portrait;
@@ -550,7 +565,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: 'Segoe UI', Arial, sans-serif;
+    font-family: 'Roboto', 'Segoe UI', Arial, sans-serif;
     font-size: 10pt;
     color: #000;
     background: #fff;
@@ -591,11 +606,13 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     margin-bottom: 10px;
   }
   .biz-name {
-    font-size: 16pt;
-    font-weight: 800;
+    font-family: 'Baloo 2', 'Segoe UI', Arial, sans-serif;
+    font-size: calc(16pt + 2px);
     color: #1a3a6b;
     letter-spacing: 0.5px;
   }
+  .biz-name-first { font-weight: 800; }
+  .biz-name-rest { font-weight: 500; }
   .biz-meta { font-size: 9pt; font-weight: 700; color: #000; line-height: 1.6; margin-top: 3px; }
   .inv-box {
     text-align: right;
@@ -846,7 +863,7 @@ ${copyBanner}
   <div class="header-biz">
     ${logoUrl ? `<img class="header-logo" src="${logoUrl}" alt="logo"/>` : ''}
     <div>
-    <div class="biz-name">${esc(bp.name)}</div>
+    <div class="biz-name">${bizNameHtml(bp.name)}</div>
     <div class="biz-meta">
       ${esc(bp.address1)}${bp.address2 ? ', ' + esc(bp.address2) : ''}<br/>
       ${esc(bp.city)}, ${esc(bp.state)} – ${esc(bp.pinCode)}<br/>
@@ -890,8 +907,7 @@ ${cancelledBanner}
       </span>
     </div>
     <div class="party-detail" style="margin-top: 10px; color: #000;">
-      Customer Type: ${esc(c.customerType)}<br/>
-      Payment Terms: ${esc(c.paymentTerms)}
+      Customer Type: ${esc(c.customerType)}
     </div>
   </div>
 </div>
