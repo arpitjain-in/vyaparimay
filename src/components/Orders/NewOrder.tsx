@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Search, Plus, ShoppingCart, Trash2, AlertTriangle, CheckCircle2, ChevronRight, Eye, X, Minus } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { PRODUCTS, PACKAGING_MATERIALS, PRODUCT_CATEGORIES, getRawMaterialId, applyTwinPackSplit } from '../../data/products';
+import { PRODUCTS, PACKAGING_MATERIALS, PRODUCT_CATEGORIES, getRawMaterialId, applyTwinPackSplit, getReadyStockNeeds } from '../../data/products';
 import { calcGST, isInterState } from '../../utils/gst';
 import { fmtINR, formatDate, formatTime, getFYFromDate } from '../../utils/format';
 import { numberToWords } from '../../utils/numberToWords';
@@ -86,7 +86,7 @@ export default function NewOrder() {
     customers, currentOrder, businessProfile,
     setOrderCustomer,
     upsertCartItem, removeCartItem, generateInvoice, setOrderGst, setOrderDiscount, setOrderCharges,
-    rawMaterialStock, packagingStock, priceList, navigate,
+    rawMaterialStock, packagingStock, readyStock, getReadyStockStatus, priceList, navigate,
   } = useStore();
 
   const [step, setStep] = useState(1);
@@ -124,6 +124,28 @@ export default function NewOrder() {
     ? PRODUCTS.filter(p => p.product === category && !p.hidden)
     : PRODUCTS.filter(p => !p.hidden);
 
+  // Ready stock already committed to the cart (netted against total stock below),
+  // so the "available to add" figure reflects what's left after existing cart lines.
+  const cartReadyNeeds = useMemo(
+    () => getReadyStockNeeds(currentOrder?.items ?? []),
+    [currentOrder?.items],
+  );
+
+  // A SKU's ready stock lives on itself, or (for bundle SKUs like AT30 outer
+  // bags) on its inner SKU — e.g. an AT30-HB3 bag needs 3 units of WF-10H.
+  const readyStockUnitFor = (sku: ProductSKU) =>
+    sku.innerSkuId && sku.innerSkuQty
+      ? { id: sku.innerSkuId, qtyPerUnit: sku.innerSkuQty }
+      : { id: sku.id, qtyPerUnit: 1 };
+
+  // How many more of this SKU can be added to the cart right now, given
+  // current ready stock minus what's already reserved by the cart.
+  const availableToAdd = (sku: ProductSKU) => {
+    const { id, qtyPerUnit } = readyStockUnitFor(sku);
+    const remaining = (readyStock[id] ?? 0) - (cartReadyNeeds[id] ?? 0);
+    return qtyPerUnit > 0 ? Math.floor(remaining / qtyPerUnit) : 0;
+  };
+
   const handleSelectSKU = (sku: ProductSKU) => {
     setSelectedSKU(sku);
     setQty(1);
@@ -132,8 +154,11 @@ export default function NewOrder() {
     setPerKgRate(sku.weight > 0 ? parseFloat((bagRate / sku.weight).toFixed(2)) : 0);
   };
 
+  const selectedAvailable = selectedSKU ? availableToAdd(selectedSKU) : 0;
+  const selectedInsufficient = !!selectedSKU && qty > selectedAvailable;
+
   const handleAddToCart = () => {
-    if (!selectedSKU || qty <= 0 || rate <= 0) return;
+    if (!selectedSKU || qty <= 0 || rate <= 0 || selectedInsufficient) return;
     upsertCartItem(selectedSKU.id, qty, rate);
     setAddedSku(selectedSKU.id);
     setTimeout(() => setAddedSku(null), 1500);
@@ -364,6 +389,16 @@ export default function NewOrder() {
                 const isSelected = selectedSKU?.id === sku.id;
                 const isBundle = !!(sku.innerSkuId && sku.innerSkuQty);
 
+                // Ready-stock badge: how many of this exact SKU can still be added.
+                const { id: stockUnitId } = readyStockUnitFor(sku);
+                const stockLeft = availableToAdd(sku);
+                const stockStatus = getReadyStockStatus(stockUnitId);
+                const stockLabel = stockStatus === 'out' ? 'Out of stock' : `${stockLeft} in stock`;
+                const stockClsOn = (light: string) => // for solid/gradient (pouch) card backgrounds
+                  stockStatus === 'out' ? 'text-red-200' : stockStatus === 'low' ? 'text-amber-200' : light;
+                const stockClsOff = (normal: string) => // for plain white/gray card backgrounds
+                  stockStatus === 'out' ? 'text-red-500' : stockStatus === 'low' ? 'text-amber-600' : normal;
+
                 // ── Bundle card (AT30 outer bags) ──────────────────────────
                 if (isBundle) {
                   const innerSku = PRODUCTS.find(p => p.id === sku.innerSkuId);
@@ -402,6 +437,10 @@ export default function NewOrder() {
                       {/* Price */}
                       <div className={`text-xs mt-2 font-semibold ${tc('text-indigo-600', 'text-white/90')}`}>
                         {fmtINR(priceList[sku.id] ?? 0)} / {sku.unit}
+                      </div>
+                      {/* Ready stock */}
+                      <div className={`text-[10px] font-semibold mt-1 ${tc(stockClsOff('text-gray-400'), stockClsOn('text-purple-200'))}`}>
+                        {stockLabel}
                       </div>
                       {addedSku === sku.id && (
                         <div className={`text-xs font-medium mt-0.5 ${tc('text-green-600', 'text-green-200')}`}>✓ Added!</div>
@@ -456,6 +495,10 @@ export default function NewOrder() {
                     {/* Price */}
                     <div className={`text-xs mt-2 font-semibold ${ badge.isPouch ? 'text-white/90' : 'text-indigo-600' }`}>
                       {fmtINR(priceList[sku.id] ?? 0)} / {sku.unit}
+                    </div>
+                    {/* Ready stock */}
+                    <div className={`text-[10px] font-semibold mt-1 ${ badge.isPouch ? stockClsOn('text-white/70') : stockClsOff('text-gray-400') }`}>
+                      {stockLabel}
                     </div>
                     {addedSku === sku.id && (
                       <div className={`text-xs font-medium mt-0.5 ${ badge.isPouch ? 'text-green-200' : 'text-green-600' }`}>✓ Added!</div>
@@ -529,12 +572,19 @@ export default function NewOrder() {
               <div className="space-y-2 mb-4">
                 {currentOrder.items.map(item => {
                   const sku = PRODUCTS.find(p => p.id === item.skuId)!;
+                  const { id: stockUnitId } = readyStockUnitFor(sku);
+                  const shortage = (cartReadyNeeds[stockUnitId] ?? 0) - (readyStock[stockUnitId] ?? 0);
                   return (
-                    <div key={item.skuId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div key={item.skuId} className={`flex items-center justify-between p-3 rounded-lg ${shortage > 0 ? 'bg-red-50 border border-red-200' : 'bg-gray-50'}`}>
                       <div className="flex-1">
                         <div className="text-sm font-medium text-gray-800">{sku.product}</div>
                         <div className="text-xs text-gray-500">{sku.variant} × {item.quantity} &nbsp;·&nbsp; {(sku.weight * item.quantity) % 1 === 0 ? (sku.weight * item.quantity).toFixed(0) : (sku.weight * item.quantity).toFixed(1)} kg</div>
                         <div className="text-xs text-indigo-600 font-semibold">{fmtINR(item.quantity * item.rate)}</div>
+                        {shortage > 0 && (
+                          <div className="text-xs text-red-600 font-medium mt-0.5 flex items-center gap-1">
+                            <AlertTriangle size={11} /> Short by {shortage} in ready stock
+                          </div>
+                        )}
                       </div>
                       <button
                         onClick={() => removeCartItem(item.skuId)}
@@ -585,26 +635,36 @@ export default function NewOrder() {
                 <div className="text-sm font-bold text-gray-800 truncate">
                   {selectedSKU.product} &mdash; {(selectedSKU.innerSkuId || selectedSKU.useIdAsLabel) ? selectedSKU.id : selectedSKU.variant}
                 </div>
+                <div className={`text-xs font-medium mt-0.5 ${selectedAvailable <= 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                  Ready stock: {selectedAvailable} {selectedSKU.unit.toLowerCase()}{selectedAvailable === 1 ? '' : 's'} available
+                </div>
               </div>
 
               {/* Qty stepper */}
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500 font-medium">Qty</span>
-                <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden">
-                  <button
-                    onClick={() => setQty(q => Math.max(1, q - 1))}
-                    className="px-2.5 py-2 bg-gray-50 hover:bg-gray-100 text-gray-600"
-                  ><Minus size={14} /></button>
-                  <input
-                    type="number" min="1"
-                    value={qty}
-                    onChange={e => setQty(Math.max(1, Number(e.target.value) || 1))}
-                    className="w-14 px-2 py-2 text-center text-sm border-x border-gray-300 focus:outline-none focus:bg-indigo-50"
-                  />
-                  <button
-                    onClick={() => setQty(q => q + 1)}
-                    className="px-2.5 py-2 bg-gray-50 hover:bg-gray-100 text-gray-600"
-                  ><Plus size={14} /></button>
+                <div>
+                  <span className="text-xs text-gray-500 font-medium">Qty</span>
+                  <div className={`flex items-center border rounded-lg overflow-hidden ${selectedInsufficient ? 'border-red-400' : 'border-gray-300'}`}>
+                    <button
+                      onClick={() => setQty(q => Math.max(1, q - 1))}
+                      className="px-2.5 py-2 bg-gray-50 hover:bg-gray-100 text-gray-600"
+                    ><Minus size={14} /></button>
+                    <input
+                      type="number" min="1"
+                      value={qty}
+                      onChange={e => setQty(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-14 px-2 py-2 text-center text-sm border-x border-gray-300 focus:outline-none focus:bg-indigo-50"
+                    />
+                    <button
+                      onClick={() => setQty(q => q + 1)}
+                      className="px-2.5 py-2 bg-gray-50 hover:bg-gray-100 text-gray-600"
+                    ><Plus size={14} /></button>
+                  </div>
+                  {selectedInsufficient && (
+                    <div className="text-[11px] text-red-600 font-medium mt-0.5 whitespace-nowrap">
+                      Only {Math.max(selectedAvailable, 0)} available
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -649,7 +709,8 @@ export default function NewOrder() {
               {/* Add button */}
               <button
                 onClick={handleAddToCart}
-                disabled={qty <= 0 || rate <= 0}
+                disabled={qty <= 0 || rate <= 0 || selectedInsufficient}
+                title={selectedInsufficient ? 'Not enough ready stock for this quantity' : undefined}
                 className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-1.5 shrink-0"
               >
                 <Plus size={15} /> Add to Cart

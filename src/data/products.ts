@@ -107,6 +107,25 @@ export const TWIN_PACK_RULES: Record<string, { comboSkuId: string; pairSize: num
   'WF-25K': { comboSkuId: 'Twin25', pairSize: 2 },
 };
 
+// ─── Ready (finished-goods) stock needs ────────────────────────────────────
+// Maps cart items to the underlying ready-stock SKU they'll deduct from at
+// invoice time (bundle SKUs deduct their inner SKU, see useStore.generateInvoice).
+// Twin-pack combo SKUs (e.g. Twin25) also map back to their base SKU via
+// innerSkuId, so this can run on raw cart items without pre-splitting.
+export function getReadyStockNeeds(items: { skuId: string; quantity: number }[]): Record<string, number> {
+  const needs: Record<string, number> = {};
+  for (const item of items) {
+    const sku = PRODUCTS.find(p => p.id === item.skuId);
+    if (!sku) continue;
+    if (sku.innerSkuId && sku.innerSkuQty) {
+      needs[sku.innerSkuId] = (needs[sku.innerSkuId] ?? 0) + item.quantity * sku.innerSkuQty;
+    } else {
+      needs[item.skuId] = (needs[item.skuId] ?? 0) + item.quantity;
+    }
+  }
+  return needs;
+}
+
 export function applyTwinPackSplit(items: CartItem[]): CartItem[] {
   const result: CartItem[] = [];
   for (const item of items) {
