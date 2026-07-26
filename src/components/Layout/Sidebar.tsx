@@ -111,7 +111,7 @@ export default function Sidebar() {
           </div>
           <div className="min-w-0">
             <div className="text-white text-sm font-semibold truncate leading-tight">
-              {businessProfile?.name ?? 'Vyaparimay'}
+              {businessProfile?.name ?? 'Millbook'}
             </div>
             <div className="text-slate-400 text-xs mt-0.5">Flour Mill</div>
           </div>

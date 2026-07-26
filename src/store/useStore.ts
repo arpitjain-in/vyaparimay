@@ -16,7 +16,7 @@ import * as demoDb from '../lib/db.demo';
 
 const db = import.meta.env.VITE_DEMO_MODE === 'true' ? demoDb : realDb;
 
-const ORDER_DRAFT_STORAGE_KEY = 'vyaparimay-order-draft';
+const ORDER_DRAFT_STORAGE_KEY = 'millbook-order-draft';
 
 // Supabase errors are plain objects {message, details, hint, code}, not Error instances.
 function fmtErr(err: unknown): string {
@@ -61,6 +61,11 @@ interface AppState {
   invoices: Invoice[];
   invoiceCounters: Record<string, number>; // FY-MM -> seq
   testInvoiceCounters: Record<string, number>; // FY-MM -> seq, isolated series for the "Test Customer"
+
+  // Proforma invoices — kept separate from `invoices` (own array/table/counter)
+  // so they never mix into GST reports, the customer ledger, or stock figures.
+  proformaInvoices: Invoice[];
+  proformaCounters: Record<string, number>; // FY-MM -> seq
 
   // Payment Receipts
   paymentReceipts: PaymentReceipt[];
@@ -127,6 +132,10 @@ interface AppState {
   generateInvoice(saleDate?: string): Invoice | null;
   cancelInvoice(id: string): void;
   updateInvoicePaymentMode(id: string, mode: 'Cash' | 'Credit'): void;
+
+  // Proforma invoice — a non-binding preliminary quote. Its own numbering
+  // series, no ready/packaging stock deduction, no GST-ledger effect.
+  generateProformaInvoice(saleDate?: string): Invoice | null;
 
   // Payments
   addPaymentReceipt(data: Omit<PaymentReceipt, 'id' | 'time'>): void;
@@ -225,6 +234,9 @@ export const useStore = create<AppState>()(
       invoiceCounters: {},
       testInvoiceCounters: {},
 
+      proformaInvoices: [],
+      proformaCounters: {},
+
       // Payment Receipts
       paymentReceipts: [],
       receiptSeq: 0,
@@ -318,6 +330,7 @@ export const useStore = create<AppState>()(
             businessProfile,
             { customers, seq: customerSeq },
             invoices,
+            proformaInvoices,
             { receipts: paymentReceipts, seq: receiptSeq },
             packagingEntries,
             productionLogs,
@@ -333,6 +346,7 @@ export const useStore = create<AppState>()(
             db.loadBusinessProfile(orgId),
             db.loadCustomers(orgId),
             db.loadInvoices(orgId),
+            db.loadProformaInvoices(orgId),
             db.loadPaymentReceipts(orgId),
             db.loadPackagingEntries(orgId),
             db.loadProductionLogs(orgId),
@@ -359,6 +373,17 @@ export const useStore = create<AppState>()(
             }
           }
 
+          // Derive proforma counters from loaded proforma invoices
+          const proformaCounters: Record<string, number> = {};
+          for (const inv of proformaInvoices) {
+            const match = inv.invoiceNo.match(/^PRO\/(\d{4})\/(\d{2})\/(\d+)/);
+            if (match) {
+              const key = `${match[1]}-${match[2]}`;
+              const seq = parseInt(match[3], 10);
+              proformaCounters[key] = Math.max(proformaCounters[key] ?? 0, seq);
+            }
+          }
+
           const s = get();
 
           set({
@@ -371,6 +396,8 @@ export const useStore = create<AppState>()(
             invoices,
             invoiceCounters,
             testInvoiceCounters,
+            proformaInvoices,
+            proformaCounters,
             paymentReceipts,
             receiptSeq,
             packagingEntries,
@@ -785,6 +812,124 @@ export const useStore = create<AppState>()(
           for (const entry of newPkgEntries) {
             db.savePackagingEntry(orgId, entry, newPkgStock[entry.materialId]).catch(console.error);
           }
+        }
+
+        return invoice;
+      },
+
+      generateProformaInvoice(saleDate?: string) {
+        const s = get();
+        const { currentOrder, businessProfile, proformaCounters, customers } = s;
+        if (!currentOrder || !businessProfile) return null;
+
+        const customer = customers.find(c => c.id === currentOrder.customerId);
+        if (!customer) return null;
+
+        // Use saleDate if provided (YYYY-MM-DD), otherwise use today
+        const invoiceDateObj = saleDate
+          ? (() => { const [y, m, d] = saleDate.split('-').map(Number); return new Date(y, m - 1, d); })()
+          : new Date();
+        const fy = getFYFromDate(invoiceDateObj);
+        const mm = String(invoiceDateObj.getMonth() + 1).padStart(2, '0');
+        const fyMonth = `${fy}-${mm}`;
+        const seq = (proformaCounters[fyMonth] ?? 0) + 1;
+        const invoiceNo = `PRO/${fy}/${mm}/${String(seq).padStart(2, '0')}`;
+        const inter = isInterState(businessProfile.state, customer.state);
+        const gstEnabled = currentOrder.gstEnabled ?? businessProfile.gstEnabled ?? false;
+        const now = new Date();
+
+        const items: OrderItem[] = applyTwinPackSplit(currentOrder.items).map(cartItem => {
+          const sku = PRODUCTS.find(p => p.id === cartItem.skuId)!;
+          const taxableValue = cartItem.quantity * cartItem.rate;
+          const gstRate = sku.weight > 25 ? 0 : sku.gstRate;
+          const raw = gstEnabled ? calcGST(taxableValue, gstRate, inter) : { cgst: 0, sgst: 0, igst: 0 };
+          const { cgst, sgst, igst } = raw;
+          return {
+            ...cartItem,
+            product: sku.product,
+            variant: (sku.innerSkuId || sku.useIdAsLabel) ? sku.id : sku.variant,
+            weight: sku.weight,
+            hsnCode: sku.hsnCode,
+            gstRate,
+            unit: sku.unit,
+            taxableValue,
+            cgst,
+            sgst,
+            igst,
+            lineTotal: taxableValue + cgst + sgst + igst,
+          };
+        });
+
+        const subtotal    = items.reduce((a, i) => a + i.taxableValue, 0);
+        const cgstTotal   = items.reduce((a, i) => a + i.cgst, 0);
+        const sgstTotal   = items.reduce((a, i) => a + i.sgst, 0);
+        const igstTotal   = items.reduce((a, i) => a + i.igst, 0);
+        const totalGST    = cgstTotal + sgstTotal + igstTotal;
+        const preDiscount = subtotal + totalGST;
+
+        const discountType  = currentOrder.discountType;
+        const discountValue = currentOrder.discountValue ?? 0;
+        const discountAmount = discountType && discountValue > 0
+          ? (discountType === 'percent' ? parseFloat((preDiscount * discountValue / 100).toFixed(2)) : discountValue)
+          : 0;
+
+        const transportCharges = currentOrder.transportCharges ?? 0;
+        const loadingCharges   = currentOrder.loadingCharges   ?? 0;
+
+        const beforeRound = preDiscount - discountAmount + transportCharges + loadingCharges;
+        const grandTotal  = Math.round(beforeRound);
+        const roundOff    = parseFloat((grandTotal - beforeRound).toFixed(2));
+
+        const invoice: Invoice = {
+          id: crypto.randomUUID(),
+          invoiceNo,
+          invoiceDate: formatDate(invoiceDateObj),
+          invoiceTime: formatTime(now),
+          customerId: customer.id,
+          customerSnapshot: { ...customer },
+          items,
+          subtotal,
+          cgstTotal,
+          sgstTotal,
+          igstTotal,
+          totalGST,
+          discountType:     discountType ?? undefined,
+          discountValue:    discountValue > 0 ? discountValue : undefined,
+          discountAmount:   discountAmount > 0 ? discountAmount : undefined,
+          transportCharges: transportCharges > 0 ? transportCharges : undefined,
+          loadingCharges:   loadingCharges   > 0 ? loadingCharges   : undefined,
+          roundOff,
+          grandTotal,
+          isInterState: inter,
+          paymentMode: currentOrder.paymentMode,
+          amountInWords: numberToWords(grandTotal),
+          financialYear: fy,
+          cancelled: false,
+          docType: 'proforma',
+        };
+
+        // No stock deduction, no stock guard, and no side effects on ready/packaging
+        // stock or the real invoice numbering series — a proforma is a non-binding quote.
+        set({
+          proformaInvoices: [...s.proformaInvoices, invoice],
+          proformaCounters: { ...s.proformaCounters, [fyMonth]: seq },
+        });
+
+        const { orgId } = get();
+        if (orgId) {
+          db.saveProformaInvoice(orgId, invoice).catch((err) => {
+            // Revert the counter so the next attempt reuses the same sequence number.
+            set(cur => ({ proformaCounters: { ...cur.proformaCounters, [fyMonth]: s.proformaCounters[fyMonth] ?? 0 } }));
+            console.error('[saveProformaInvoice] Failed to save proforma invoice:', err);
+            set({ dialog: {
+              title: `Proforma ${invoiceNo} Not Saved`,
+              variant: 'error',
+              message: [
+                'The proforma invoice was created locally but could not be saved to the database.',
+                `Error: ${fmtErr(err)}`,
+              ],
+            } });
+          });
         }
 
         return invoice;

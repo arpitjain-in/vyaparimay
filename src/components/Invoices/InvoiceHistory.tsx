@@ -9,7 +9,8 @@ import TruckLoadSheet from './TruckLoadSheet';
 const PAGE_SIZE = 25;
 
 export default function InvoiceHistory() {
-  const { invoices, navigate, cancelInvoice, updateInvoicePaymentMode } = useStore();
+  const { invoices, proformaInvoices, navigate, cancelInvoice, updateInvoicePaymentMode } = useStore();
+  const [docTab, setDocTab] = useState<'invoice' | 'proforma'>('invoice');
   const [search, setSearch] = useState('');
   const [showCancelled, setShowCancelled] = useState(false);
   const [paymentFilter, setPaymentFilter] = useState<'All' | 'Cash' | 'Credit'>('All');
@@ -20,13 +21,16 @@ export default function InvoiceHistory() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showLoadSheet, setShowLoadSheet] = useState(false);
 
-  useEffect(() => { setPage(1); }, [search, showCancelled, paymentFilter]);
+  const isProformaTab = docTab === 'proforma';
+  const sourceList = isProformaTab ? proformaInvoices : invoices;
+
+  useEffect(() => { setPage(1); }, [search, showCancelled, paymentFilter, docTab]);
 
   const pendingInvoice = pendingCancelId ? invoices.find(i => i.id === pendingCancelId) : null;
   const pendingPaymentModeInvoice = pendingPaymentModeId ? invoices.find(i => i.id === pendingPaymentModeId) : null;
 
-  const filtered = [...invoices]
-    .filter(inv => showCancelled ? inv.cancelled : !inv.cancelled)
+  const filtered = [...sourceList]
+    .filter(inv => isProformaTab ? true : (showCancelled ? inv.cancelled : !inv.cancelled))
     .filter(inv => paymentFilter === 'All' || inv.paymentMode === paymentFilter)
     .filter(inv => {
       const q = search.toLowerCase();
@@ -45,6 +49,13 @@ export default function InvoiceHistory() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginatedInvoices = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const totalRevenue = invoices.filter(i => !i.cancelled).reduce((s, i) => s + i.grandTotal, 0);
+
+  const handleDocTabChange = (tab: 'invoice' | 'proforma') => {
+    setDocTab(tab);
+    setTruckMode(false);
+    setSelectedIds(new Set());
+    setShowLoadSheet(false);
+  };
 
   const handleTruckModeToggle = () => {
     if (truckMode) {
@@ -68,24 +79,43 @@ export default function InvoiceHistory() {
   return (
     <>
     <Layout
-      title="Invoice History"
+      title={isProformaTab ? 'Proforma Invoices' : 'Invoice History'}
       actions={
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleTruckModeToggle}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
-              truckMode
-                ? 'bg-indigo-500 text-white'
-                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            <Truck size={15} />
-            Truck Load
-          </button>
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <span>Total Revenue:</span>
-            <span className="font-bold text-gray-800">{fmtINR(totalRevenue)}</span>
+          <div className="flex rounded-xl border border-slate-200 overflow-hidden text-sm">
+            {(['invoice', 'proforma'] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => handleDocTabChange(tab)}
+                className={`px-3 py-2 whitespace-nowrap transition-colors ${
+                  docTab === tab
+                    ? 'bg-indigo-500 text-white font-medium'
+                    : 'bg-white text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                {tab === 'invoice' ? 'Tax Invoices' : 'Proforma'}
+              </button>
+            ))}
           </div>
+          {!isProformaTab && (
+            <button
+              onClick={handleTruckModeToggle}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${
+                truckMode
+                  ? 'bg-indigo-500 text-white'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Truck size={15} />
+              Truck Load
+            </button>
+          )}
+          {!isProformaTab && (
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <span>Total Revenue:</span>
+              <span className="font-bold text-gray-800">{fmtINR(totalRevenue)}</span>
+            </div>
+          )}
         </div>
       }
     >
@@ -127,30 +157,36 @@ export default function InvoiceHistory() {
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 text-sm text-slate-500 cursor-pointer whitespace-nowrap">
-          <input
-            type="checkbox"
-            checked={showCancelled}
-            onChange={e => setShowCancelled(e.target.checked)}
-            className="rounded"
-          />
-          Show cancelled
-        </label>
+        {!isProformaTab && (
+          <label className="flex items-center gap-2 text-sm text-slate-500 cursor-pointer whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={showCancelled}
+              onChange={e => setShowCancelled(e.target.checked)}
+              className="rounded"
+            />
+            Show cancelled
+          </label>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         {filtered.length === 0 ? (
           <div className="text-center py-12 text-slate-400 text-sm">
-            {invoices.length === 0
-              ? 'No invoices yet. Create your first order!'
-              : 'No invoices match your search.'}
+            {sourceList.length === 0
+              ? isProformaTab ? 'No proforma invoices yet.' : 'No invoices yet. Create your first order!'
+              : isProformaTab ? 'No proforma invoices match your search.' : 'No invoices match your search.'}
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
                 {truckMode && <th className="px-4 py-3" />}
-                {['Invoice No', 'Date', 'Customer', 'Items', 'Subtotal', 'GST', 'Grand Total', 'Payment', 'Status', ''].map(h => (
+                {[
+                  isProformaTab ? 'Proforma No' : 'Invoice No', 'Date', 'Customer', 'Items', 'Subtotal', 'GST', 'Grand Total', 'Payment',
+                  ...(isProformaTab ? [] : ['Status']),
+                  '',
+                ].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
@@ -190,7 +226,7 @@ export default function InvoiceHistory() {
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                         inv.paymentMode === 'Cash' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
                       }`}>{inv.paymentMode}</span>
-                      {!inv.cancelled && (
+                      {!isProformaTab && !inv.cancelled && (
                         <button
                           onClick={() => setPendingPaymentModeId(inv.id)}
                           className="text-slate-300 hover:text-slate-500 transition-colors"
@@ -201,13 +237,15 @@ export default function InvoiceHistory() {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3">
-                    {inv.cancelled ? (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">Cancelled</span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Active</span>
-                    )}
-                  </td>
+                  {!isProformaTab && (
+                    <td className="px-4 py-3">
+                      {inv.cancelled ? (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">Cancelled</span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Active</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <button
@@ -216,7 +254,7 @@ export default function InvoiceHistory() {
                       >
                         <FileText size={15} />
                       </button>
-                      {!inv.cancelled && (
+                      {!isProformaTab && !inv.cancelled && (
                         <button
                           onClick={() => setPendingCancelId(inv.id)}
                           className="text-red-400 hover:text-red-600 transition-colors" title="Cancel"
@@ -234,7 +272,7 @@ export default function InvoiceHistory() {
       </div>
       <div className="mt-3 flex items-center justify-between">
         <span className="text-xs text-slate-400">
-          {filtered.length} invoice{filtered.length !== 1 ? 's' : ''} found
+          {filtered.length} {isProformaTab ? 'proforma invoice' : 'invoice'}{filtered.length !== 1 ? 's' : ''} found
         </span>
         {totalPages > 1 && (
           <div className="flex items-center gap-2">

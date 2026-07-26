@@ -49,7 +49,13 @@ export function buildThermalText(invoice: Invoice, bp: BusinessProfile): string 
   lines.push(centre(`Ph: ${bp.mobile}`));
   lines.push(DLINE);
 
-  lines.push(lr('INVOICE NO :', invoice.invoiceNo));
+  if (invoice.docType === 'proforma') {
+    lines.push(centre('PROFORMA INVOICE'));
+    lines.push(centre('(Not a Tax Invoice)'));
+    lines.push(DLINE);
+  }
+
+  lines.push(lr(invoice.docType === 'proforma' ? 'PROFORMA NO :' : 'INVOICE NO :', invoice.invoiceNo));
   lines.push(lr(`DATE       : ${invoice.invoiceDate}`, `TIME: ${invoice.invoiceTime}`));
   lines.push(DLINE);
 
@@ -264,7 +270,7 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
     </div>
     <div class="hdr-right">
       <div class="copy-label">${esc(copyLabel)}</div>
-      <div class="inv-label">TAX INVOICE</div>
+      <div class="inv-label">${invoice.docType === 'proforma' ? 'PROFORMA INVOICE' : 'TAX INVOICE'}</div>
       <div class="inv-no">${esc(invoice.invoiceNo)}</div>
       <div class="inv-meta">
         <div class="inv-datetime">Date: ${esc(invoice.invoiceDate)}&emsp;Time: ${esc(invoice.invoiceTime)}</div>
@@ -550,6 +556,10 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     ? `<div class="cancelled-stamp">CANCELLED</div>`
     : '';
 
+  const proformaBanner = invoice.docType === 'proforma'
+    ? `<div class="proforma-stamp">PROFORMA INVOICE<small>NOT A TAX INVOICE / FOR REFERENCE ONLY</small></div>`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -644,6 +654,27 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     letter-spacing: 4px;
     margin: 4px auto 8px;
     width: 100%;
+  }
+
+  /* ── Proforma ── */
+  .proforma-stamp {
+    text-align: center;
+    font-size: 14pt;
+    font-weight: 900;
+    color: #b45309;
+    border: 2px solid #b45309;
+    padding: 4px 20px;
+    display: inline-block;
+    letter-spacing: 3px;
+    margin: 4px auto 8px;
+    width: 100%;
+  }
+  .proforma-stamp small {
+    display: block;
+    font-size: 8pt;
+    font-weight: 600;
+    letter-spacing: 1px;
+    margin-top: 2px;
   }
 
   /* ── Party Section ── */
@@ -873,7 +904,7 @@ ${copyBanner}
     </div>
   </div>
   <div class="inv-box">
-    <div class="inv-title">TAX INVOICE</div>
+    <div class="inv-title">${invoice.docType === 'proforma' ? 'PROFORMA INVOICE' : 'TAX INVOICE'}</div>
     <div class="inv-no">${esc(invoice.invoiceNo)}</div>
     <div class="inv-meta">
       <b>Date: ${esc(invoice.invoiceDate)}</b><br/>
@@ -883,6 +914,7 @@ ${copyBanner}
   </div>
 </div>
 
+${proformaBanner}
 ${cancelledBanner}
 
 <!-- Party Section -->

@@ -1,4 +1,4 @@
-// ─── Vyaparimay – Supabase Data Access Layer ─────────────────────────────────
+// ─── Millbook – Supabase Data Access Layer ─────────────────────────────────
 // All DB ↔ App type conversions live here.
 // snake_case (DB) ↔ camelCase (App)
 // DB dates: YYYY-MM-DD  ↔  App dates: DD/MM/YYYY
@@ -525,6 +525,81 @@ export async function updateInvoicePaymentModeInDb(
     .update({ payment_mode: paymentMode })
     .eq('id', invoiceId)
     .eq('org_id', orgId);
+  if (error) throw error;
+}
+
+// ─── Proforma Invoices ─────────────────────────────────────────────────────
+// Stored in their own table (items embedded as jsonb) so they never surface
+// in GST reports, the customer ledger, or stock deductions — see migration
+// 20260726000000_create_proforma_invoices.sql.
+
+function rowToProforma(row: Record<string, unknown>): Invoice {
+  return {
+    id: row.id as string,
+    invoiceNo: row.proforma_no as string,
+    invoiceDate: fromDbDate(row.invoice_date as string),
+    invoiceTime: fromDbTime(row.invoice_time as string),
+    customerId: row.customer_id as string,
+    customerSnapshot: row.customer_snapshot as Customer,
+    items: (row.items as OrderItem[]) ?? [],
+    subtotal: Number(row.subtotal),
+    cgstTotal: Number(row.cgst_total),
+    sgstTotal: Number(row.sgst_total),
+    igstTotal: Number(row.igst_total),
+    totalGST: Number(row.total_gst),
+    discountType:     (row.discount_type as Invoice['discountType']) ?? undefined,
+    discountValue:    row.discount_value  != null ? Number(row.discount_value)  : undefined,
+    discountAmount:   row.discount_amount != null ? Number(row.discount_amount) : undefined,
+    transportCharges: row.transport_charges != null && Number(row.transport_charges) > 0 ? Number(row.transport_charges) : undefined,
+    loadingCharges:   row.loading_charges   != null && Number(row.loading_charges)   > 0 ? Number(row.loading_charges)   : undefined,
+    roundOff: Number(row.round_off),
+    grandTotal: Number(row.grand_total),
+    isInterState: row.is_inter_state as boolean,
+    paymentMode: row.payment_mode as Invoice['paymentMode'],
+    amountInWords: row.amount_in_words as string,
+    financialYear: row.financial_year as string,
+    cancelled: false,
+    docType: 'proforma',
+  };
+}
+
+export async function loadProformaInvoices(orgId: string): Promise<Invoice[]> {
+  const { data, error } = await supabase
+    .from('proforma_invoices')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('invoice_date', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(rowToProforma);
+}
+
+export async function saveProformaInvoice(orgId: string, invoice: Invoice): Promise<void> {
+  const { error } = await supabase.from('proforma_invoices').insert({
+    id: invoice.id,
+    org_id: orgId,
+    proforma_no: invoice.invoiceNo,
+    invoice_date: toDbDate(invoice.invoiceDate),
+    invoice_time: `${invoice.invoiceTime}:00`,
+    customer_id: invoice.customerId,
+    customer_snapshot: invoice.customerSnapshot,
+    items: invoice.items,
+    subtotal: invoice.subtotal,
+    cgst_total: invoice.cgstTotal,
+    sgst_total: invoice.sgstTotal,
+    igst_total: invoice.igstTotal,
+    total_gst: invoice.totalGST,
+    discount_type:    invoice.discountType    ?? null,
+    discount_value:   invoice.discountValue   ?? null,
+    discount_amount:  invoice.discountAmount  ?? null,
+    transport_charges: invoice.transportCharges ?? null,
+    loading_charges:   invoice.loadingCharges   ?? null,
+    round_off: invoice.roundOff,
+    grand_total: invoice.grandTotal,
+    is_inter_state: invoice.isInterState,
+    payment_mode: invoice.paymentMode,
+    amount_in_words: invoice.amountInWords,
+    financial_year: invoice.financialYear,
+  });
   if (error) throw error;
 }
 

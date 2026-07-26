@@ -7,12 +7,13 @@ import Layout from '../Layout/Layout';
 import logoUrl from '../../assets/company-logo-v1.png';
 
 export default function InvoiceView() {
-  const { selectedInvoiceId, invoices, businessProfile, navigate, showDialog } = useStore();
+  const { selectedInvoiceId, invoices, proformaInvoices, businessProfile, navigate, showDialog } = useStore();
   const preRef = useRef<HTMLPreElement>(null);
 
   const invoice = useMemo(
-    () => invoices.find(inv => inv.id === selectedInvoiceId),
-    [invoices, selectedInvoiceId],
+    () => invoices.find(inv => inv.id === selectedInvoiceId)
+      ?? proformaInvoices.find(inv => inv.id === selectedInvoiceId),
+    [invoices, proformaInvoices, selectedInvoiceId],
   );
 
   const thermalText = useMemo(
@@ -126,7 +127,7 @@ export default function InvoiceView() {
 
   return (
     <Layout
-      title={`Invoice – ${invoice.invoiceNo}`}
+      title={`${invoice.docType === 'proforma' ? 'Proforma' : 'Invoice'} – ${invoice.invoiceNo}`}
       actions={
         <div className="flex items-center gap-2">
           <button
@@ -200,6 +201,11 @@ export default function InvoiceView() {
                     {invoice.isInterState ? 'IGST (Inter-State)' : 'CGST+SGST (Intra)'}
                   </span>
                 </div>
+                {invoice.docType === 'proforma' && (
+                  <div className="mt-1">
+                    <span className="px-2 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">PROFORMA – NOT A TAX INVOICE</span>
+                  </div>
+                )}
                 {invoice.cancelled && (
                   <div className="mt-1">
                     <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-600">CANCELLED</span>

@@ -1,5 +1,5 @@
 -- ============================================================
---  Vyaparimay – Seed Data
+--  Millbook – Seed Data
 --  Run AFTER the initial schema migration.
 --  Populates shared catalog tables (packaging, SKUs, raw materials).
 -- ============================================================

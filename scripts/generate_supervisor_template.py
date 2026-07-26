@@ -85,7 +85,7 @@ def sheet_instructions(wb):
     ws.column_dimensions["A"].width = 90
     ws.row_dimensions[1].height = 36
 
-    title = ws.cell(row=1, column=1, value="📋  Vyaparimay – Supervisor Data Template")
+    title = ws.cell(row=1, column=1, value="📋  Millbook – Supervisor Data Template")
     title.font = Font(name="Calibri", bold=True, size=16, color=HEADER_BG)
     title.alignment = Alignment(vertical="center")
 

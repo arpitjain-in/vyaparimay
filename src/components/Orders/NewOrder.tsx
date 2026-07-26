@@ -5,9 +5,10 @@ import { PRODUCTS, PACKAGING_MATERIALS, PRODUCT_CATEGORIES, getRawMaterialId, ap
 import { calcGST, isInterState } from '../../utils/gst';
 import { fmtINR, formatDate, formatTime, getFYFromDate } from '../../utils/format';
 import { numberToWords } from '../../utils/numberToWords';
-import { buildThermalText } from '../../utils/invoice';
+import { buildThermalText, buildA4Html } from '../../utils/invoice';
 import { ProductSKU, OrderItem } from '../../types';
 import Layout from '../Layout/Layout';
+import logoUrl from '../../assets/company-logo-v1.png';
 
 // ─── Packaging type badge ───────────────────────────────────────────────────
 function packagingBadge(variant: string): { label: string; badgeCls: string; isPouch: boolean } {
@@ -86,7 +87,7 @@ export default function NewOrder() {
     customers, currentOrder, businessProfile,
     orderStep: step, setOrderStep: setStep,
     setOrderCustomer,
-    upsertCartItem, removeCartItem, generateInvoice, setOrderGst, setOrderDiscount, setOrderCharges,
+    upsertCartItem, removeCartItem, generateInvoice, generateProformaInvoice, setOrderGst, setOrderDiscount, setOrderCharges,
     rawMaterialStock, packagingStock, readyStock, getReadyStockStatus, priceList, navigate,
   } = useStore();
 
@@ -202,6 +203,35 @@ export default function NewOrder() {
 
   const handleGenerateInvoice = () => {
     generateInvoice(saleDate);
+  };
+
+  // Proforma invoices are a non-binding preliminary quote: generating one does
+  // not touch stock or the real invoice sequence, and the cart stays intact
+  // afterward so the user can still finalize a real invoice from here.
+  const handleGenerateProforma = () => {
+    const proforma = generateProformaInvoice(saleDate);
+    if (!proforma || !businessProfile) return;
+    const html = buildA4Html(proforma, businessProfile, undefined, logoUrl)
+      .replace('</body>', `<script>
+        window.onafterprint=function(){window.close()};
+        var __printed=false;
+        function __doPrint(){ if(__printed) return; __printed=true; window.print(); }
+        var __imgs=document.images, __pending=0;
+        for (var i=0;i<__imgs.length;i++) {
+          if (!__imgs[i].complete) {
+            __pending++;
+            __imgs[i].addEventListener('load', function(){ if(--__pending<=0) __doPrint(); });
+            __imgs[i].addEventListener('error', function(){ if(--__pending<=0) __doPrint(); });
+          }
+        }
+        if (__pending===0) __doPrint();
+        setTimeout(__doPrint, 3000);
+      <\/script></body>`);
+    const w = window.open('', '_blank', 'width=794,height=1123');
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
   };
 
   const handlePrintPreview = () => {
@@ -1002,14 +1032,14 @@ export default function NewOrder() {
             <button onClick={() => setStep(2)} className="border border-gray-300 text-gray-600 px-5 py-2.5 rounded-lg text-sm hover:bg-gray-50">
               ← Edit Items
             </button>
-            {/* <button
-              onClick={handlePrintPreview}
+            <button
+              onClick={handleGenerateProforma}
               disabled={!saleDateValid || !!saleDateError}
-              className="flex items-center justify-center gap-2 border border-gray-400 text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 rounded-lg text-sm font-medium"
-              title="Print preview – no entry saved"
+              className="flex items-center justify-center gap-2 border border-amber-400 text-amber-700 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 rounded-lg text-sm font-medium"
+              title="Generate a non-binding proforma invoice — no stock deducted"
             >
-              <Eye size={16} /> Print Preview
-            </button> */}
+              <Eye size={16} /> Generate Proforma
+            </button>
             <button
               onClick={handleGenerateInvoice}
               disabled={!saleDateValid || !!saleDateError}

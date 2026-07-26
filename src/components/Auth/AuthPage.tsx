@@ -106,9 +106,9 @@ export default function AuthPage() {
         {/* Logo / Brand */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 shadow-xl shadow-indigo-900/50 mb-4">
-            <span className="text-white text-2xl font-bold">V</span>
+            <span className="text-white text-2xl font-bold">M</span>
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Vyaparimay</h1>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Millbook</h1>
           <p className="text-slate-400 text-sm mt-1">Flour Mill Management</p>
         </div>
 

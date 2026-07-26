@@ -1,4 +1,4 @@
-# Vyaparimay — Complete Technical Reference
+# Millbook — Complete Technical Reference
 
 > **Flour Mill Management System** for Shikharji Foods  
 > Stack: React 18 · TypeScript · Zustand · Supabase (PostgreSQL) · Tailwind CSS · Vite
@@ -47,7 +47,7 @@
 
 ## 1. Project Overview
 
-Vyaparimay is a single-page web application (SPA) designed for flour mill businesses. It covers:
+Millbook is a single-page web application (SPA) designed for flour mill businesses. It covers:
 
 - **Customer Management** — CRM with opening balances and payment terms
 - **Order & Invoicing** — GST-compliant (CGST/SGST/IGST), 80mm thermal + A4 print

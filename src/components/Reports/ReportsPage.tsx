@@ -271,7 +271,7 @@ const PDF_STYLES = `
 
 function wrapPdfHtml(body: string): string {
   const generated = formatDate(new Date());
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Report</title><style>${PDF_STYLES}</style></head><body>${body}<div class="footer">Vyaparimay &nbsp;&middot;&nbsp; Generated ${generated}</div></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Report</title><style>${PDF_STYLES}</style></head><body>${body}<div class="footer">Millbook &nbsp;&middot;&nbsp; Generated ${generated}</div></body></html>`;
 }
 
 function buildOverviewPdfHtml(
@@ -1531,7 +1531,7 @@ function buildQuarterlyReportPdfHtml(bizName: string, opt: QuarterOption, data: 
     </div>
 
     <div class="note">Note: Net Cash Surplus and revenue figures reflect recorded sales, expenses and salary payouts. Raw-material and production costs are not tracked with pricing in this system, so the figures above are not a full profit &amp; loss statement.</div>
-    <div class="footer">Vyaparimay &nbsp;&middot;&nbsp; Generated ${ts}</div>
+    <div class="footer">Millbook &nbsp;&middot;&nbsp; Generated ${ts}</div>
   </body></html>`;
 }
 
@@ -1754,7 +1754,7 @@ export default function ReportsPage() {
   const [selectedQuarter, setSelectedQuarter] = useState(() => getQuarterOptions(1)[0].value);
 
   const { businessProfile, invoices, readyStock, packagingStock, packagingEntries, paymentReceipts, customers, expenses, salaryRecords } = useStore();
-  const bizName = businessProfile?.name ?? 'Vyaparimay';
+  const bizName = businessProfile?.name ?? 'Millbook';
 
   const handleDownloadPdf = () => {
     let html: string;

@@ -1,4 +1,4 @@
-# Vyaparimay – Database Design
+# Millbook – Database Design
 
 ## Stack
 - **Database**: Supabase (PostgreSQL 15+)

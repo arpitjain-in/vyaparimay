@@ -164,6 +164,7 @@ export interface Invoice {
   amountInWords: string;
   financialYear: string;  // '2627'
   cancelled: boolean;
+  docType?: 'proforma';   // absent/undefined = regular tax invoice
 }
 
 // ─── Payment Receipts ─────────────────────────────────────────────────────

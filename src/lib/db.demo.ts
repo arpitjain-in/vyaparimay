@@ -1,5 +1,5 @@
 // ─── Demo Mode – localStorage-backed Data Access Layer ───────────────────────
-// All data is stored in localStorage under the key prefix `demo_vyaparimay_`.
+// All data is stored in localStorage under the key prefix `demo_vyaparimay_` (kept for backward compatibility with existing demo data).
 // Nothing is sent to Supabase. Data resets when the user clicks "Reset Demo".
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -289,6 +289,18 @@ export async function updateInvoicePaymentModeInDb(
   lsSet('invoices', invoices);
 }
 
+
+// ─── Proforma Invoices ─────────────────────────────────────────────────────────
+
+export async function loadProformaInvoices(_orgId: string): Promise<Invoice[]> {
+  return lsGet<Invoice[]>('proforma_invoices', []);
+}
+
+export async function saveProformaInvoice(_orgId: string, invoice: Invoice): Promise<void> {
+  const proformas = lsGet<Invoice[]>('proforma_invoices', []);
+  proformas.push(invoice);
+  lsSet('proforma_invoices', proformas);
+}
 
 // ─── Payment Receipts ─────────────────────────────────────────────────────────
 
