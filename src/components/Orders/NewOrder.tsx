@@ -84,12 +84,12 @@ function getStockAlerts(
 export default function NewOrder() {
   const {
     customers, currentOrder, businessProfile,
+    orderStep: step, setOrderStep: setStep,
     setOrderCustomer,
     upsertCartItem, removeCartItem, generateInvoice, setOrderGst, setOrderDiscount, setOrderCharges,
     rawMaterialStock, packagingStock, readyStock, getReadyStockStatus, priceList, navigate,
   } = useStore();
 
-  const [step, setStep] = useState(1);
   const [transportInput, setTransportInput] = useState('');
   const [loadingInput, setLoadingInput] = useState('');
   const [custSearch, setCustSearch] = useState('');

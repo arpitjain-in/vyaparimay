@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import {
   AppPage, BusinessProfile, CartItem, CurrentOrder,
   Customer, Invoice, OrderItem, StockTransaction,
@@ -14,6 +15,8 @@ import * as realDb from '../lib/db';
 import * as demoDb from '../lib/db.demo';
 
 const db = import.meta.env.VITE_DEMO_MODE === 'true' ? demoDb : realDb;
+
+const ORDER_DRAFT_STORAGE_KEY = 'vyaparimay-order-draft';
 
 // Supabase errors are plain objects {message, details, hint, code}, not Error instances.
 function fmtErr(err: unknown): string {
@@ -49,8 +52,10 @@ interface AppState {
   customers: Customer[];
   customerSeq: number;
 
-  // Order in progress
+  // Order in progress (persisted to localStorage so it survives screen
+  // switches, sidebar nav, and page refresh — see `persist` wrapper below)
   currentOrder: CurrentOrder | null;
+  orderStep: number;
 
   // Invoices
   invoices: Invoice[];
@@ -108,6 +113,7 @@ interface AppState {
 
   // Order
   startNewOrder(): void;
+  setOrderStep(step: number): void;
   setOrderCustomer(customerId: string): void;
   setOrderPaymentMode(mode: 'Cash' | 'Credit'): void;
   setOrderGst(enabled: boolean): void;
@@ -189,6 +195,7 @@ const initReorder = {
 
 // ─── Store ───────────────────────────────────────────────────────────────────
 export const useStore = create<AppState>()(
+  persist(
   (set, get) => ({
       // Auth / tenant
       orgId: null,
@@ -211,6 +218,7 @@ export const useStore = create<AppState>()(
 
       // Order
       currentOrder: null,
+      orderStep: 1,
 
       // Invoices
       invoices: [],
@@ -455,17 +463,35 @@ export const useStore = create<AppState>()(
       // ─── Order ───────────────────────────────────────────────────────
 
       startNewOrder() {
-        set({ currentOrder: null, currentPage: 'new-order' });
+        // If an order is already in progress (e.g. the user navigated away
+        // mid-order), resume it instead of wiping it — only start blank
+        // when there's nothing to resume.
+        if (get().currentOrder) {
+          set({ currentPage: 'new-order' });
+        } else {
+          set({ currentOrder: null, orderStep: 1, currentPage: 'new-order' });
+        }
+      },
+
+      setOrderStep(step) {
+        set({ orderStep: step });
       },
 
       setOrderCustomer(customerId) {
-        set(s => ({
-          currentOrder: {
-            customerId,
-            items: s.currentOrder?.items ?? [],
-            paymentMode: 'Credit',
-          },
-        }));
+        set(s => {
+          // Re-selecting the same customer is a no-op — keep the cart as-is.
+          if (s.currentOrder?.customerId === customerId) return {};
+          // Switching to a different customer starts a clean order: cart,
+          // GST override, discount and charges from the previous customer
+          // don't carry over.
+          return {
+            currentOrder: {
+              customerId,
+              items: [],
+              paymentMode: 'Credit',
+            },
+          };
+        });
       },
 
       setOrderPaymentMode(mode) {
@@ -525,7 +551,7 @@ export const useStore = create<AppState>()(
       },
 
       clearOrder() {
-        set({ currentOrder: null });
+        set({ currentOrder: null, orderStep: 1 });
       },
 
       // ─── Invoice Generation ───────────────────────────────────────────
@@ -726,9 +752,13 @@ export const useStore = create<AppState>()(
           packagingStock: newPkgStock,
           packagingEntries: [...s.packagingEntries, ...newPkgEntries],
           currentOrder: null,
+          orderStep: 1,
           currentPage: 'invoice-view',
           selectedInvoiceId: invoice.id,
         });
+        // Invoice generated successfully — the persisted draft is no longer
+        // relevant, so remove it outright rather than leaving a null entry.
+        try { localStorage.removeItem(ORDER_DRAFT_STORAGE_KEY); } catch (e) {}
 
         const { orgId } = get();
         if (orgId) {
@@ -1418,6 +1448,14 @@ export const useStore = create<AppState>()(
       },
 
   }),
+  {
+    name: ORDER_DRAFT_STORAGE_KEY,
+    // Only the in-progress order draft is persisted — everything else is
+    // reloaded from Supabase on init, so we don't want a stale local copy
+    // of customers/invoices/etc. shadowing the server data.
+    partialize: (state) => ({ currentOrder: state.currentOrder, orderStep: state.orderStep }),
+  },
+  ),
 );
 
 export type Store = AppState;
