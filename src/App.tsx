@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { useStore } from './store/useStore';
 import { supabase } from './lib/supabase';
+import { useIdleLogout } from './hooks/useIdleLogout';
 import AuthPage from './components/Auth/AuthPage';
 import DemoBanner from './components/common/DemoBanner';
 import AlertDialog from './components/common/AlertDialog';
@@ -70,6 +71,8 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useIdleLogout(!DEMO_MODE && !!session && session !== 'loading');
 
   useEffect(() => {
     if (!DEMO_MODE && session && session !== 'loading' && !initCalledRef.current) {

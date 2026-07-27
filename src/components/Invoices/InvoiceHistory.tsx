@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, FileText, XCircle, ArrowLeftRight, ChevronLeft, ChevronRight, Truck } from 'lucide-react';
+import { Search, FileText, XCircle, ArrowLeftRight, ChevronLeft, ChevronRight, Truck, Lock, EyeOff } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR, parseDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
@@ -20,6 +20,8 @@ export default function InvoiceHistory() {
   const [truckMode, setTruckMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showLoadSheet, setShowLoadSheet] = useState(false);
+  const [revenueVisible, setRevenueVisible] = useState(false);
+  const [showRevenuePasswordModal, setShowRevenuePasswordModal] = useState(false);
 
   const isProformaTab = docTab === 'proforma';
   const sourceList = isProformaTab ? proformaInvoices : invoices;
@@ -113,7 +115,27 @@ export default function InvoiceHistory() {
           {!isProformaTab && (
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <span>Total Revenue:</span>
-              <span className="font-bold text-gray-800">{fmtINR(totalRevenue)}</span>
+              {revenueVisible ? (
+                <>
+                  <span className="font-bold text-gray-800">{fmtINR(totalRevenue)}</span>
+                  <button
+                    onClick={() => setRevenueVisible(false)}
+                    className="text-slate-400 hover:text-slate-600 transition-colors"
+                    title="Hide total revenue"
+                  >
+                    <EyeOff size={14} />
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setShowRevenuePasswordModal(true)}
+                  className="flex items-center gap-1.5 font-bold text-gray-400 hover:text-gray-600 transition-colors"
+                  title="Show total revenue"
+                >
+                  <span className="tracking-widest">••••••</span>
+                  <Lock size={13} />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -334,6 +356,20 @@ export default function InvoiceHistory() {
           setPendingCancelId(null);
         }}
         onCancel={() => setPendingCancelId(null)}
+      />
+    )}
+
+    {showRevenuePasswordModal && (
+      <DeletePasswordModal
+        invoiceNo=""
+        title="View Total Revenue"
+        description="Enter the 4-digit password to view total revenue."
+        skipConfirmStep
+        onConfirm={() => {
+          setRevenueVisible(true);
+          setShowRevenuePasswordModal(false);
+        }}
+        onCancel={() => setShowRevenuePasswordModal(false)}
       />
     )}
 

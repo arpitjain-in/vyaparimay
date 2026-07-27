@@ -1,11 +1,12 @@
 import React, { useMemo } from 'react';
 import {
   BarChart3, PackageCheck, Box, FileDown, Weight, Users, BookOpen,
-  TrendingUp, Wallet, Receipt, AlertTriangle, IndianRupee, ChevronDown, ChevronRight,
+  TrendingUp, Wallet, Receipt, AlertTriangle, IndianRupee, ChevronDown, ChevronRight, Lock,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/products';
 import Layout from '../Layout/Layout';
+import DeletePasswordModal from '../Invoices/DeletePasswordModal';
 import { fmtINR, formatDate } from '../../utils/format';
 import type { Invoice, PackagingEntry, PaymentReceipt, Expense, SalaryRecord, Customer } from '../../types';
 import { useState } from 'react';
@@ -1742,6 +1743,8 @@ function QuarterlyFinancialReport({
 type Tab = 'overview' | 'packaging' | 'monthly' | 'accountant' | 'quarterly';
 
 export default function ReportsPage() {
+  const [unlocked, setUnlocked] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [monthlySelectedMonth, setMonthlySelectedMonth] = useState(() => {
     const now = new Date();
@@ -1796,6 +1799,42 @@ export default function ReportsPage() {
       Download PDF
     </button>
   );
+
+  if (!unlocked) {
+    return (
+      <Layout title="Reports" subtitle="Sales, ready stock and packaging inventory summaries">
+        <div className="max-w-md mx-auto mt-20 bg-white rounded-2xl border border-slate-100 shadow-sm p-8 text-center">
+          <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-4">
+            <Lock size={22} />
+          </div>
+          <h2 className="text-lg font-semibold text-slate-800 mb-1">Reports are protected</h2>
+          <p className="text-sm text-slate-500 mb-5">
+            Enter the 4-digit password to view sales, revenue and financial reports.
+          </p>
+          <button
+            onClick={() => setShowPasswordModal(true)}
+            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl shadow-sm transition-colors"
+          >
+            Unlock Reports
+          </button>
+        </div>
+
+        {showPasswordModal && (
+          <DeletePasswordModal
+            invoiceNo=""
+            title="View Reports"
+            description="Enter the 4-digit password to view reports."
+            skipConfirmStep
+            onConfirm={() => {
+              setUnlocked(true);
+              setShowPasswordModal(false);
+            }}
+            onCancel={() => setShowPasswordModal(false)}
+          />
+        )}
+      </Layout>
+    );
+  }
 
   return (
     <Layout title="Reports" subtitle="Sales, ready stock and packaging inventory summaries" actions={pdfButton}>
