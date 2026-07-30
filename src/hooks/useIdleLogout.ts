@@ -15,16 +15,20 @@ export function useIdleLogout(enabled: boolean): void {
     const resetTimer = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
-        supabase.auth.signOut();
+        supabase.auth.signOut().catch(() => {
+          // Force local sign-out even if the network call fails (e.g. tab was
+          // asleep/offline), so the idle logout is never silently swallowed.
+          supabase.auth.signOut({ scope: 'local' });
+        });
       }, IDLE_TIMEOUT_MS);
     };
 
     resetTimer();
-    ACTIVITY_EVENTS.forEach((event) => window.addEventListener(event, resetTimer));
+    ACTIVITY_EVENTS.forEach((event) => document.addEventListener(event, resetTimer));
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
-      ACTIVITY_EVENTS.forEach((event) => window.removeEventListener(event, resetTimer));
+      ACTIVITY_EVENTS.forEach((event) => document.removeEventListener(event, resetTimer));
     };
   }, [enabled]);
 }

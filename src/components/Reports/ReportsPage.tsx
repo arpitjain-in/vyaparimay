@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import {
   BarChart3, PackageCheck, Box, FileDown, Weight, Users, BookOpen,
-  TrendingUp, Wallet, Receipt, AlertTriangle, IndianRupee, ChevronDown, ChevronRight, Lock,
+  TrendingUp, Wallet, Receipt, AlertTriangle, IndianRupee, ChevronDown, ChevronRight, Lock, UserX,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/products';
@@ -1738,9 +1738,292 @@ function QuarterlyFinancialReport({
   );
 }
 
+// ─── Customer Inactivity Report ───────────────────────────────────────────────
+// "Debit" = a purchase (non-cancelled invoice). "Credit" = a deposit of money (payment receipt).
+// Finds customers who have had no matching activity within the selected trailing window.
+
+type InactivityTxnType = 'credit' | 'debit' | 'both';
+type InactivityUnit = 'days' | 'weeks' | 'months' | 'years';
+
+const INACTIVITY_UNIT_LABELS: Record<InactivityUnit, string> = {
+  days: 'Day(s)',
+  weeks: 'Week(s)',
+  months: 'Month(s)',
+  years: 'Year(s)',
+};
+
+function parseDMY(ddmmyyyy: string): Date {
+  const [dd, mm, yyyy] = ddmmyyyy.split('/').map(Number);
+  return new Date(yyyy, mm - 1, dd);
+}
+
+function subtractPeriod(base: Date, value: number, unit: InactivityUnit): Date {
+  const d = new Date(base);
+  if (unit === 'days') d.setDate(d.getDate() - value);
+  else if (unit === 'weeks') d.setDate(d.getDate() - value * 7);
+  else if (unit === 'months') d.setMonth(d.getMonth() - value);
+  else d.setFullYear(d.getFullYear() - value);
+  return d;
+}
+
+interface InactiveCustomerRow {
+  customerId: string;
+  customerName: string;
+  firmName?: string;
+  mobile: string;
+  lastCreditDate: string | null;
+  lastDebitDate: string | null;
+  daysSinceRelevant: number | null; // null = no matching activity ever
+  outstandingBalance: number;       // openingBalance + invoices − receipts, all-time; >0 = customer owes us
+}
+
+function buildInactivityData(
+  customers: Customer[],
+  invoices: Invoice[],
+  paymentReceipts: PaymentReceipt[],
+  txnType: InactivityTxnType,
+  unit: InactivityUnit,
+  value: number,
+): InactiveCustomerRow[] {
+  const today = new Date();
+  const cutoffOrd = toOrd(dateStr(subtractPeriod(today, value, unit)));
+
+  const lastDebitByCustomer: Record<string, string> = {};
+  for (const inv of invoices) {
+    if (inv.cancelled) continue;
+    const existing = lastDebitByCustomer[inv.customerId];
+    if (!existing || toOrd(inv.invoiceDate) > toOrd(existing)) {
+      lastDebitByCustomer[inv.customerId] = inv.invoiceDate;
+    }
+  }
+
+  const lastCreditByCustomer: Record<string, string> = {};
+  for (const r of paymentReceipts) {
+    const existing = lastCreditByCustomer[r.customerId];
+    if (!existing || toOrd(r.date) > toOrd(existing)) {
+      lastCreditByCustomer[r.customerId] = r.date;
+    }
+  }
+
+  // Current outstanding balance per customer (all-time, not limited to the inactivity window)
+  const balanceByCustomer: Record<string, number> = {};
+  for (const c of customers) balanceByCustomer[c.id] = c.openingBalance;
+  for (const inv of invoices) {
+    if (inv.cancelled) continue;
+    balanceByCustomer[inv.customerId] = (balanceByCustomer[inv.customerId] ?? 0) + inv.grandTotal;
+  }
+  for (const r of paymentReceipts) {
+    balanceByCustomer[r.customerId] = (balanceByCustomer[r.customerId] ?? 0) - r.amount;
+  }
+
+  const rows: InactiveCustomerRow[] = [];
+
+  for (const cust of customers) {
+    if (!cust.active) continue;
+    const lastDebitDate = lastDebitByCustomer[cust.id] ?? null;
+    const lastCreditDate = lastCreditByCustomer[cust.id] ?? null;
+
+    let relevantDate: string | null;
+    if (txnType === 'debit') relevantDate = lastDebitDate;
+    else if (txnType === 'credit') relevantDate = lastCreditDate;
+    else if (!lastDebitDate) relevantDate = lastCreditDate;
+    else if (!lastCreditDate) relevantDate = lastDebitDate;
+    else relevantDate = toOrd(lastDebitDate) > toOrd(lastCreditDate) ? lastDebitDate : lastCreditDate;
+
+    const isInactive = !relevantDate || toOrd(relevantDate) < cutoffOrd;
+    if (!isInactive) continue;
+
+    // Only customers with a pending (non-zero) outstanding balance are relevant here.
+    const outstandingBalance = balanceByCustomer[cust.id] ?? 0;
+    if (outstandingBalance === 0) continue;
+
+    const daysSinceRelevant = relevantDate
+      ? Math.floor((today.getTime() - parseDMY(relevantDate).getTime()) / 86400000)
+      : null;
+
+    rows.push({
+      customerId: cust.id,
+      customerName: cust.name,
+      firmName: cust.firmName,
+      mobile: cust.mobile,
+      lastCreditDate,
+      lastDebitDate,
+      daysSinceRelevant,
+      outstandingBalance,
+    });
+  }
+
+  return rows.sort((a, b) => {
+    if (a.daysSinceRelevant === null && b.daysSinceRelevant === null) return a.customerName.localeCompare(b.customerName);
+    if (a.daysSinceRelevant === null) return -1;
+    if (b.daysSinceRelevant === null) return 1;
+    return b.daysSinceRelevant - a.daysSinceRelevant;
+  });
+}
+
+function buildInactivityReportPdfHtml(
+  bizName: string,
+  rows: InactiveCustomerRow[],
+  txnType: InactivityTxnType,
+  unit: InactivityUnit,
+  value: number,
+): string {
+  const now = new Date();
+  const ts = `${formatDate(now)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const unitLabel = INACTIVITY_UNIT_LABELS[unit].toLowerCase();
+  const typeLabel = txnType === 'both' ? 'credit or debit' : txnType;
+
+  const bodyRows = rows.map(r => `<tr>
+    <td class="bold">${r.customerId}</td>
+    <td>${r.customerName}</td>
+    <td>${r.firmName ?? '—'}</td>
+    <td>${r.mobile}</td>
+    <td>${r.lastCreditDate ?? '—'}</td>
+    <td>${r.lastDebitDate ?? '—'}</td>
+    <td class="right amber bold">${r.daysSinceRelevant === null ? 'Never' : `${r.daysSinceRelevant}d`}</td>
+    <td class="right amt">${fmtINR(r.outstandingBalance)}</td>
+  </tr>`).join('');
+
+  const body = `
+    <div class="header">
+      <div class="biz-name">${bizName}</div>
+      <div class="report-title">Customer Inactivity Report</div>
+      <div class="report-meta">No ${typeLabel} in the last ${value} ${unitLabel}, with a pending outstanding balance &nbsp;&middot;&nbsp; Generated: ${ts} &nbsp;&middot;&nbsp; ${rows.length} customer${rows.length !== 1 ? 's' : ''}</div>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Customer ID</th><th>Name</th><th>Firm</th><th>Mobile</th>
+        <th>Last Credit</th><th>Last Debit</th><th class="right">Days Inactive</th><th class="right">Outstanding</th>
+      </tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>`;
+
+  return wrapPdfHtml(body);
+}
+
+function CustomerInactivityReport({
+  txnType, onTxnTypeChange,
+  unit, onUnitChange,
+  valueText, onValueTextChange,
+}: {
+  txnType: InactivityTxnType;
+  onTxnTypeChange: (t: InactivityTxnType) => void;
+  unit: InactivityUnit;
+  onUnitChange: (u: InactivityUnit) => void;
+  valueText: string;
+  onValueTextChange: (v: string) => void;
+}) {
+  const { customers, invoices, paymentReceipts } = useStore();
+
+  const value = Number(valueText);
+  const isValid = valueText.trim() !== '' && value > 0;
+
+  const rows = useMemo(
+    () => (isValid ? buildInactivityData(customers, invoices, paymentReceipts, txnType, unit, value) : []),
+    [customers, invoices, paymentReceipts, txnType, unit, value, isValid],
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-4 bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-slate-600">No</label>
+          <select
+            value={txnType}
+            onChange={e => onTxnTypeChange(e.target.value as InactivityTxnType)}
+            className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          >
+            <option value="credit">Credit</option>
+            <option value="debit">Debit</option>
+            <option value="both">Both</option>
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-slate-600">in the last</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={valueText}
+            onChange={e => onValueTextChange(e.target.value.replace(/\D/g, ''))}
+            placeholder="2"
+            className="w-16 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 bg-white text-center focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          />
+          <select
+            value={unit}
+            onChange={e => onUnitChange(e.target.value as InactivityUnit)}
+            className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          >
+            {(Object.keys(INACTIVITY_UNIT_LABELS) as InactivityUnit[]).map(u => (
+              <option key={u} value={u}>{INACTIVITY_UNIT_LABELS[u]}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {!isValid ? (
+        <div className="text-center py-16 text-slate-400">
+          <UserX size={40} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">Enter a number to see inactive customers</p>
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="text-center py-16 text-slate-400">
+          <UserX size={40} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">
+            No customers inactive for {value} {INACTIVITY_UNIT_LABELS[unit].toLowerCase()} ({txnType === 'both' ? 'credit or debit' : txnType}) with a pending outstanding balance
+          </p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100">
+            <span className="font-semibold text-slate-700">
+              {rows.length} customer{rows.length !== 1 ? 's' : ''} with no {txnType === 'both' ? 'credit or debit' : txnType} in the last {value} {INACTIVITY_UNIT_LABELS[unit].toLowerCase()}, with a pending outstanding balance
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-slate-400 border-b border-slate-100 bg-slate-50/50">
+                  <th className="text-left px-5 py-2.5 font-medium">Customer ID</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Name</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Firm</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Mobile</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Last Credit</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Last Debit</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Days Inactive</th>
+                  <th className="text-right px-5 py-2.5 font-medium">Outstanding</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.customerId} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
+                    <td className="px-5 py-2.5 font-mono text-xs text-slate-500">{r.customerId}</td>
+                    <td className="px-4 py-2.5 font-medium text-slate-800">{r.customerName}</td>
+                    <td className="px-4 py-2.5 text-slate-500">{r.firmName ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-slate-500">{r.mobile}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{r.lastCreditDate ?? <span className="text-slate-300">Never</span>}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{r.lastDebitDate ?? <span className="text-slate-300">Never</span>}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-amber-600">
+                      {r.daysSinceRelevant === null ? 'Never' : `${r.daysSinceRelevant}d`}
+                    </td>
+                    <td className={`px-5 py-2.5 text-right font-bold ${r.outstandingBalance > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                      {fmtINR(r.outstandingBalance)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Reports Page ────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'packaging' | 'monthly' | 'accountant' | 'quarterly';
+type Tab = 'overview' | 'packaging' | 'monthly' | 'accountant' | 'quarterly' | 'inactivity';
 
 export default function ReportsPage() {
   const [unlocked, setUnlocked] = useState(false);
@@ -1755,6 +2038,9 @@ export default function ReportsPage() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [selectedQuarter, setSelectedQuarter] = useState(() => getQuarterOptions(1)[0].value);
+  const [inactivityTxnType, setInactivityTxnType] = useState<InactivityTxnType>('both');
+  const [inactivityUnit, setInactivityUnit] = useState<InactivityUnit>('weeks');
+  const [inactivityValueText, setInactivityValueText] = useState('2');
 
   const { businessProfile, invoices, readyStock, packagingStock, packagingEntries, paymentReceipts, customers, expenses, salaryRecords } = useStore();
   const bizName = businessProfile?.name ?? 'Millbook';
@@ -1781,6 +2067,12 @@ export default function ReportsPage() {
       const opt = quarterOptions.find(o => o.value === selectedQuarter) ?? quarterOptions[0];
       const data = buildQuarterReportData(opt, invoices, paymentReceipts, expenses, salaryRecords, customers);
       html = buildQuarterlyReportPdfHtml(bizName, opt, data);
+    } else if (activeTab === 'inactivity') {
+      const value = Number(inactivityValueText);
+      const rows = value > 0
+        ? buildInactivityData(customers, invoices, paymentReceipts, inactivityTxnType, inactivityUnit, value)
+        : [];
+      html = buildInactivityReportPdfHtml(bizName, rows, inactivityTxnType, inactivityUnit, value);
     } else {
       const monthOptions = getMonthOptions();
       const monthLabel = monthOptions.find(o => o.value === monthlySelectedMonth)?.label ?? monthlySelectedMonth;
@@ -1887,6 +2179,15 @@ export default function ReportsPage() {
             <BookOpen size={15} />
             Accountant
           </button>
+          <button
+            onClick={() => setActiveTab('inactivity')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all ${
+              activeTab === 'inactivity' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <UserX size={15} />
+            Inactivity
+          </button>
         </div>
 
         {activeTab === 'quarterly' && (
@@ -1936,6 +2237,17 @@ export default function ReportsPage() {
           <AccountantReport
             selectedMonth={accountantSelectedMonth}
             onMonthChange={setAccountantSelectedMonth}
+          />
+        )}
+
+        {activeTab === 'inactivity' && (
+          <CustomerInactivityReport
+            txnType={inactivityTxnType}
+            onTxnTypeChange={setInactivityTxnType}
+            unit={inactivityUnit}
+            onUnitChange={setInactivityUnit}
+            valueText={inactivityValueText}
+            onValueTextChange={setInactivityValueText}
           />
         )}
       </div>
