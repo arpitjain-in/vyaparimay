@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import {
   BarChart3, PackageCheck, Box, FileDown, Weight, Users, BookOpen,
   TrendingUp, Wallet, Receipt, AlertTriangle, IndianRupee, ChevronDown, ChevronRight, Lock, UserX,
+  CalendarRange,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/products';
@@ -10,6 +11,11 @@ import DeletePasswordModal from '../Invoices/DeletePasswordModal';
 import { fmtINR, formatDate } from '../../utils/format';
 import type { Invoice, PackagingEntry, PaymentReceipt, Expense, SalaryRecord, Customer } from '../../types';
 import { useState } from 'react';
+
+// SKU → product-line map (WF/BS/BR/DL), used to attribute revenue and weight
+// to Wheat Flour / Bran / Besan for the monthly comparison report below.
+const SKU_TO_PRODUCT_ID: Record<string, string> = {};
+for (const p of PRODUCTS) SKU_TO_PRODUCT_ID[p.id] = p.productId;
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -24,8 +30,17 @@ function dateStr(d: Date): string {
 
 function fmtKg(kg: number): string {
   if (kg === 0) return '0 kg';
+  if (Math.abs(kg) > 1000) {
+    const mt = kg / 1000;
+    const mtStr = mt % 1 === 0 ? mt.toLocaleString('en-IN') : mt.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+    return `${mtStr} MT`;
+  }
   if (kg % 1 === 0) return `${kg.toLocaleString('en-IN')} kg`;
   return `${kg.toFixed(1)} kg`;
+}
+
+function fmtPricePerKg(v: number): string {
+  return v > 0 ? `${fmtINR(v, true)}/kg` : '—';
 }
 
 // ─── Period definitions ───────────────────────────────────────────────────────
@@ -1738,6 +1753,305 @@ function QuarterlyFinancialReport({
   );
 }
 
+// ─── Monthly Comparison Report ────────────────────────────────────────────────
+// The mill's financial year runs Apr–Mar. Rather than a fixed trailing 12
+// months, this walks forward from the most recent 1-April up to the current
+// (partial) month — so a mill that started operating in April simply shows
+// however many months have elapsed, capped naturally at 12 once a full FY passes.
+
+function fiscalYearStartMonth(d: Date): Date {
+  const monthIdx = d.getMonth(); // 0 = Jan
+  const fyYear = monthIdx >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+  return new Date(fyYear, 3, 1); // 1 April
+}
+
+function getFiscalMonthlyPeriods(): PeriodDef[] {
+  const today = new Date();
+  const fyStart = fiscalYearStartMonth(today);
+  const periods: PeriodDef[] = [];
+  let cursor = new Date(fyStart.getFullYear(), fyStart.getMonth(), 1);
+  while (cursor.getTime() <= today.getTime()) {
+    const mStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+    const mEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+    const cappedEnd = mEnd.getTime() > today.getTime() ? today : mEnd;
+    periods.push({
+      label: monthName(mStart),
+      sublabel: dateStr(mStart),
+      startOrd: toOrd(dateStr(mStart)),
+      endOrd: toOrd(dateStr(cappedEnd)),
+    });
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+  return periods;
+}
+
+interface MonthComparisonRow extends PeriodDef {
+  invoiceCount: number;
+  totalSales: number;         // sum of invoiced amount (grandTotal) for the month
+  revenueCollection: number;  // cash sales + payment receipts collected that month
+  totalWeightKg: number;
+  totalUnits: number;
+  weightWF: number; weightBR: number; weightBS: number;
+  revenueWF: number; revenueBR: number; revenueBS: number;
+  avgPriceWF: number; avgPriceBR: number; avgPriceBS: number; // ₹ per kg
+}
+
+function buildMonthComparisonData(
+  periods: PeriodDef[],
+  invoices: Invoice[],
+  receipts: PaymentReceipt[],
+): MonthComparisonRow[] {
+  return periods.map(p => {
+    const stats = calcPeriodStats(invoices, receipts, p.startOrd, p.endOrd);
+
+    let weightWF = 0, weightBR = 0, weightBS = 0;
+    let revenueWF = 0, revenueBR = 0, revenueBS = 0;
+    for (const inv of invoices) {
+      if (inv.cancelled) continue;
+      const ord = toOrd(inv.invoiceDate);
+      if (ord < p.startOrd || ord > p.endOrd) continue;
+      for (const item of inv.items) {
+        const cat = SKU_TO_PRODUCT_ID[item.skuId];
+        const kg = item.quantity * item.weight;
+        if (cat === 'WF') { weightWF += kg; revenueWF += item.lineTotal; }
+        else if (cat === 'BR') { weightBR += kg; revenueBR += item.lineTotal; }
+        else if (cat === 'BS') { weightBS += kg; revenueBS += item.lineTotal; }
+      }
+    }
+
+    return {
+      ...p,
+      invoiceCount: stats.invoiceCount,
+      totalSales: stats.invoiceTotal,
+      revenueCollection: stats.moneyReceived,
+      totalWeightKg: stats.totalWeightKg,
+      totalUnits: stats.totalUnits,
+      weightWF, weightBR, weightBS,
+      revenueWF, revenueBR, revenueBS,
+      avgPriceWF: weightWF > 0 ? revenueWF / weightWF : 0,
+      avgPriceBR: weightBR > 0 ? revenueBR / weightBR : 0,
+      avgPriceBS: weightBS > 0 ? revenueBS / weightBS : 0,
+    };
+  });
+}
+
+/** Single-series vertical bar chart — month labels on the x-axis, value shown above each bar. */
+function MonthlyBarChart({
+  periods, values, colorClass, formatValue, heightPx = 160,
+}: {
+  periods: { label: string }[];
+  values: number[];
+  colorClass: string;
+  formatValue: (v: number) => string;
+  heightPx?: number;
+}) {
+  const max = Math.max(1, ...values);
+  const barAreaHeight = heightPx - 28;
+  const shortLabel = (label: string) => label.replace(' (Current)', '').split(' ')[0];
+
+  return (
+    <div className="flex items-end gap-4 min-w-max" style={{ height: heightPx }}>
+      {periods.map((p, pi) => {
+        const v = values[pi] ?? 0;
+        const h = v > 0 ? Math.max(3, (v / max) * barAreaHeight) : 0;
+        return (
+          <div key={pi} className="flex flex-col items-center justify-end h-full min-w-[60px]" title={`${p.label}: ${formatValue(v)}`}>
+            <div className="flex items-end justify-center h-full" style={{ height: barAreaHeight }}>
+              <div className="flex flex-col items-center justify-end h-full">
+                {v > 0 && (
+                  <span className="text-[9px] font-semibold text-slate-500 mb-1 whitespace-nowrap">
+                    {formatValue(v)}
+                  </span>
+                )}
+                <div className={`w-9 rounded-t-[4px] ${colorClass}`} style={{ height: h }} />
+              </div>
+            </div>
+            <div className="text-[11px] font-medium text-slate-500 mt-2 whitespace-nowrap">
+              {shortLabel(p.label)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function buildMonthComparisonPdfHtml(bizName: string, rows: MonthComparisonRow[]): string {
+  const now = new Date();
+  const ts = `${formatDate(now)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  const salesRows = rows.map(r => `<tr>
+    <td class="bold">${r.label}</td>
+    <td class="right">${r.invoiceCount}</td>
+    <td class="right amt">${fmtINR(r.totalSales)}</td>
+    <td class="right green">${fmtINR(r.revenueCollection)}</td>
+    <td class="right">${fmtKg(r.totalWeightKg)}</td>
+    <td class="right">${r.totalUnits.toLocaleString('en-IN')}</td>
+  </tr>`).join('');
+
+  const priceRows = rows.map(r => `<tr>
+    <td class="bold">${r.label}</td>
+    <td class="right">${r.weightWF > 0 ? fmtKg(r.weightWF) : '—'}</td>
+    <td class="right amt">${r.avgPriceWF > 0 ? fmtPricePerKg(r.avgPriceWF) : '—'}</td>
+    <td class="right">${r.weightBR > 0 ? fmtKg(r.weightBR) : '—'}</td>
+    <td class="right amt">${r.avgPriceBR > 0 ? fmtPricePerKg(r.avgPriceBR) : '—'}</td>
+    <td class="right">${r.weightBS > 0 ? fmtKg(r.weightBS) : '—'}</td>
+    <td class="right amt">${r.avgPriceBS > 0 ? fmtPricePerKg(r.avgPriceBS) : '—'}</td>
+  </tr>`).join('');
+
+  const body = `
+    <div class="header">
+      <div class="biz-name">${bizName}</div>
+      <div class="report-title">Monthly Comparison Report — since ${rows[0]?.label ?? ''}</div>
+      <div class="report-meta">Generated: ${ts}</div>
+    </div>
+    <div class="section-heading indigo">Sales &amp; Collection</div>
+    <table>
+      <thead><tr>
+        <th>Month</th><th class="right">Invoices</th><th class="right">Total Sales</th>
+        <th class="right">Revenue Collection</th><th class="right">Weight Sold</th><th class="right">Units</th>
+      </tr></thead>
+      <tbody>${salesRows}</tbody>
+    </table>
+    <div class="section-heading indigo" style="margin-top:18px">Average Price by Product</div>
+    <table>
+      <thead><tr>
+        <th>Month</th>
+        <th class="right">Wheat Flour Wt.</th><th class="right">Wheat Flour Avg Price</th>
+        <th class="right">Bran Wt.</th><th class="right">Bran Avg Price</th>
+        <th class="right">Besan Wt.</th><th class="right">Besan Avg Price</th>
+      </tr></thead>
+      <tbody>${priceRows}</tbody>
+    </table>`;
+
+  return wrapPdfHtml(body);
+}
+
+function MonthlyComparisonReport() {
+  const { invoices, paymentReceipts } = useStore();
+
+  const periods = useMemo(getFiscalMonthlyPeriods, []);
+  const rows = useMemo(
+    () => buildMonthComparisonData(periods, invoices, paymentReceipts),
+    [periods, invoices, paymentReceipts],
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="text-xs text-slate-400 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
+        Showing {rows.length} month{rows.length !== 1 ? 's' : ''} since {rows[0]?.label} — the current financial year (Apr–Mar), from the mill's first month of operation.
+      </div>
+
+      {/* Sales vs Collection */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div className="font-semibold text-slate-700 mb-1">Total Monthly Sales</div>
+          <div className="text-xs text-slate-400 mb-4">Invoiced amount, month-on-month</div>
+          <div className="overflow-x-auto">
+            <MonthlyBarChart periods={rows} values={rows.map(r => r.totalSales)} colorClass="bg-indigo-500" formatValue={v => fmtINR(v)} />
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div className="font-semibold text-slate-700 mb-1">Total Revenue Collection</div>
+          <div className="text-xs text-slate-400 mb-4">Cash sales + payment receipts</div>
+          <div className="overflow-x-auto">
+            <MonthlyBarChart periods={rows} values={rows.map(r => r.revenueCollection)} colorClass="bg-emerald-500" formatValue={v => fmtINR(v)} />
+          </div>
+        </div>
+      </div>
+
+      {/* Average price by product */}
+      <div className="grid md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div className="font-semibold text-slate-700 mb-1">Wheat Flour — Avg. Price</div>
+          <div className="text-xs text-slate-400 mb-4">₹ per kg, revenue-weighted</div>
+          <div className="overflow-x-auto">
+            <MonthlyBarChart periods={rows} values={rows.map(r => r.avgPriceWF)} colorClass="bg-indigo-500" formatValue={fmtPricePerKg} heightPx={150} />
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div className="font-semibold text-slate-700 mb-1">Bran — Avg. Price</div>
+          <div className="text-xs text-slate-400 mb-4">₹ per kg, revenue-weighted</div>
+          <div className="overflow-x-auto">
+            <MonthlyBarChart periods={rows} values={rows.map(r => r.avgPriceBR)} colorClass="bg-amber-500" formatValue={fmtPricePerKg} heightPx={150} />
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+          <div className="font-semibold text-slate-700 mb-1">Besan — Avg. Price</div>
+          <div className="text-xs text-slate-400 mb-4">₹ per kg, revenue-weighted</div>
+          <div className="overflow-x-auto">
+            <MonthlyBarChart periods={rows} values={rows.map(r => r.avgPriceBS)} colorClass="bg-violet-500" formatValue={fmtPricePerKg} heightPx={150} />
+          </div>
+        </div>
+      </div>
+
+      {/* Detail table: sales & collection */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 font-semibold text-slate-700">Sales &amp; Collection — Detail</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-400 border-b border-slate-100 bg-slate-50/50">
+                <th className="text-left px-5 py-2.5 font-medium">Month</th>
+                <th className="text-right px-4 py-2.5 font-medium">Invoices</th>
+                <th className="text-right px-4 py-2.5 font-medium text-indigo-600">Total Sales</th>
+                <th className="text-right px-4 py-2.5 font-medium text-emerald-600">Revenue Collection</th>
+                <th className="text-right px-4 py-2.5 font-medium">Weight Sold</th>
+                <th className="text-right px-5 py-2.5 font-medium">Units</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.label} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
+                  <td className="px-5 py-2.5 font-medium text-slate-700">{r.label}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-600">{r.invoiceCount}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-indigo-600">{fmtINR(r.totalSales)}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">{fmtINR(r.revenueCollection)}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-600">{fmtKg(r.totalWeightKg)}</td>
+                  <td className="px-5 py-2.5 text-right text-slate-600">{r.totalUnits.toLocaleString('en-IN')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Detail table: product price & volume */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 font-semibold text-slate-700">Product Price &amp; Volume — Detail</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-400 border-b border-slate-100 bg-slate-50/50">
+                <th className="text-left px-5 py-2.5 font-medium">Month</th>
+                <th className="text-right px-4 py-2.5 font-medium">Wheat Flour Wt.</th>
+                <th className="text-right px-4 py-2.5 font-medium text-indigo-600">Wheat Flour Avg Price</th>
+                <th className="text-right px-4 py-2.5 font-medium">Bran Wt.</th>
+                <th className="text-right px-4 py-2.5 font-medium text-amber-600">Bran Avg Price</th>
+                <th className="text-right px-4 py-2.5 font-medium">Besan Wt.</th>
+                <th className="text-right px-5 py-2.5 font-medium text-violet-600">Besan Avg Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.label} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
+                  <td className="px-5 py-2.5 font-medium text-slate-700">{r.label}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-600">{r.weightWF > 0 ? fmtKg(r.weightWF) : <span className="text-slate-300">—</span>}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-indigo-600">{r.avgPriceWF > 0 ? fmtPricePerKg(r.avgPriceWF) : <span className="text-slate-300">—</span>}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-600">{r.weightBR > 0 ? fmtKg(r.weightBR) : <span className="text-slate-300">—</span>}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-amber-600">{r.avgPriceBR > 0 ? fmtPricePerKg(r.avgPriceBR) : <span className="text-slate-300">—</span>}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-600">{r.weightBS > 0 ? fmtKg(r.weightBS) : <span className="text-slate-300">—</span>}</td>
+                  <td className="px-5 py-2.5 text-right font-semibold text-violet-600">{r.avgPriceBS > 0 ? fmtPricePerKg(r.avgPriceBS) : <span className="text-slate-300">—</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Customer Inactivity Report ───────────────────────────────────────────────
 // "Debit" = a purchase (non-cancelled invoice). "Credit" = a deposit of money (payment receipt).
 // Finds customers who have had no matching activity within the selected trailing window.
@@ -2023,7 +2337,7 @@ function CustomerInactivityReport({
 
 // ─── Main Reports Page ────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'packaging' | 'monthly' | 'accountant' | 'quarterly' | 'inactivity';
+type Tab = 'overview' | 'packaging' | 'monthly' | 'accountant' | 'quarterly' | 'inactivity' | 'comparison';
 
 export default function ReportsPage() {
   const [unlocked, setUnlocked] = useState(false);
@@ -2073,6 +2387,10 @@ export default function ReportsPage() {
         ? buildInactivityData(customers, invoices, paymentReceipts, inactivityTxnType, inactivityUnit, value)
         : [];
       html = buildInactivityReportPdfHtml(bizName, rows, inactivityTxnType, inactivityUnit, value);
+    } else if (activeTab === 'comparison') {
+      const comparisonPeriods = getFiscalMonthlyPeriods();
+      const comparisonRows = buildMonthComparisonData(comparisonPeriods, invoices, paymentReceipts);
+      html = buildMonthComparisonPdfHtml(bizName, comparisonRows);
     } else {
       const monthOptions = getMonthOptions();
       const monthLabel = monthOptions.find(o => o.value === monthlySelectedMonth)?.label ?? monthlySelectedMonth;
@@ -2188,6 +2506,15 @@ export default function ReportsPage() {
             <UserX size={15} />
             Inactivity
           </button>
+          <button
+            onClick={() => setActiveTab('comparison')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all ${
+              activeTab === 'comparison' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <CalendarRange size={15} />
+            Monthly Comparison
+          </button>
         </div>
 
         {activeTab === 'quarterly' && (
@@ -2250,6 +2577,8 @@ export default function ReportsPage() {
             onValueTextChange={setInactivityValueText}
           />
         )}
+
+        {activeTab === 'comparison' && <MonthlyComparisonReport />}
       </div>
     </Layout>
   );

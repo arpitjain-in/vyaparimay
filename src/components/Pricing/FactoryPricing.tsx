@@ -31,9 +31,26 @@ const percentDisplay = (value: unknown, fallback: number) => {
   return n >= 1 ? n : n * 100;
 };
 
+// Profit margin categories (%) — Handle Bags, Pouches, and 25kg+ Bags
+const HANDLE_BAG_SKUS = ['WF-5H', 'WF-10H', 'AT30-HB3', 'AT30-HB6'];
+const POUCH_SKUS = ['WF-5P', 'WF-10P', 'AT30-PO3', 'AT30-PO6'];
+const BAGS_25KG_PLUS_SKUS = ['WF-26K', 'WF-25K', 'WF-25HUN', 'WF-50K', 'WF-30K'];
+
+const DEFAULT_PROFIT_MARGIN_PCT = 1.5;
+
+const DEFAULT_PROFIT_MARGIN_BY_SKU: Record<string, number> = {
+  ...Object.fromEntries(HANDLE_BAG_SKUS.map(id => [id, 2])),
+  ...Object.fromEntries(POUCH_SKUS.map(id => [id, 3])),
+  ...Object.fromEntries(BAGS_25KG_PLUS_SKUS.map(id => [id, 1.75])),
+};
+
+function getDefaultProfitPct(skuId: string) {
+  return DEFAULT_PROFIT_MARGIN_BY_SKU[skuId] ?? DEFAULT_PROFIT_MARGIN_PCT;
+}
+
 function computeCosts(params: any) {
   const p = { ...params };
-  const dailyMt = Number(p.dailyProductionMt || 10);
+  const dailyMt = Number(p.dailyProductionMt || 15);
   const days = Number(p.workingDays || 28);
   const monthlyProductionKg = dailyMt * 1000 * days;
   const branRecoveryPct = normalizePercentInput(Number(p.branRecovery || 0));
@@ -73,18 +90,18 @@ export default function FactoryPricing() {
   const setFactoryPrices = useStore(s => s.setFactoryPrices);
 
   const [localParams, setLocalParams] = useState<FactoryPricingParams>({
-    wheatPrice: Number(factoryParams.wheatPrice ?? 23.1),
+    wheatPrice: Number(factoryParams.wheatPrice ?? 24.25),
     branRecovery: percentDisplay(factoryParams.branRecovery, 5),
     wheatWastage: percentDisplay(factoryParams.wheatWastage, 1),
-    branSellingPrice: Number(factoryParams.branSellingPrice ?? 24),
-    dailyProductionMt: Number(factoryParams.dailyProductionMt ?? 10),
+    branSellingPrice: Number(factoryParams.branSellingPrice ?? 23),
+    dailyProductionMt: Number(factoryParams.dailyProductionMt ?? 15),
     workingDays: Number(factoryParams.workingDays ?? 28),
-    monthlySalary: Number(factoryParams.monthlySalary ?? 200000),
-    monthlyElectricity: Number(factoryParams.monthlyElectricity ?? 200000),
+    monthlySalary: Number(factoryParams.monthlySalary ?? 250000),
+    monthlyElectricity: Number(factoryParams.monthlyElectricity ?? 250000),
     monthlyEmi: Number(factoryParams.monthlyEmi ?? 200000),
-    monthlyRepair: Number(factoryParams.monthlyRepair ?? 30000),
-    safetyMargin: Number(factoryParams.safetyMargin ?? 0.1),
-    profitMarginBySku: {},
+    monthlyRepair: Number(factoryParams.monthlyRepair ?? 35000),
+    safetyMargin: Number(factoryParams.safetyMargin ?? 0.15),
+    profitMarginBySku: (factoryParams.profitMarginBySku as Record<string, number>) ?? DEFAULT_PROFIT_MARGIN_BY_SKU,
   });
 
   const costs = useMemo(() => computeCosts(localParams), [localParams]);
@@ -94,13 +111,13 @@ export default function FactoryPricing() {
   // Default packaging costs (Rs/kg) from factory pricing
   const DEFAULT_PACKAGING_COSTS: Record<string, number> = {
     'WF-50K_pkg_cost': 0.37,   // 50 kg Bag
-    'WF-30K_pkg_cost': 0.43,   // 30 kg Bag (Rs 13/bag ÷ 30 kg)
-    'WF-26K_pkg_cost': 0.60,   // 26 kg Bag
-    'WF-25K_pkg_cost': 0.60,   // 25 kg Bag (same as 26 kg)
-    'WF-10H_pkg_cost': 1.20,   // 10 kg Handle Bag
-    'WF-10P_pkg_cost': 1.35,   // 10 kg Pouch
-    'WF-5P_pkg_cost': 2.00,    // 5 kg Pouch
-    'WF-5H_pkg_cost': 1.85,    // 5 kg Handle Bag
+    'WF-30K_pkg_cost': 0.43,   // 30 kg Bag
+    'WF-26K_pkg_cost': 0.65,   // 26 kg Bag
+    'WF-25K_pkg_cost': 0.65,   // 25 kg Bag (same as 26 kg)
+    'WF-10H_pkg_cost': 1.35,   // 10 kg Handle Bag
+    'WF-10P_pkg_cost': 2.10,   // PREM-10 kg Pouch
+    'WF-5P_pkg_cost': 2.25,    // PREM-5 kg Pouch
+    'WF-5H_pkg_cost': 2.00,    // 5 kg Handle Bag
   };
 
   const [localPrices, setLocalPrices] = useState<Record<string, number>>(() => ({ 
@@ -115,7 +132,7 @@ export default function FactoryPricing() {
     for (const sku of packagingSkus) {
       const packagingCostPerKg = Number(localPrices[sku.id + '_pkg_cost'] || 0);
       const finalFactoryCostPerKg = costs.baseManufacturingCost + packagingCostPerKg;
-      const defaultProfitPct = 1.5;
+      const defaultProfitPct = getDefaultProfitPct(sku.id);
       const profitPct = Number(localParams.profitMarginBySku?.[sku.id] ?? defaultProfitPct) / 100;
       const sellingPerKg = finalFactoryCostPerKg * (1 + profitPct) + safety;
       const bagPrice = parseFloat((sellingPerKg * sku.weight).toFixed(2));
@@ -204,7 +221,7 @@ export default function FactoryPricing() {
                 const pkgKey = sku.id + '_pkg_cost';
                 const pkgCost = Number(localPrices[pkgKey] || 0);
                 const finalFactoryCostPerKg = costs.baseManufacturingCost + pkgCost;
-                const defaultProfitPct = 1.5;
+                const defaultProfitPct = getDefaultProfitPct(sku.id);
                 const profitPct = Number(localParams.profitMarginBySku?.[sku.id] ?? defaultProfitPct) / 100;
                 const sellingPerKg = finalFactoryCostPerKg * (1 + profitPct) + Number(localParams.safetyMargin || 0);
                 const bagPrice = parseFloat((sellingPerKg * sku.weight).toFixed(2));
