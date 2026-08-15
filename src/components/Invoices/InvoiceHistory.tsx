@@ -1,22 +1,35 @@
-import React, { useState, useEffect } from 'react';
-import { Search, FileText, XCircle, ArrowLeftRight, ChevronLeft, ChevronRight, Truck, Lock, EyeOff } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Search, FileText, XCircle, ArrowLeftRight, ChevronLeft, ChevronRight, Truck, Lock, EyeOff, Loader2, AlertCircle } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { fmtINR, parseDDMMYYYY } from '../../utils/format';
+import { fmtINR, fmtWeight } from '../../utils/format';
 import Layout from '../Layout/Layout';
 import DeletePasswordModal from './DeletePasswordModal';
 import TruckLoadSheet from './TruckLoadSheet';
+import type { Invoice } from '../../types';
+import * as realDb from '../../lib/db';
+import * as demoDb from '../../lib/db.demo';
+
+const db = import.meta.env.VITE_DEMO_MODE === 'true' ? demoDb : realDb;
 
 const PAGE_SIZE = 25;
 
 export default function InvoiceHistory() {
-  const { invoices, proformaInvoices, navigate, cancelInvoice, updateInvoicePaymentMode } = useStore();
+  const { orgId, invoices, navigate, cancelInvoice, updateInvoicePaymentMode } = useStore();
   const [docTab, setDocTab] = useState<'invoice' | 'proforma'>('invoice');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showCancelled, setShowCancelled] = useState(false);
   const [paymentFilter, setPaymentFilter] = useState<'All' | 'Cash' | 'Credit'>('All');
   const [pendingCancelId, setPendingCancelId] = useState<string | null>(null);
   const [pendingPaymentModeId, setPendingPaymentModeId] = useState<string | null>(null);
+
+  // Server-side paginated rows for the table — only the current page is ever fetched.
+  const [rows, setRows] = useState<Invoice[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const [truckMode, setTruckMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showLoadSheet, setShowLoadSheet] = useState(false);
@@ -24,32 +37,37 @@ export default function InvoiceHistory() {
   const [showRevenuePasswordModal, setShowRevenuePasswordModal] = useState(false);
 
   const isProformaTab = docTab === 'proforma';
-  const sourceList = isProformaTab ? proformaInvoices : invoices;
 
-  useEffect(() => { setPage(1); }, [search, showCancelled, paymentFilter, docTab]);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const loadPage = useCallback(async (pageNum: number) => {
+    const activeOrgId = orgId ?? db.FIXED_ORG_ID;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const result = isProformaTab
+        ? await db.loadProformaInvoicesPage(activeOrgId, pageNum, PAGE_SIZE, debouncedSearch, paymentFilter)
+        : await db.loadInvoicesPage(activeOrgId, pageNum, PAGE_SIZE, debouncedSearch, paymentFilter, showCancelled);
+      setRows(result.invoices);
+      setTotalCount(result.totalCount);
+      setPage(pageNum);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load invoices');
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId, isProformaTab, debouncedSearch, paymentFilter, showCancelled]);
+
+  // Re-fetch page 1 whenever the tab, search, or filters change.
+  useEffect(() => { loadPage(1); }, [loadPage]);
 
   const pendingInvoice = pendingCancelId ? invoices.find(i => i.id === pendingCancelId) : null;
   const pendingPaymentModeInvoice = pendingPaymentModeId ? invoices.find(i => i.id === pendingPaymentModeId) : null;
 
-  const filtered = [...sourceList]
-    .filter(inv => isProformaTab ? true : (showCancelled ? inv.cancelled : !inv.cancelled))
-    .filter(inv => paymentFilter === 'All' || inv.paymentMode === paymentFilter)
-    .filter(inv => {
-      const q = search.toLowerCase();
-      return (
-        inv.invoiceNo.toLowerCase().includes(q) ||
-        inv.customerSnapshot.name.toLowerCase().includes(q) ||
-        inv.customerSnapshot.mobile.includes(q) ||
-        inv.invoiceDate.includes(q)
-      );
-    })
-    .sort((a, b) => {
-      const d = parseDDMMYYYY(b.invoiceDate) - parseDDMMYYYY(a.invoiceDate);
-      return d !== 0 ? d : b.invoiceNo.localeCompare(a.invoiceNo);
-    });
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginatedInvoices = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const totalRevenue = invoices.filter(i => !i.cancelled).reduce((s, i) => s + i.grandTotal, 0);
 
   const handleDocTabChange = (tab: 'invoice' | 'proforma') => {
@@ -192,10 +210,27 @@ export default function InvoiceHistory() {
         )}
       </div>
 
+      {loadError && !loading && (
+        <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4 text-red-700 text-sm">
+          <AlertCircle size={16} className="shrink-0" />
+          <span>{loadError}</span>
+          <button onClick={() => loadPage(page)} className="ml-auto underline text-red-600 hover:text-red-800">Retry</button>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex items-center justify-center py-16 text-slate-400 gap-2">
+          <Loader2 size={20} className="animate-spin" />
+          <span className="text-sm">Loading invoices…</span>
+        </div>
+      )}
+
+      {!loading && !loadError && (
+      <>
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        {filtered.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="text-center py-12 text-slate-400 text-sm">
-            {sourceList.length === 0
+            {totalCount === 0 && !debouncedSearch && paymentFilter === 'All' && !showCancelled
               ? isProformaTab ? 'No proforma invoices yet.' : 'No invoices yet. Create your first order!'
               : isProformaTab ? 'No proforma invoices match your search.' : 'No invoices match your search.'}
           </div>
@@ -205,7 +240,7 @@ export default function InvoiceHistory() {
               <tr>
                 {truckMode && <th className="px-4 py-3" />}
                 {[
-                  isProformaTab ? 'Proforma No' : 'Invoice No', 'Date', 'Customer', 'Items', 'Subtotal', 'GST', 'Grand Total', 'Payment',
+                  isProformaTab ? 'Proforma No' : 'Invoice No', 'Date', 'Customer', 'Items', 'Weight', 'Subtotal', 'GST', 'Grand Total', 'Payment',
                   ...(isProformaTab ? [] : ['Status']),
                   '',
                 ].map(h => (
@@ -214,7 +249,7 @@ export default function InvoiceHistory() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {paginatedInvoices.map(inv => (
+              {rows.map(inv => (
                 <tr
                   key={inv.id}
                   className={`hover:bg-slate-50 transition-colors ${inv.cancelled ? 'opacity-50' : ''} ${truckMode && selectedIds.has(inv.id) ? 'bg-indigo-50 hover:bg-indigo-50' : ''}`}
@@ -240,6 +275,9 @@ export default function InvoiceHistory() {
                     <div className="text-xs text-slate-400">{inv.customerSnapshot.mobile}</div>
                   </td>
                   <td className="px-4 py-3 text-slate-500 text-center">{inv.items.length}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {fmtWeight(inv.items.reduce((sum, i) => sum + i.weight * i.quantity, 0))}
+                  </td>
                   <td className="px-4 py-3 text-slate-600">{fmtINR(inv.subtotal)}</td>
                   <td className="px-4 py-3 text-slate-400">{fmtINR(inv.totalGST)}</td>
                   <td className="px-4 py-3 font-bold text-slate-800">{fmtINR(inv.grandTotal)}</td>
@@ -294,12 +332,12 @@ export default function InvoiceHistory() {
       </div>
       <div className="mt-3 flex items-center justify-between">
         <span className="text-xs text-slate-400">
-          {filtered.length} {isProformaTab ? 'proforma invoice' : 'invoice'}{filtered.length !== 1 ? 's' : ''} found
+          {totalCount} {isProformaTab ? 'proforma invoice' : 'invoice'}{totalCount !== 1 ? 's' : ''} found
         </span>
         {totalPages > 1 && (
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setPage(p => p - 1)}
+              onClick={() => loadPage(page - 1)}
               disabled={page === 1}
               className="p-1.5 border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -307,7 +345,7 @@ export default function InvoiceHistory() {
             </button>
             <span className="text-xs text-slate-500 px-1">Page {page} of {totalPages}</span>
             <button
-              onClick={() => setPage(p => p + 1)}
+              onClick={() => loadPage(page + 1)}
               disabled={page >= totalPages}
               className="p-1.5 border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -316,6 +354,8 @@ export default function InvoiceHistory() {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* Bottom padding so the fixed bar doesn't cover the last row */}
       {truckMode && selectedIds.size > 0 && <div className="h-16" />}
@@ -354,6 +394,11 @@ export default function InvoiceHistory() {
         onConfirm={() => {
           cancelInvoice(pendingInvoice.id);
           setPendingCancelId(null);
+          // Keep the currently-loaded page in sync without an extra round-trip.
+          setRows(rs => showCancelled
+            ? rs.map(r => r.id === pendingInvoice.id ? { ...r, cancelled: true } : r)
+            : rs.filter(r => r.id !== pendingInvoice.id));
+          if (!showCancelled) setTotalCount(c => Math.max(0, c - 1));
         }}
         onCancel={() => setPendingCancelId(null)}
       />
@@ -381,8 +426,15 @@ export default function InvoiceHistory() {
           `Switch invoice ${pendingPaymentModeInvoice.invoiceNo} from ${pendingPaymentModeInvoice.paymentMode} to ${pendingPaymentModeInvoice.paymentMode === 'Cash' ? 'Credit' : 'Cash'}. Enter the 4-digit password to confirm.`
         }
         onConfirm={() => {
-          updateInvoicePaymentMode(pendingPaymentModeInvoice.id, pendingPaymentModeInvoice.paymentMode === 'Cash' ? 'Credit' : 'Cash');
+          const newMode = pendingPaymentModeInvoice.paymentMode === 'Cash' ? 'Credit' : 'Cash';
+          updateInvoicePaymentMode(pendingPaymentModeInvoice.id, newMode);
           setPendingPaymentModeId(null);
+          // Keep the currently-loaded page in sync without an extra round-trip.
+          const stillMatchesFilter = paymentFilter === 'All' || paymentFilter === newMode;
+          setRows(rs => stillMatchesFilter
+            ? rs.map(r => r.id === pendingPaymentModeInvoice.id ? { ...r, paymentMode: newMode } : r)
+            : rs.filter(r => r.id !== pendingPaymentModeInvoice.id));
+          if (!stillMatchesFilter) setTotalCount(c => Math.max(0, c - 1));
         }}
         onCancel={() => setPendingPaymentModeId(null)}
       />

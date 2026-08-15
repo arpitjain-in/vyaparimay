@@ -76,3 +76,10 @@ export function pad(str: string, n: number, align: 'left' | 'right' = 'left'): s
   const s = str.slice(0, n);
   return align === 'right' ? s.padStart(n) : s.padEnd(n);
 }
+
+/** Format a weight in kg as Ton when >= 1000kg, else as Kg */
+export function fmtWeight(kg: number): string {
+  const fmt = (n: number) => (n % 1 === 0 ? n.toFixed(0) : n.toFixed(2));
+  if (kg >= 1000) return `${fmt(kg / 1000)} Ton`;
+  return `${fmt(kg)} Kg`;
+}

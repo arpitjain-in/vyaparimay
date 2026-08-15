@@ -20,6 +20,7 @@ import type {
   SalaryRecord,
 } from '../types';
 import { DEFAULT_PRICES, PACKAGING_MATERIALS, PRODUCTS } from '../data/products';
+import { parseDDMMYYYY } from '../utils/format';
 
 export const FIXED_ORG_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -237,6 +238,33 @@ export async function loadInvoices(_orgId: string): Promise<Invoice[]> {
   return lsGet<Invoice[]>('invoices', []);
 }
 
+/** Client-side stand-in for the real db's server-side paginated query. */
+export async function loadInvoicesPage(
+  _orgId: string,
+  page: number,
+  pageSize: number,
+  search: string,
+  paymentFilter: 'All' | 'Cash' | 'Credit',
+  showCancelled: boolean,
+): Promise<{ invoices: Invoice[]; totalCount: number }> {
+  const q = search.trim().toLowerCase();
+  const filtered = lsGet<Invoice[]>('invoices', [])
+    .filter((inv) => (showCancelled ? inv.cancelled : !inv.cancelled))
+    .filter((inv) => paymentFilter === 'All' || inv.paymentMode === paymentFilter)
+    .filter((inv) => !q || (
+      inv.invoiceNo.toLowerCase().includes(q) ||
+      inv.customerSnapshot.name.toLowerCase().includes(q) ||
+      inv.customerSnapshot.mobile.includes(q) ||
+      inv.invoiceDate.includes(q)
+    ))
+    .sort((a, b) => {
+      const d = parseDDMMYYYY(b.invoiceDate) - parseDDMMYYYY(a.invoiceDate);
+      return d !== 0 ? d : b.invoiceNo.localeCompare(a.invoiceNo);
+    });
+  const from = (page - 1) * pageSize;
+  return { invoices: filtered.slice(from, from + pageSize), totalCount: filtered.length };
+}
+
 export async function saveInvoice(
   _orgId: string,
   invoice: Invoice,
@@ -294,6 +322,31 @@ export async function updateInvoicePaymentModeInDb(
 
 export async function loadProformaInvoices(_orgId: string): Promise<Invoice[]> {
   return lsGet<Invoice[]>('proforma_invoices', []);
+}
+
+/** Client-side stand-in for the real db's server-side paginated query. */
+export async function loadProformaInvoicesPage(
+  _orgId: string,
+  page: number,
+  pageSize: number,
+  search: string,
+  paymentFilter: 'All' | 'Cash' | 'Credit',
+): Promise<{ invoices: Invoice[]; totalCount: number }> {
+  const q = search.trim().toLowerCase();
+  const filtered = lsGet<Invoice[]>('proforma_invoices', [])
+    .filter((inv) => paymentFilter === 'All' || inv.paymentMode === paymentFilter)
+    .filter((inv) => !q || (
+      inv.invoiceNo.toLowerCase().includes(q) ||
+      inv.customerSnapshot.name.toLowerCase().includes(q) ||
+      inv.customerSnapshot.mobile.includes(q) ||
+      inv.invoiceDate.includes(q)
+    ))
+    .sort((a, b) => {
+      const d = parseDDMMYYYY(b.invoiceDate) - parseDDMMYYYY(a.invoiceDate);
+      return d !== 0 ? d : b.invoiceNo.localeCompare(a.invoiceNo);
+    });
+  const from = (page - 1) * pageSize;
+  return { invoices: filtered.slice(from, from + pageSize), totalCount: filtered.length };
 }
 
 export async function saveProformaInvoice(_orgId: string, invoice: Invoice): Promise<void> {

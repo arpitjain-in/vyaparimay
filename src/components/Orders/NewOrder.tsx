@@ -392,6 +392,15 @@ export default function NewOrder() {
       {/* ─── Step 2: Add Products ─── */}
       {step === 2 && (
         <>
+        {selectedCustomer && (
+          <div className="mb-4 flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-2">
+            <CheckCircle2 size={16} className="text-indigo-500 shrink-0" />
+            <span className="text-sm text-indigo-800">
+              Customer: <span className="font-semibold">{selectedCustomer.firmName ?? selectedCustomer.name}</span>
+              {selectedCustomer.firmName && <span className="text-indigo-600"> ({selectedCustomer.name})</span>}
+            </span>
+          </div>
+        )}
         <div className={`grid grid-cols-5 gap-6 transition-all ${selectedSKU ? 'pb-28' : ''}`}>
           {/* Left: Product Selector */}
           <div className="col-span-3 bg-white rounded-xl shadow-sm border border-gray-100 p-6">

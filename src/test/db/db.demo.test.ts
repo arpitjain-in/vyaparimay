@@ -13,8 +13,11 @@ import {
   saveCustomer,
   updateCustomerInDb,
   loadInvoices,
+  loadInvoicesPage,
   saveInvoice,
   cancelInvoiceInDb,
+  saveProformaInvoice,
+  loadProformaInvoicesPage,
   loadPackagingEntries,
   savePackagingEntry,
   saveReadyStockTransaction,
@@ -210,6 +213,95 @@ describe('saveInvoice / loadInvoices / cancelInvoiceInDb', () => {
   it('returns empty array when no invoices saved', async () => {
     const invoices = await loadInvoices(ORG);
     expect(invoices).toHaveLength(0);
+  });
+});
+
+describe('loadInvoicesPage', () => {
+  const base: Invoice = {
+    id: '', invoiceNo: '', invoiceDate: '', invoiceTime: '10:30',
+    customerId: 'CUST-001', customerSnapshot: SAMPLE_CUSTOMER, items: [],
+    subtotal: 780, cgstTotal: 19.5, sgstTotal: 19.5, igstTotal: 0, totalGST: 39,
+    roundOff: 0, grandTotal: 819, isInterState: false, paymentMode: 'Cash',
+    amountInWords: 'Eight Hundred Nineteen Rupees Only', financialYear: '2627',
+    cancelled: false,
+  };
+  const alpha = { ...SAMPLE_CUSTOMER, id: 'CUST-001', name: 'Alpha Traders', mobile: '9000000001' };
+  const beta  = { ...SAMPLE_CUSTOMER, id: 'CUST-002', name: 'Beta Foods',   mobile: '9000000002' };
+  const gamma = { ...SAMPLE_CUSTOMER, id: 'CUST-003', name: 'Gamma Mart',   mobile: '9000000003' };
+
+  beforeEach(async () => {
+    const toSave: Array<Invoice & { cancelled: boolean }> = [
+      { ...base, id: 'inv-1', invoiceNo: 'INV-2627-001', invoiceDate: '01/05/2026', customerSnapshot: alpha, paymentMode: 'Cash',   cancelled: false },
+      { ...base, id: 'inv-2', invoiceNo: 'INV-2627-002', invoiceDate: '02/05/2026', customerSnapshot: beta,  paymentMode: 'Credit', cancelled: false },
+      { ...base, id: 'inv-3', invoiceNo: 'INV-2627-003', invoiceDate: '03/05/2026', customerSnapshot: gamma, paymentMode: 'Cash',   cancelled: true },
+      { ...base, id: 'inv-4', invoiceNo: 'INV-2627-004', invoiceDate: '04/05/2026', customerSnapshot: alpha, paymentMode: 'Credit', cancelled: false },
+      { ...base, id: 'inv-5', invoiceNo: 'INV-2627-005', invoiceDate: '05/05/2026', customerSnapshot: beta,  paymentMode: 'Cash',   cancelled: false },
+    ];
+    for (const inv of toSave) {
+      await saveInvoice(ORG, inv, [], [], {});
+      if (inv.cancelled) await cancelInvoiceInDb(ORG, inv.id, [], {});
+    }
+  });
+
+  it('paginates active invoices newest-date first', async () => {
+    const { invoices, totalCount } = await loadInvoicesPage(ORG, 1, 2, '', 'All', false);
+    expect(totalCount).toBe(4); // 5 saved, 1 cancelled
+    expect(invoices.map(i => i.invoiceNo)).toEqual(['INV-2627-005', 'INV-2627-004']);
+  });
+
+  it('returns the second page', async () => {
+    const { invoices } = await loadInvoicesPage(ORG, 2, 2, '', 'All', false);
+    expect(invoices.map(i => i.invoiceNo)).toEqual(['INV-2627-002', 'INV-2627-001']);
+  });
+
+  it('filters by cancelled state', async () => {
+    const { invoices, totalCount } = await loadInvoicesPage(ORG, 1, 10, '', 'All', true);
+    expect(totalCount).toBe(1);
+    expect(invoices[0].invoiceNo).toBe('INV-2627-003');
+  });
+
+  it('filters by payment mode', async () => {
+    const { invoices, totalCount } = await loadInvoicesPage(ORG, 1, 10, '', 'Credit', false);
+    expect(totalCount).toBe(2);
+    expect(invoices.every(i => i.paymentMode === 'Credit')).toBe(true);
+  });
+
+  it('searches by customer name across all matching invoices', async () => {
+    const { invoices, totalCount } = await loadInvoicesPage(ORG, 1, 10, 'beta', 'All', false);
+    expect(totalCount).toBe(2);
+    expect(invoices.map(i => i.invoiceNo)).toEqual(['INV-2627-005', 'INV-2627-002']);
+  });
+
+  it('searches by invoice number', async () => {
+    const { totalCount } = await loadInvoicesPage(ORG, 1, 10, 'INV-2627-004', 'All', false);
+    expect(totalCount).toBe(1);
+  });
+});
+
+describe('saveProformaInvoice / loadProformaInvoicesPage', () => {
+  const base: Invoice = {
+    id: '', invoiceNo: '', invoiceDate: '', invoiceTime: '10:30',
+    customerId: 'CUST-010', customerSnapshot: SAMPLE_CUSTOMER, items: [],
+    subtotal: 780, cgstTotal: 19.5, sgstTotal: 19.5, igstTotal: 0, totalGST: 39,
+    roundOff: 0, grandTotal: 819, isInterState: false, paymentMode: 'Cash',
+    amountInWords: 'Eight Hundred Nineteen Rupees Only', financialYear: '2627',
+    cancelled: false,
+  };
+
+  beforeEach(async () => {
+    await saveProformaInvoice(ORG, { ...base, id: 'pro-1', invoiceNo: 'PRO-001', invoiceDate: '01/05/2026', paymentMode: 'Cash' });
+    await saveProformaInvoice(ORG, { ...base, id: 'pro-2', invoiceNo: 'PRO-002', invoiceDate: '02/05/2026', paymentMode: 'Credit' });
+  });
+
+  it('paginates proforma invoices newest-date first', async () => {
+    const { invoices, totalCount } = await loadProformaInvoicesPage(ORG, 1, 10, '', 'All');
+    expect(totalCount).toBe(2);
+    expect(invoices[0].invoiceNo).toBe('PRO-002');
+  });
+
+  it('filters by payment mode', async () => {
+    const { totalCount } = await loadProformaInvoicesPage(ORG, 1, 10, '', 'Cash');
+    expect(totalCount).toBe(1);
   });
 });
 

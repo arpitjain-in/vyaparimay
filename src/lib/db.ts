@@ -41,6 +41,14 @@ function fromDbTime(t: string): string {
   return t.substring(0, 5);
 }
 
+/** Convert a full DD/MM/YYYY string to ISO YYYY-MM-DD, or null if not a full valid date. */
+function ddmmyyyyToIso(s: string): string | null {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+  if (!m) return null;
+  const [, dd, mm, yyyy] = m;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 // Auth uses Supabase email OTP. RLS is disabled; a fixed org is shared.
 
@@ -375,6 +383,54 @@ export async function loadInvoices(orgId: string): Promise<Invoice[]> {
   return (data ?? []).map(rowToInvoice);
 }
 
+/**
+ * Server-side paginated invoice history: pushes search, the payment-mode
+ * and cancelled filters, and LIMIT/OFFSET to Postgres instead of pulling
+ * every invoice down to filter client-side. Mirrors loadCustomersPaginated.
+ */
+export async function loadInvoicesPage(
+  orgId: string,
+  page: number,
+  pageSize: number,
+  search: string,
+  paymentFilter: 'All' | 'Cash' | 'Credit',
+  showCancelled: boolean,
+): Promise<{ invoices: Invoice[]; totalCount: number }> {
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = supabase
+    .from('invoices')
+    .select('*, invoice_items(*)', { count: 'exact' })
+    .eq('org_id', orgId)
+    .eq('cancelled', showCancelled)
+    .order('invoice_date', { ascending: false })
+    .order('invoice_no', { ascending: false });
+
+  if (paymentFilter !== 'All') {
+    query = query.eq('payment_mode', paymentFilter);
+  }
+
+  const s = search.trim();
+  if (s) {
+    const orParts = [
+      `invoice_no.ilike.%${s}%`,
+      `customer_snapshot->>name.ilike.%${s}%`,
+      `customer_snapshot->>mobile.ilike.%${s}%`,
+    ];
+    // A fully-typed DD/MM/YYYY also matches the invoice date exactly
+    // (partial-date substring search isn't supported server-side).
+    const isoDate = ddmmyyyyToIso(s);
+    if (isoDate) orParts.push(`invoice_date.eq.${isoDate}`);
+    query = query.or(orParts.join(','));
+  }
+
+  const { data, error, count } = await query.range(from, to);
+  if (error) throw error;
+
+  return { invoices: (data ?? []).map(rowToInvoice), totalCount: count ?? 0 };
+}
+
 export async function saveInvoice(
   orgId: string,
   invoice: Invoice,
@@ -571,6 +627,46 @@ export async function loadProformaInvoices(orgId: string): Promise<Invoice[]> {
     .order('invoice_date', { ascending: false });
   if (error) throw error;
   return (data ?? []).map(rowToProforma);
+}
+
+/** Server-side paginated proforma history — see loadInvoicesPage. */
+export async function loadProformaInvoicesPage(
+  orgId: string,
+  page: number,
+  pageSize: number,
+  search: string,
+  paymentFilter: 'All' | 'Cash' | 'Credit',
+): Promise<{ invoices: Invoice[]; totalCount: number }> {
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = supabase
+    .from('proforma_invoices')
+    .select('*', { count: 'exact' })
+    .eq('org_id', orgId)
+    .order('invoice_date', { ascending: false })
+    .order('proforma_no', { ascending: false });
+
+  if (paymentFilter !== 'All') {
+    query = query.eq('payment_mode', paymentFilter);
+  }
+
+  const s = search.trim();
+  if (s) {
+    const orParts = [
+      `proforma_no.ilike.%${s}%`,
+      `customer_snapshot->>name.ilike.%${s}%`,
+      `customer_snapshot->>mobile.ilike.%${s}%`,
+    ];
+    const isoDate = ddmmyyyyToIso(s);
+    if (isoDate) orParts.push(`invoice_date.eq.${isoDate}`);
+    query = query.or(orParts.join(','));
+  }
+
+  const { data, error, count } = await query.range(from, to);
+  if (error) throw error;
+
+  return { invoices: (data ?? []).map(rowToProforma), totalCount: count ?? 0 };
 }
 
 export async function saveProformaInvoice(orgId: string, invoice: Invoice): Promise<void> {
