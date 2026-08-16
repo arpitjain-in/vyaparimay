@@ -69,7 +69,7 @@ export default function SalaryDetailPage() {
     selectedEmployeeId, navigate,
     addEmployeeLeave, deleteEmployeeLeave,
     addEmployeeAdvance, deleteEmployeeAdvance,
-    upsertSalaryRecord, updateEmployee,
+    upsertSalaryRecord, updateEmployee, deleteEmployee,
   } = useStore();
 
   const employee = employees.find(e => e.id === selectedEmployeeId);
@@ -90,6 +90,7 @@ export default function SalaryDetailPage() {
   // ── Delete confirm modals ──
   const [deleteLeaveId, setDeleteLeaveId] = useState<string | null>(null);
   const [deleteAdvId, setDeleteAdvId] = useState<string | null>(null);
+  const [showDeleteEmployee, setShowDeleteEmployee] = useState(false);
 
   // ── Salary section state ──
   const [advDeductInput, setAdvDeductInput] = useState('');
@@ -284,6 +285,15 @@ export default function SalaryDetailPage() {
           >
             {employee.isActive ? <UserX size={15} /> : <UserCheck size={15} />}
           </button>
+          {!employee.isActive && (
+            <button
+              onClick={() => setShowDeleteEmployee(true)}
+              className="p-1.5 rounded-lg hover:bg-red-50 text-slate-500 hover:text-red-600 transition-colors"
+              title="Delete employee"
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -661,6 +671,22 @@ export default function SalaryDetailPage() {
         <div className="flex gap-3 mt-5">
           <button onClick={() => setDeleteAdvId(null)} className="flex-1 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors">Cancel</button>
           <button onClick={() => { deleteEmployeeAdvance(deleteAdvId!); setDeleteAdvId(null); flash('Advance deleted'); }} className="flex-1 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors">Delete</button>
+        </div>
+      </Modal>
+
+      {/* ── Delete Employee Modal ── */}
+      <Modal open={showDeleteEmployee} title="Delete Employee" onClose={() => setShowDeleteEmployee(false)}>
+        <p className="text-slate-600">
+          Permanently delete <strong>{emp.name}</strong>? This also removes their leave, advance and salary payment history. This cannot be undone.
+        </p>
+        <div className="flex gap-3 mt-5">
+          <button onClick={() => setShowDeleteEmployee(false)} className="flex-1 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors">Cancel</button>
+          <button
+            onClick={() => { deleteEmployee(emp.id); navigate('salary-list'); }}
+            className="flex-1 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+          >
+            Delete
+          </button>
         </div>
       </Modal>
 

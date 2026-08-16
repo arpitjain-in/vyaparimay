@@ -147,6 +147,7 @@ export default function App() {
       case 'customer-form':    return <CustomerForm />;
       case 'customer-ledger':  return <CustomerLedger />;
       case 'new-order':        return <NewOrder />;
+      case 'new-proforma':     return <NewOrder mode="proforma" />;
       case 'invoice-history':  return <InvoiceHistory />;
       case 'invoice-view':     return <InvoiceView />;
       case 'stock-dashboard':  return <ReadyStockPage />;

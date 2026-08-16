@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, UserCheck, IndianRupee, Calendar, ChevronRight, UserX } from 'lucide-react';
+import { Plus, UserCheck, IndianRupee, Calendar, ChevronRight, UserX, Trash2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { formatDate, isValidDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
@@ -11,7 +11,7 @@ function getCurrentMonth(): string {
 }
 
 export default function SalaryListPage() {
-  const { employees, employeeAdvances, salaryRecords, addEmployee, navigate } = useStore();
+  const { employees, employeeAdvances, salaryRecords, addEmployee, deleteEmployee, navigate } = useStore();
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
@@ -21,6 +21,7 @@ export default function SalaryListPage() {
     employmentStartDate: formatDate(new Date()),
   });
   const [errors, setErrors] = useState({ name: '', role: '', monthlySalary: '', employmentStartDate: '' });
+  const [deleteEmpId, setDeleteEmpId] = useState<string | null>(null);
 
   const activeEmployees = employees.filter(e => e.isActive);
   const currentMonth = getCurrentMonth();
@@ -146,26 +147,53 @@ export default function SalaryListPage() {
           </h3>
           <div className="grid grid-cols-1 gap-2">
             {employees.filter(e => !e.isActive).map(emp => (
-              <button
+              <div
                 key={emp.id}
-                onClick={() => navigate('salary-detail', { employeeId: emp.id })}
-                className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3 hover:shadow-md border border-slate-100 transition-all text-left opacity-60"
+                className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3 hover:shadow-md border border-slate-100 transition-all opacity-60"
               >
-                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
-                  <span className="text-slate-400 font-bold text-xs">
-                    {emp.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="font-medium text-slate-600 text-sm">{emp.name}</span>
-                  {emp.role && <span className="text-xs text-slate-400 ml-2">{emp.role}</span>}
-                </div>
-                <ChevronRight size={16} className="text-slate-300 shrink-0" />
-              </button>
+                <button
+                  onClick={() => navigate('salary-detail', { employeeId: emp.id })}
+                  className="flex-1 flex items-center gap-3 min-w-0 text-left"
+                >
+                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
+                    <span className="text-slate-400 font-bold text-xs">
+                      {emp.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-medium text-slate-600 text-sm">{emp.name}</span>
+                    {emp.role && <span className="text-xs text-slate-400 ml-2">{emp.role}</span>}
+                  </div>
+                  <ChevronRight size={16} className="text-slate-300 shrink-0" />
+                </button>
+                <button
+                  onClick={() => setDeleteEmpId(emp.id)}
+                  className="p-1.5 text-slate-400 hover:text-red-600 rounded transition-colors shrink-0"
+                  title="Delete employee"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* Delete Employee Modal */}
+      <Modal open={!!deleteEmpId} title="Delete Employee" onClose={() => setDeleteEmpId(null)}>
+        <p className="text-slate-600">
+          Permanently delete this employee? This also removes their leave, advance and salary payment history. This cannot be undone.
+        </p>
+        <div className="flex gap-3 mt-5">
+          <button onClick={() => setDeleteEmpId(null)} className="flex-1 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors">Cancel</button>
+          <button
+            onClick={() => { deleteEmployee(deleteEmpId!); setDeleteEmpId(null); }}
+            className="flex-1 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </Modal>
 
       {/* Add Employee Modal */}
       <Modal open={showForm} title="Add Employee" onClose={() => { setShowForm(false); setErrors({ name: '', role: '', monthlySalary: '', employmentStartDate: '' }); }}>

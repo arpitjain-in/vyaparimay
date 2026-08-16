@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import {
   LayoutDashboard, Users, ShoppingCart, FileText,
   PackageCheck, Box, IndianRupee, Settings,
-  FlaskConical, LogOut, BarChart3, Wallet, UserCheck,
+  FlaskConical, LogOut, BarChart3, Wallet, UserCheck, Eye,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { AppPage } from '../../types';
@@ -25,11 +25,14 @@ export default function Sidebar() {
   const navigate         = useStore(s => s.navigate);
   const businessProfile  = useStore(s => s.businessProfile);
   const currentOrder     = useStore(s => s.currentOrder);
+  const currentProforma  = useStore(s => s.currentProforma);
   const invoices         = useStore(s => s.invoices);
 
   const handleNav = (page: AppPage) => {
     if (page === 'new-order') {
       useStore.getState().startNewOrder();
+    } else if (page === 'new-proforma') {
+      useStore.getState().startNewProforma();
     } else {
       navigate(page);
     }
@@ -54,6 +57,12 @@ export default function Sidebar() {
           label: 'New Order', page: 'new-order', icon: <ShoppingCart size={16} />,
           badge: () => currentOrder && currentOrder.items.length > 0
             ? <span className="bg-amber-400 text-slate-900 text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold leading-none">{currentOrder.items.length}</span>
+            : null,
+        },
+        {
+          label: 'Proforma Invoice', page: 'new-proforma', icon: <Eye size={16} />,
+          badge: () => currentProforma && currentProforma.items.length > 0
+            ? <span className="bg-amber-400 text-slate-900 text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold leading-none">{currentProforma.items.length}</span>
             : null,
         },
         {
@@ -96,7 +105,7 @@ export default function Sidebar() {
         { label: 'Factory Pricing', page: 'factory-pricing', icon: <IndianRupee size={16} /> },
       ],
     },
-  ], [currentOrder, todaySales]);
+  ], [currentOrder, currentProforma, todaySales]);
 
   const initials = (businessProfile?.name ?? 'VM')
     .split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();

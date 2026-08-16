@@ -608,6 +608,14 @@ export async function updateEmployee(
   }
 }
 
+// Mirrors the FK on delete cascade used in the real DB.
+export async function deleteEmployee(id: string): Promise<void> {
+  lsSet('employees', lsGet<Employee[]>('employees', []).filter(e => e.id !== id));
+  lsSet('employee_leaves', lsGet<EmployeeLeave[]>('employee_leaves', []).filter(l => l.employeeId !== id));
+  lsSet('employee_advances', lsGet<EmployeeAdvance[]>('employee_advances', []).filter(a => a.employeeId !== id));
+  lsSet('salary_records', lsGet<SalaryRecord[]>('salary_records', []).filter(r => r.employeeId !== id));
+}
+
 // ─── Employee Leaves ──────────────────────────────────────────────────────────
 
 export async function loadEmployeeLeaves(_orgId: string): Promise<EmployeeLeave[]> {

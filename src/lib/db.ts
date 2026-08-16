@@ -1256,6 +1256,12 @@ export async function updateEmployee(
   if (error) throw error;
 }
 
+// Cascades to employee_leaves, employee_advances and salary_records via FK on delete cascade.
+export async function deleteEmployee(id: string): Promise<void> {
+  const { error } = await supabase.from('employees').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // ─── Employee Leaves ──────────────────────────────────────────────────────────
 
 export async function loadEmployeeLeaves(orgId: string): Promise<EmployeeLeave[]> {

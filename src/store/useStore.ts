@@ -57,6 +57,12 @@ interface AppState {
   currentOrder: CurrentOrder | null;
   orderStep: number;
 
+  // Proforma in progress — its own draft, entirely separate from
+  // `currentOrder` so building a quote never touches a real order in
+  // progress (and vice versa). Also persisted (see `persist` wrapper below).
+  currentProforma: CurrentOrder | null;
+  proformaStep: number;
+
   // Invoices
   invoices: Invoice[];
   invoiceCounters: Record<string, number>; // FY-MM -> seq
@@ -128,6 +134,18 @@ interface AppState {
   removeCartItem(skuId: string): void;
   clearOrder(): void;
 
+  // Proforma — mirrors the Order actions above but operates on
+  // `currentProforma`, a fully independent draft.
+  startNewProforma(): void;
+  setProformaStep(step: number): void;
+  setProformaCustomer(customerId: string): void;
+  setProformaGst(enabled: boolean): void;
+  setProformaDiscount(type: 'percent' | 'flat' | null, value: number): void;
+  setProformaCharges(transport: number, loading: number): void;
+  upsertProformaCartItem(skuId: string, quantity: number, rate: number): void;
+  removeProformaCartItem(skuId: string): void;
+  clearProforma(): void;
+
   // Invoice
   generateInvoice(saleDate?: string): Invoice | null;
   cancelInvoice(id: string): void;
@@ -171,6 +189,7 @@ interface AppState {
   // Salary
   addEmployee(data: Omit<Employee, 'id' | 'createdAt'>): void;
   updateEmployee(id: string, data: Partial<Pick<Employee, 'name' | 'role' | 'monthlySalary' | 'isActive'>>): void;
+  deleteEmployee(id: string): void;
   addEmployeeLeave(employeeId: string, date: string, isHalfDay: boolean, notes: string): void;
   deleteEmployeeLeave(id: string): void;
   addEmployeeAdvance(employeeId: string, amount: number, date: string, notes: string): void;
@@ -228,6 +247,10 @@ export const useStore = create<AppState>()(
       // Order
       currentOrder: null,
       orderStep: 1,
+
+      // Proforma
+      currentProforma: null,
+      proformaStep: 1,
 
       // Invoices
       invoices: [],
@@ -579,6 +602,96 @@ export const useStore = create<AppState>()(
 
       clearOrder() {
         set({ currentOrder: null, orderStep: 1 });
+      },
+
+      // ─── Proforma ────────────────────────────────────────────────────
+      // Fully independent draft from `currentOrder` above — building a quote
+      // never touches a real order in progress, and vice versa.
+
+      startNewProforma() {
+        // If a proforma is already in progress (e.g. the user navigated away
+        // mid-draft), resume it instead of wiping it — only start blank
+        // when there's nothing to resume.
+        if (get().currentProforma) {
+          set({ currentPage: 'new-proforma' });
+        } else {
+          set({ currentProforma: null, proformaStep: 1, currentPage: 'new-proforma' });
+        }
+      },
+
+      setProformaStep(step) {
+        set({ proformaStep: step });
+      },
+
+      setProformaCustomer(customerId) {
+        set(s => {
+          // Re-selecting the same customer is a no-op — keep the cart as-is.
+          if (s.currentProforma?.customerId === customerId) return {};
+          // Switching to a different customer starts a clean draft: cart,
+          // GST override, discount and charges from the previous customer
+          // don't carry over.
+          return {
+            currentProforma: {
+              customerId,
+              items: [],
+              paymentMode: 'Credit',
+            },
+          };
+        });
+      },
+
+      setProformaGst(enabled) {
+        set(s => ({
+          currentProforma: s.currentProforma ? { ...s.currentProforma, gstEnabled: enabled } : null,
+        }));
+      },
+
+      setProformaDiscount(type, value) {
+        set(s => ({
+          currentProforma: s.currentProforma
+            ? { ...s.currentProforma, discountType: type ?? undefined, discountValue: value > 0 ? value : undefined }
+            : null,
+        }));
+      },
+
+      setProformaCharges(transport, loading) {
+        set(s => ({
+          currentProforma: s.currentProforma
+            ? {
+                ...s.currentProforma,
+                transportCharges: transport > 0 ? transport : undefined,
+                loadingCharges: loading > 0 ? loading : undefined,
+              }
+            : null,
+        }));
+      },
+
+      upsertProformaCartItem(skuId, quantity, rate) {
+        set(s => {
+          if (!s.currentProforma) return {};
+          const existing = s.currentProforma.items.findIndex(i => i.skuId === skuId);
+          let items: CartItem[];
+          if (existing >= 0) {
+            items = s.currentProforma.items.map(i =>
+              i.skuId === skuId ? { ...i, quantity, rate } : i,
+            );
+          } else {
+            items = [...s.currentProforma.items, { skuId, quantity, rate }];
+          }
+          return { currentProforma: { ...s.currentProforma, items } };
+        });
+      },
+
+      removeProformaCartItem(skuId) {
+        set(s => ({
+          currentProforma: s.currentProforma
+            ? { ...s.currentProforma, items: s.currentProforma.items.filter(i => i.skuId !== skuId) }
+            : null,
+        }));
+      },
+
+      clearProforma() {
+        set({ currentProforma: null, proformaStep: 1 });
       },
 
       // ─── Invoice Generation ───────────────────────────────────────────
@@ -1386,6 +1499,17 @@ export const useStore = create<AppState>()(
         if (orgId) db.updateEmployee(id, data).catch(console.error);
       },
 
+      deleteEmployee(id) {
+        set(s => ({
+          employees: s.employees.filter(e => e.id !== id),
+          employeeLeaves: s.employeeLeaves.filter(l => l.employeeId !== id),
+          employeeAdvances: s.employeeAdvances.filter(a => a.employeeId !== id),
+          salaryRecords: s.salaryRecords.filter(r => r.employeeId !== id),
+        }));
+        const { orgId } = get();
+        if (orgId) db.deleteEmployee(id).catch(console.error);
+      },
+
       addEmployeeLeave(employeeId, date, isHalfDay, notes) {
         const leave: EmployeeLeave = {
           id: crypto.randomUUID(), employeeId, date, isHalfDay, notes,
@@ -1595,10 +1719,13 @@ export const useStore = create<AppState>()(
   }),
   {
     name: ORDER_DRAFT_STORAGE_KEY,
-    // Only the in-progress order draft is persisted — everything else is
-    // reloaded from Supabase on init, so we don't want a stale local copy
-    // of customers/invoices/etc. shadowing the server data.
-    partialize: (state) => ({ currentOrder: state.currentOrder, orderStep: state.orderStep }),
+    // Only the in-progress order/proforma drafts are persisted — everything
+    // else is reloaded from Supabase on init, so we don't want a stale local
+    // copy of customers/invoices/etc. shadowing the server data.
+    partialize: (state) => ({
+      currentOrder: state.currentOrder, orderStep: state.orderStep,
+      currentProforma: state.currentProforma, proformaStep: state.proformaStep,
+    }),
   },
   ),
 );

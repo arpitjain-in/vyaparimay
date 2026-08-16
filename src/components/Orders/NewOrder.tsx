@@ -82,14 +82,43 @@ function getStockAlerts(
   return alerts;
 }
 
-export default function NewOrder() {
+interface NewOrderProps {
+  // 'order' builds a real, stock-checked invoice; 'proforma' builds a
+  // non-binding quote. The two modes keep entirely separate draft carts
+  // (currentOrder vs currentProforma in the store) so building one never
+  // touches the other. Proforma mode also never restricts adding items
+  // based on ready stock (see selectedInsufficient below), since a proforma
+  // has no stock effect either way.
+  mode?: 'order' | 'proforma';
+}
+
+export default function NewOrder({ mode = 'order' }: NewOrderProps) {
   const {
-    customers, currentOrder, businessProfile,
-    orderStep: step, setOrderStep: setStep,
-    setOrderCustomer,
-    upsertCartItem, removeCartItem, generateInvoice, generateProformaInvoice, setOrderGst, setOrderDiscount, setOrderCharges,
+    customers, currentOrder: currentOrderDraft, currentProforma, businessProfile,
+    orderStep, proformaStep,
+    setOrderStep, setProformaStep,
+    setOrderCustomer, setProformaCustomer,
+    upsertCartItem, upsertProformaCartItem,
+    removeCartItem, removeProformaCartItem,
+    generateInvoice, generateProformaInvoice,
+    setOrderGst, setProformaGst,
+    setOrderDiscount, setProformaDiscount,
+    setOrderCharges, setProformaCharges,
     rawMaterialStock, packagingStock, readyStock, getReadyStockStatus, priceList, navigate,
   } = useStore();
+
+  const isProforma = mode === 'proforma';
+  // Everything below reads/writes through these mode-picked aliases so the
+  // rest of the component doesn't need to know which draft it's touching.
+  const currentOrder = isProforma ? currentProforma : currentOrderDraft;
+  const step        = isProforma ? proformaStep      : orderStep;
+  const setStep      = isProforma ? setProformaStep      : setOrderStep;
+  const setOrderCustomerFn = isProforma ? setProformaCustomer : setOrderCustomer;
+  const upsertItem   = isProforma ? upsertProformaCartItem : upsertCartItem;
+  const removeItem   = isProforma ? removeProformaCartItem : removeCartItem;
+  const setGstEnabled = isProforma ? setProformaGst      : setOrderGst;
+  const setDiscount  = isProforma ? setProformaDiscount  : setOrderDiscount;
+  const setCharges   = isProforma ? setProformaCharges   : setOrderCharges;
 
   const [transportInput, setTransportInput] = useState('');
   const [loadingInput, setLoadingInput] = useState('');
@@ -156,11 +185,13 @@ export default function NewOrder() {
   };
 
   const selectedAvailable = selectedSKU ? availableToAdd(selectedSKU) : 0;
-  const selectedInsufficient = !!selectedSKU && qty > selectedAvailable;
+  // A proforma is a non-binding quote — it never reserves or deducts stock,
+  // so unlike a real order it's never blocked by what's on hand.
+  const selectedInsufficient = mode === 'order' && !!selectedSKU && qty > selectedAvailable;
 
   const handleAddToCart = () => {
     if (!selectedSKU || qty <= 0 || rate <= 0 || selectedInsufficient) return;
-    upsertCartItem(selectedSKU.id, qty, rate);
+    upsertItem(selectedSKU.id, qty, rate);
     setAddedSku(selectedSKU.id);
     setTimeout(() => setAddedSku(null), 1500);
     setSelectedSKU(null);
@@ -310,7 +341,7 @@ export default function NewOrder() {
   };
 
   return (
-    <Layout title="New Order">
+    <Layout title={mode === 'proforma' ? 'Proforma Invoice' : 'New Order'}>
       <Steps step={step} />
 
       {/* ─── Step 1: Select Customer ─── */}
@@ -354,7 +385,7 @@ export default function NewOrder() {
                 filteredCustomers.map(c => (
                   <button
                     key={c.id}
-                    onClick={() => { setOrderCustomer(c.id); setCustSearch(''); }}
+                    onClick={() => { setOrderCustomerFn(c.id); setCustSearch(''); }}
                     className={`w-full px-4 py-3 text-left hover:bg-indigo-50 transition-colors ${currentOrder?.customerId === c.id ? 'bg-indigo-50' : ''}`}
                   >
                     <div className="flex items-center justify-between">
@@ -392,6 +423,14 @@ export default function NewOrder() {
       {/* ─── Step 2: Add Products ─── */}
       {step === 2 && (
         <>
+        {mode === 'proforma' && (
+          <div className="mb-4 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2">
+            <Eye size={16} className="text-amber-600 shrink-0" />
+            <span className="text-sm text-amber-800">
+              Building a <span className="font-semibold">Proforma Invoice</span> — a non-binding quote. Ready stock figures are shown for reference only and won't stop you from adding items.
+            </span>
+          </div>
+        )}
         {selectedCustomer && (
           <div className="mb-4 flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-2">
             <CheckCircle2 size={16} className="text-indigo-500 shrink-0" />
@@ -626,7 +665,7 @@ export default function NewOrder() {
                         )}
                       </div>
                       <button
-                        onClick={() => removeCartItem(item.skuId)}
+                        onClick={() => removeItem(item.skuId)}
                         className="text-red-400 hover:text-red-600 ml-2"
                       >
                         <Trash2 size={14} />
@@ -674,8 +713,9 @@ export default function NewOrder() {
                 <div className="text-sm font-bold text-gray-800 truncate">
                   {selectedSKU.product} &mdash; {(selectedSKU.innerSkuId || selectedSKU.useIdAsLabel) ? selectedSKU.id : selectedSKU.variant}
                 </div>
-                <div className={`text-xs font-medium mt-0.5 ${selectedAvailable <= 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                <div className={`text-xs font-medium mt-0.5 ${mode === 'order' && selectedAvailable <= 0 ? 'text-red-600' : 'text-gray-400'}`}>
                   Ready stock: {selectedAvailable} {selectedSKU.unit.toLowerCase()}{selectedAvailable === 1 ? '' : 's'} available
+                  {mode === 'proforma' && ' (not reserved for a proforma)'}
                 </div>
               </div>
 
@@ -800,7 +840,7 @@ export default function NewOrder() {
               </div>
               <button
                 type="button"
-                onClick={() => setOrderGst(!gstEnabled)}
+                onClick={() => setGstEnabled(!gstEnabled)}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${gstEnabled ? 'bg-indigo-600' : 'bg-gray-300'}`}
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${gstEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
@@ -908,7 +948,7 @@ export default function NewOrder() {
                     <button
                       key={t}
                       type="button"
-                      onClick={() => setOrderDiscount(t, discountValue)}
+                      onClick={() => setDiscount(t, discountValue)}
                       className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                         (discountType ?? 'flat') === t
                           ? 'bg-indigo-600 text-white'
@@ -926,7 +966,7 @@ export default function NewOrder() {
                   max={discountType === 'percent' ? 100 : undefined}
                   placeholder={discountType === 'percent' ? 'e.g. 5' : 'e.g. 500'}
                   value={discountValue || ''}
-                  onChange={e => setOrderDiscount(discountType ?? 'flat', parseFloat(e.target.value) || 0)}
+                  onChange={e => setDiscount(discountType ?? 'flat', parseFloat(e.target.value) || 0)}
                   className="w-32 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
                 />
                 {discountValue > 0 && (
@@ -937,7 +977,7 @@ export default function NewOrder() {
                 {discountValue > 0 && (
                   <button
                     type="button"
-                    onClick={() => setOrderDiscount(null, 0)}
+                    onClick={() => setDiscount(null, 0)}
                     className="text-xs text-red-400 hover:text-red-600"
                   >Clear</button>
                 )}
@@ -958,7 +998,7 @@ export default function NewOrder() {
                       onChange={e => {
                         setTransportInput(e.target.value);
                         const v = parseFloat(e.target.value) || 0;
-                        setOrderCharges(v, loadingCharges);
+                        setCharges(v, loadingCharges);
                       }}
                       className="w-full border border-gray-300 rounded-lg pl-7 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
                     />
@@ -975,7 +1015,7 @@ export default function NewOrder() {
                       onChange={e => {
                         setLoadingInput(e.target.value);
                         const v = parseFloat(e.target.value) || 0;
-                        setOrderCharges(transportCharges, v);
+                        setCharges(transportCharges, v);
                       }}
                       className="w-full border border-gray-300 rounded-lg pl-7 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
                     />
@@ -1041,21 +1081,24 @@ export default function NewOrder() {
             <button onClick={() => setStep(2)} className="border border-gray-300 text-gray-600 px-5 py-2.5 rounded-lg text-sm hover:bg-gray-50">
               ← Edit Items
             </button>
-            <button
-              onClick={handleGenerateProforma}
-              disabled={!saleDateValid || !!saleDateError}
-              className="flex items-center justify-center gap-2 border border-amber-400 text-amber-700 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 rounded-lg text-sm font-medium"
-              title="Generate a non-binding proforma invoice — no stock deducted"
-            >
-              <Eye size={16} /> Generate Proforma
-            </button>
-            <button
-              onClick={handleGenerateInvoice}
-              disabled={!saleDateValid || !!saleDateError}
-              className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed text-white py-2.5 rounded-lg font-semibold flex items-center justify-center gap-2"
-            >
-              <CheckCircle2 size={18} /> Generate Invoice
-            </button>
+            {mode === 'proforma' ? (
+              <button
+                onClick={handleGenerateProforma}
+                disabled={!saleDateValid || !!saleDateError}
+                className="flex items-center justify-center gap-2 border border-amber-400 text-amber-700 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 rounded-lg text-sm font-medium"
+                title="Generate a non-binding proforma invoice — no stock deducted"
+              >
+                <Eye size={16} /> Generate Proforma
+              </button>
+            ) : (
+              <button
+                onClick={handleGenerateInvoice}
+                disabled={!saleDateValid || !!saleDateError}
+                className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed text-white py-2.5 rounded-lg font-semibold flex items-center justify-center gap-2"
+              >
+                <CheckCircle2 size={18} /> Generate Invoice
+              </button>
+            )}
           </div>
         </div>
       )}

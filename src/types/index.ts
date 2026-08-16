@@ -284,6 +284,7 @@ export type AppPage =
   | 'customer-form'
   | 'customer-ledger'
   | 'new-order'
+  | 'new-proforma'
   | 'invoice-history'
   | 'invoice-view'
   | 'stock-dashboard'
