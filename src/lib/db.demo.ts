@@ -381,11 +381,11 @@ export async function savePaymentReceipt(
 export async function updatePaymentReceiptInDb(
   _orgId: string,
   receiptId: string,
-  amount: number,
+  data: Pick<PaymentReceipt, 'date' | 'amount' | 'mode' | 'referenceNo' | 'notes'>,
 ): Promise<void> {
   const receipts = lsGet<PaymentReceipt[]>('payment_receipts', []);
   const idx = receipts.findIndex(r => r.id === receiptId);
-  if (idx >= 0) receipts[idx] = { ...receipts[idx], amount };
+  if (idx >= 0) receipts[idx] = { ...receipts[idx], ...data };
   lsSet('payment_receipts', receipts);
 }
 

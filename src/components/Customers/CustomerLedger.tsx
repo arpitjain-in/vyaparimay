@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Phone, MapPin, Building2, PlusCircle, TrendingUp, TrendingDown, Loader2, AlertCircle, Pencil, Check, X, Printer } from 'lucide-react';
+import { ArrowLeft, Phone, MapPin, Building2, PlusCircle, TrendingUp, TrendingDown, Loader2, AlertCircle, Pencil, Printer } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR } from '../../utils/format';
 import Layout from '../Layout/Layout';
@@ -8,31 +8,23 @@ import DeletePasswordModal from '../Invoices/DeletePasswordModal';
 import * as db from '../../lib/db';
 import type { Customer } from '../../types';
 
+// Non-cash payment modes settle a customer's dues without money changing hands,
+// so they're labelled by name rather than "Payment Received · <mode>".
+const NON_CASH_MODES = new Set(['Return Credit', 'Exchange of Wheat']);
+
 // ─── Main Ledger ─────────────────────────────────────────────────────────────
 export default function CustomerLedger() {
-  const { selectedCustomerId, orgId, invoices, paymentReceipts, navigate, updatePaymentReceipt, businessProfile } = useStore();
+  const { selectedCustomerId, orgId, invoices, paymentReceipts, navigate, businessProfile } = useStore();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddPayment, setShowAddPayment] = useState(false);
   const [pendingAddPayment, setPendingAddPayment] = useState(false);
   const [pendingEditReceiptId, setPendingEditReceiptId] = useState<string | null>(null);
-  const [pendingEditAmount, setPendingEditAmount] = useState(0);
   const [editingReceiptId, setEditingReceiptId] = useState<string | null>(null);
-  const [editingAmount, setEditingAmount] = useState('');
 
-  function startEditReceipt(receiptId: string, currentAmount: number) {
-    setPendingEditReceiptId(receiptId);
-    setPendingEditAmount(currentAmount);
-  }
-
-  function saveEditReceipt() {
-    const amt = parseFloat(editingAmount);
-    if (!isNaN(amt) && amt > 0 && editingReceiptId) {
-      updatePaymentReceipt(editingReceiptId, amt);
-    }
-    setEditingReceiptId(null);
-  }
+  const pendingEditReceipt = pendingEditReceiptId ? paymentReceipts.find(r => r.id === pendingEditReceiptId) ?? null : null;
+  const editingReceipt = editingReceiptId ? paymentReceipts.find(r => r.id === editingReceiptId) ?? null : null;
 
   useEffect(() => {
     if (!selectedCustomerId || !orgId) return;
@@ -145,7 +137,8 @@ export default function CustomerLedger() {
       else if (row.kind === 'invoice') desc = `Invoice <span style="font-family:monospace;">${(row as { invoiceNo: string }).invoiceNo}</span>`;
       else {
         const r = row as { mode: string; refNo?: string; notes?: string };
-        desc = `<span style="color:#15803d;font-weight:600;">Payment Received · ${r.mode}${r.refNo ? ` (${r.refNo})` : ''}${r.notes ? ` · ${r.notes}` : ''}</span>`;
+        const label = NON_CASH_MODES.has(r.mode) ? r.mode : `Payment Received · ${r.mode}`;
+        desc = `<span style="color:#15803d;font-weight:600;">${label}${r.refNo ? ` (${r.refNo})` : ''}${r.notes ? ` · ${r.notes}` : ''}</span>`;
       }
       const balColor = row.balance > 0 ? '#92400e' : row.balance < 0 ? '#15803d' : '#6b7280';
       const balSuffix = row.balance > 0 ? ' Dr' : row.balance < 0 ? ' Cr' : ' Nil';
@@ -261,6 +254,14 @@ export default function CustomerLedger() {
         <AddPaymentModal customerId={customer.id} onClose={() => setShowAddPayment(false)} />
       )}
 
+      {editingReceipt && (
+        <AddPaymentModal
+          customerId={customer.id}
+          receipt={editingReceipt}
+          onClose={() => setEditingReceiptId(null)}
+        />
+      )}
+
       {pendingAddPayment && (
         <DeletePasswordModal
           invoiceNo={customer.id}
@@ -275,14 +276,13 @@ export default function CustomerLedger() {
         />
       )}
 
-      {pendingEditReceiptId && (
+      {pendingEditReceipt && (
         <DeletePasswordModal
-          invoiceNo={pendingEditReceiptId}
-          title="Edit Payment Amount"
-          description={`You are about to edit payment ${pendingEditReceiptId} (current: ${fmtINR(pendingEditAmount)}). Enter the 4-digit password to continue.`}
+          invoiceNo={pendingEditReceipt.id}
+          title="Edit Payment"
+          description={`You are about to edit payment ${pendingEditReceipt.id} (current: ${fmtINR(pendingEditReceipt.amount)}). Enter the 4-digit password to continue.`}
           onConfirm={() => {
-            setEditingReceiptId(pendingEditReceiptId);
-            setEditingAmount(String(pendingEditAmount));
+            setEditingReceiptId(pendingEditReceipt.id);
             setPendingEditReceiptId(null);
           }}
           onCancel={() => setPendingEditReceiptId(null)}
@@ -401,7 +401,7 @@ export default function CustomerLedger() {
                     )}
                     {row.kind === 'payment' && (
                       <span className="text-green-700 font-medium">
-                        Payment Received · {row.mode}
+                        {NON_CASH_MODES.has(row.mode) ? row.mode : `Payment Received · ${row.mode}`}
                         {row.refNo && <span className="text-xs text-gray-400 ml-1">({row.refNo})</span>}
                         {row.notes && <span className="text-xs text-gray-400 ml-1">· {row.notes}</span>}
                       </span>
@@ -412,36 +412,16 @@ export default function CustomerLedger() {
                   </td>
                   <td className="px-4 py-3 text-green-600 font-medium">
                     {row.kind === 'payment' ? (
-                      editingReceiptId === row.receiptId ? (
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-gray-400">₹</span>
-                          <input
-                            type="number"
-                            min={1}
-                            value={editingAmount}
-                            onChange={e => setEditingAmount(e.target.value)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') saveEditReceipt();
-                              if (e.key === 'Escape') setEditingReceiptId(null);
-                            }}
-                            className="w-28 border border-green-400 rounded-lg px-2 py-0.5 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-green-500"
-                            autoFocus
-                          />
-                          <button onClick={saveEditReceipt} className="text-green-600 hover:text-green-800" title="Save"><Check size={14} /></button>
-                          <button onClick={() => setEditingReceiptId(null)} className="text-gray-400 hover:text-gray-600" title="Cancel"><X size={14} /></button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          {fmtINR(row.credit)}
-                          <button
-                            onClick={() => startEditReceipt(row.receiptId, row.credit)}
-                            className="text-gray-300 hover:text-green-600 transition-colors"
-                            title="Edit amount"
-                          >
-                            <Pencil size={12} />
-                          </button>
-                        </div>
-                      )
+                      <div className="flex items-center gap-1">
+                        {fmtINR(row.credit)}
+                        <button
+                          onClick={() => setPendingEditReceiptId(row.receiptId)}
+                          className="text-gray-300 hover:text-green-600 transition-colors"
+                          title="Edit payment"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      </div>
                     ) : (
                       row.credit > 0 ? fmtINR(row.credit) : '—'
                     )}

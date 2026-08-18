@@ -756,11 +756,17 @@ export async function savePaymentReceipt(
 export async function updatePaymentReceiptInDb(
   orgId: string,
   receiptId: string,
-  amount: number,
+  data: Pick<PaymentReceipt, 'date' | 'amount' | 'mode' | 'referenceNo' | 'notes'>,
 ): Promise<void> {
   const { error } = await supabase
     .from('payment_receipts')
-    .update({ amount })
+    .update({
+      date: toDbDate(data.date),
+      amount: data.amount,
+      mode: data.mode,
+      reference_no: data.referenceNo ?? null,
+      notes: data.notes ?? null,
+    })
     .eq('id', receiptId)
     .eq('org_id', orgId);
   if (error) throw error;

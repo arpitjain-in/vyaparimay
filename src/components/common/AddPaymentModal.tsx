@@ -2,32 +2,45 @@ import React, { useState } from 'react';
 import { Wallet, X } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { formatDate, isValidDDMMYYYY } from '../../utils/format';
-import { PaymentMode } from '../../types';
+import { PaymentMode, PaymentReceipt } from '../../types';
 
-const PAYMENT_MODES: PaymentMode[] = ['Cash', 'Bank Transfer', 'UPI', 'Cheque'];
+const PAYMENT_MODES: PaymentMode[] = ['Cash', 'Bank Transfer', 'UPI', 'Cheque', 'Return Credit', 'Exchange of Wheat'];
+
+// Non-cash modes: settle a customer's dues without any actual cash/bank inflow.
+const AMOUNT_LABELS: Partial<Record<PaymentMode, string>> = {
+  'Return Credit': 'Return Credit Amount (₹)',
+  'Exchange of Wheat': 'Exchange Value (₹)',
+};
 
 interface Props {
   customerId: string;
   customerName?: string;
   onClose: () => void;
+  // When set, the modal edits this existing receipt instead of creating a new one.
+  receipt?: PaymentReceipt;
 }
 
-export default function AddPaymentModal({ customerId, customerName, onClose }: Props) {
-  const { addPaymentReceipt } = useStore();
+export default function AddPaymentModal({ customerId, customerName, onClose, receipt }: Props) {
+  const { addPaymentReceipt, updatePaymentReceipt } = useStore();
   const today = formatDate(new Date());
+  const isEdit = !!receipt;
 
-  const [amount, setAmount] = useState('');
-  const [mode, setMode] = useState<PaymentMode>('Cash');
-  const [date, setDate] = useState(today);
-  const [refNo, setRefNo] = useState('');
-  const [notes, setNotes] = useState('');
+  const [amount, setAmount] = useState(receipt ? String(receipt.amount) : '');
+  const [mode, setMode] = useState<PaymentMode>(receipt?.mode ?? 'Cash');
+  const [date, setDate] = useState(receipt?.date ?? today);
+  const [refNo, setRefNo] = useState(receipt?.referenceNo ?? '');
+  const [notes, setNotes] = useState(receipt?.notes ?? '');
   const [error, setError] = useState('');
 
   const handleSave = () => {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { setError('Enter a valid amount'); return; }
     if (!isValidDDMMYYYY(date)) { setError('Enter date in DD/MM/YYYY format'); return; }
-    addPaymentReceipt({ customerId, date, amount: amt, mode, referenceNo: refNo || undefined, notes: notes || undefined });
+    if (isEdit) {
+      updatePaymentReceipt(receipt.id, { date, amount: amt, mode, referenceNo: refNo || undefined, notes: notes || undefined });
+    } else {
+      addPaymentReceipt({ customerId, date, amount: amt, mode, referenceNo: refNo || undefined, notes: notes || undefined });
+    }
     onClose();
   };
 
@@ -36,7 +49,7 @@ export default function AddPaymentModal({ customerId, customerName, onClose }: P
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 className="font-semibold text-gray-800 flex items-center gap-2">
-            <Wallet size={18} className="text-green-600" /> Record Payment
+            <Wallet size={18} className="text-green-600" /> {isEdit ? `Edit Payment · ${receipt.id}` : 'Record Payment'}
           </h2>
           {customerName && <span className="text-sm text-gray-500">{customerName}</span>}
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
@@ -45,7 +58,7 @@ export default function AddPaymentModal({ customerId, customerName, onClose }: P
           {error && <div className="text-red-500 text-sm bg-red-50 rounded-lg px-3 py-2">{error}</div>}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Amount Received (₹) <span className="text-red-500">*</span>
+              {AMOUNT_LABELS[mode] ?? 'Amount Received (₹)'} <span className="text-red-500">*</span>
             </label>
             <input
               type="number" min="1" value={amount}
@@ -111,7 +124,7 @@ export default function AddPaymentModal({ customerId, customerName, onClose }: P
             onClick={handleSave}
             className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg text-sm font-semibold"
           >
-            Save Payment
+            {isEdit ? 'Save Changes' : 'Save Payment'}
           </button>
         </div>
       </div>

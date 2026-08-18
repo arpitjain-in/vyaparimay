@@ -157,7 +157,7 @@ interface AppState {
 
   // Payments
   addPaymentReceipt(data: Omit<PaymentReceipt, 'id' | 'time'>): void;
-  updatePaymentReceipt(id: string, amount: number): void;
+  updatePaymentReceipt(id: string, data: Pick<PaymentReceipt, 'date' | 'amount' | 'mode' | 'referenceNo' | 'notes'>): void;
 
   // Stock
   addPackagingEntry(entry: Omit<PackagingEntry, 'id' | 'time'>): void;
@@ -1144,12 +1144,12 @@ export const useStore = create<AppState>()(
 
       // ─── Payment Receipts ────────────────────────────────────────────
 
-      updatePaymentReceipt(id, amount) {
+      updatePaymentReceipt(id, data) {
         set(s => ({
-          paymentReceipts: s.paymentReceipts.map(r => r.id === id ? { ...r, amount } : r),
+          paymentReceipts: s.paymentReceipts.map(r => r.id === id ? { ...r, ...data } : r),
         }));
         const { orgId } = get();
-        if (orgId) db.updatePaymentReceiptInDb(orgId, id, amount).catch(console.error);
+        if (orgId) db.updatePaymentReceiptInDb(orgId, id, data).catch(console.error);
       },
 
       addPaymentReceipt(data) {

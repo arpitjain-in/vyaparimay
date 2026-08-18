@@ -9,7 +9,7 @@ import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/pr
 import Layout from '../Layout/Layout';
 import DeletePasswordModal from '../Invoices/DeletePasswordModal';
 import { fmtINR, formatDate } from '../../utils/format';
-import type { Invoice, PackagingEntry, PaymentReceipt, Expense, SalaryRecord, Customer } from '../../types';
+import type { Invoice, PackagingEntry, PaymentReceipt, Expense, SalaryRecord, Customer, PaymentMode } from '../../types';
 import { useState } from 'react';
 
 // SKU → product-line map (WF/BS/BR/DL), used to attribute revenue and weight
@@ -152,6 +152,15 @@ function getMonthlyPeriods(): PeriodDef[] {
   ];
 }
 
+// Payment receipt modes that settle a customer's dues without any actual cash/bank
+// inflow (a return credited against the account, or flour bartered for wheat).
+// These are excluded from "money received" cash totals but still shown in the
+// per-customer breakdown, tagged with the marker letter below.
+const NON_CASH_RECEIPT_MODES: Partial<Record<PaymentMode, string>> = {
+  'Return Credit': 'R',
+  'Exchange of Wheat': 'E',
+};
+
 // ─── Period stats calculator ──────────────────────────────────────────────────
 
 interface PeriodStats {
@@ -178,6 +187,7 @@ function calcPeriodStats(
   const cashTotal    = filtered.filter(i => i.paymentMode === 'Cash').reduce((s, i) => s + i.grandTotal, 0);
   const receiptsTotal = receipts
     .filter(r => { const o = toOrd(r.date); return o >= startOrd && o <= endOrd; })
+    .filter(r => !NON_CASH_RECEIPT_MODES[r.mode])
     .reduce((s, r) => s + r.amount, 0);
 
   let totalUnits = 0;
@@ -207,7 +217,7 @@ interface MoneyReceivedRow {
   customerName: string;
   firmName?: string;
   amount: number;
-  source: 'Cash Sale' | 'Receipt';
+  source: 'Cash Sale' | 'Receipt' | PaymentMode;
 }
 
 function buildMoneyReceivedBreakdown(
@@ -245,7 +255,8 @@ function buildMoneyReceivedBreakdown(
       customerName: cust?.name ?? r.customerId,
       firmName: cust?.firmName,
       amount: r.amount,
-      source: 'Receipt',
+      // Non-cash modes are shown for visibility but excluded from money-received totals
+      source: NON_CASH_RECEIPT_MODES[r.mode] ? r.mode : 'Receipt',
     });
   }
 
@@ -543,6 +554,12 @@ function SalesSummaryTable() {
               const breakdown = isExpanded
                 ? buildMoneyReceivedBreakdown(invoices, paymentReceipts, customers, startOrd, endOrd)
                 : [];
+              const nonCashMarkers = Array.from(new Set(
+                paymentReceipts
+                  .filter(r => NON_CASH_RECEIPT_MODES[r.mode] && toOrd(r.date) >= startOrd && toOrd(r.date) <= endOrd)
+                  .map(r => NON_CASH_RECEIPT_MODES[r.mode]!)
+              )).sort();
+              const hasNonCashReceipt = nonCashMarkers.length > 0;
               return (
                 <React.Fragment key={label}>
                   <tr className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
@@ -557,7 +574,7 @@ function SalesSummaryTable() {
                       {empty ? <span className="text-slate-300">—</span> : <span className="font-bold text-indigo-600">{fmtINR(s.invoiceTotal)}</span>}
                     </td>
                     <td className="px-3 py-3 text-right">
-                      {empty || s.moneyReceived === 0 ? (
+                      {empty || (s.moneyReceived === 0 && !hasNonCashReceipt) ? (
                         <span className="text-slate-300">—</span>
                       ) : (
                         <button
@@ -567,7 +584,8 @@ function SalesSummaryTable() {
                           title="Show which customers this was received from"
                         >
                           {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          {fmtINR(s.moneyReceived)}
+                          {s.moneyReceived > 0 ? fmtINR(s.moneyReceived) : '—'}
+                          {hasNonCashReceipt && <span className="text-amber-600 font-semibold ml-1">({nonCashMarkers.join(', ')})</span>}
                         </button>
                       )}
                     </td>
@@ -600,7 +618,9 @@ function SalesSummaryTable() {
                                   <td className="px-4 py-2 text-slate-700">{b.customerName}</td>
                                   <td className="px-4 py-2 text-slate-500">{b.firmName ?? '—'}</td>
                                   <td className="px-4 py-2 text-slate-500">{b.source}</td>
-                                  <td className="px-4 py-2 text-right font-semibold text-emerald-600">{fmtINR(b.amount)}</td>
+                                  <td className={`px-4 py-2 text-right font-semibold ${NON_CASH_RECEIPT_MODES[b.source as PaymentMode] ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                    {fmtINR(b.amount)}{NON_CASH_RECEIPT_MODES[b.source as PaymentMode] ? ` (${NON_CASH_RECEIPT_MODES[b.source as PaymentMode]})` : ''}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1331,7 +1351,7 @@ function buildQuarterReportData(
   const cashRevenue = filteredInvoices.filter(i => i.paymentMode === 'Cash').reduce((s, i) => s + i.grandTotal, 0);
   const creditRevenue = filteredInvoices.filter(i => i.paymentMode === 'Credit').reduce((s, i) => s + i.grandTotal, 0);
 
-  const receiptsInRange = receipts.filter(r => toOrd(r.date) >= opt.startOrd && toOrd(r.date) <= opt.endOrd);
+  const receiptsInRange = receipts.filter(r => toOrd(r.date) >= opt.startOrd && toOrd(r.date) <= opt.endOrd && !NON_CASH_RECEIPT_MODES[r.mode]);
   const collections = cashRevenue + receiptsInRange.reduce((s, r) => s + r.amount, 0);
 
   let totalUnits = 0;

@@ -168,7 +168,7 @@ export interface Invoice {
 }
 
 // ─── Payment Receipts ─────────────────────────────────────────────────────
-export type PaymentMode = 'Cash' | 'Bank Transfer' | 'UPI' | 'Cheque';
+export type PaymentMode = 'Cash' | 'Bank Transfer' | 'UPI' | 'Cheque' | 'Return Credit' | 'Exchange of Wheat';
 
 export interface PaymentReceipt {
   id: string;           // REC-001
