@@ -536,3 +536,28 @@ describe('E2E Flow 8: Bran — add packaging → add ready stock → order → i
     expect(readyStock['DL-500G']).toBe(200);
   });
 });
+
+// ─── Flow 9: Bran 35kg shares 40kg packaging material ─────────────────────────
+
+describe('E2E Flow 9: BR-35K and BR-40K both deduct the shared PKG-BR-40K packaging', () => {
+  it('packs both weight variants and deducts a single shared packaging stock', () => {
+    const { addPackagingEntry, addReadyStockEntry } = useStore.getState();
+
+    // Initial state (from resetStore): packagingStock['PKG-BR-40K'] = 30
+
+    // Pack 12 bags of BR-40K and 8 bags of BR-35K — both consume PKG-BR-40K bags
+    addReadyStockEntry('BR-40K', 12, 'Packing run – Bran 40kg', '10/05/2026');
+    expect(useStore.getState().readyStock['BR-40K']).toBe(20 + 12);
+    expect(useStore.getState().packagingStock['PKG-BR-40K']).toBe(30 - 12);
+
+    addReadyStockEntry('BR-35K', 8, 'Packing run – Bran 35kg', '10/05/2026');
+    expect(useStore.getState().readyStock['BR-35K']).toBe(8);
+    // Same packaging pool as BR-40K keeps depleting: 18 - 8 = 10
+    expect(useStore.getState().packagingStock['PKG-BR-40K']).toBe(10);
+
+    // Ledger has one 'used' entry per packing run, both against PKG-BR-40K
+    const usedEntries = useStore.getState().packagingEntries.filter(e => e.entryType === 'used');
+    expect(usedEntries).toHaveLength(2);
+    expect(usedEntries.every(e => e.materialId === 'PKG-BR-40K')).toBe(true);
+  });
+});

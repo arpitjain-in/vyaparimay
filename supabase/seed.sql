@@ -15,7 +15,7 @@ insert into packaging_materials (id, org_id, name, used_for) values
   ('PKG-BS-40K',      null, '40 kg Bags (Shikharji Besan)',        array['BS-40K']),
   ('PKG-BS-500G',     null, '500 gm Packets (Shikharji Besan)',    array['BS-500G']),
   ('PKG-DL-500G',     null, '500 gm Packets (Shikharji Dalia)',   array['DL-500G']),
-  ('PKG-BR-40K',      null, '40 kg Bags (Shikharji Bran)',         array['BR-40K']),
+  ('PKG-BR-40K',      null, '40 kg Bags (Shikharji Bran)',         array['BR-40K', 'BR-35K']),
   ('PKG-OUTER-10X3',  null, 'Outer Bag 10X3',                      array[]::text[]),
   ('PKG-OUTER-5X6',   null, 'Outer Bag 5X6',                       array[]::text[]);
 
@@ -34,11 +34,12 @@ insert into product_skus (id, org_id, product, product_id, variant, weight, pack
   -- Shikharji Dalia
   ('DL-500G', null, 'Shikharji Dalia',      'DL', '500 gm Packet',       0.5, 'PKG-DL-500G', '1104', 5, 'Packet'),
   -- Shikharji Bran
-  ('BR-40K',  null, 'Shikharji Bran',        'BR', '40 kg Bag',           40,  'PKG-BR-40K',  '2302', 5, 'Bag');
+  ('BR-40K',  null, 'Shikharji Bran',        'BR', '40 kg Bag',           40,  'PKG-BR-40K',  '2302', 5, 'Bag'),
+  ('BR-35K',  null, 'Shikharji Bran',        'BR', '35 kg Bag',           35,  'PKG-BR-40K',  '2302', 0, 'Bag');
 
 -- ─── Raw Materials ───────────────────────────────────────────────────────────
 insert into raw_materials (id, org_id, name, products) values
   ('RM-WF', null, 'Shikharji Atta', array['WF-26K', 'WF-25K', 'WF-5P', 'WF-10P', 'WF-5H', 'WF-10H']),
   ('RM-BS', null, 'Shikharji Besan',       array['BS-40K', 'BS-500G']),
   ('RM-DL', null, 'Shikharji Dalia',      array['DL-500G']),
-  ('RM-BR', null, 'Shikharji Bran',        array['BR-40K']);
+  ('RM-BR', null, 'Shikharji Bran',        array['BR-40K', 'BR-35K']);

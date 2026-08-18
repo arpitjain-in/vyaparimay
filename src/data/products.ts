@@ -26,7 +26,10 @@ export const PRODUCTS: ProductSKU[] = [
   // Shikharji Dalia
   { id: 'DL-500G', product: 'Shikharji Dalia', productId: 'DL', variant: '500 gm Packet', weight: 0.5, packagingId: 'PKG-DL-500G', hsnCode: '1104', gstRate: 5, unit: 'Packet' },
   // Shikharji Bran
+  // BR-35K shares the 40 kg packaging material with BR-40K (same bag, less fill) —
+  // see PKG-BR-40K.usedFor below; selling either variant deducts PKG-BR-40K stock.
   { id: 'BR-40K',  product: 'Shikharji Bran', productId: 'BR', variant: '40 kg Bag',  weight: 40,  packagingId: 'PKG-BR-40K',  hsnCode: '2302', gstRate: 0, unit: 'Bag' },
+  { id: 'BR-35K',  product: 'Shikharji Bran', productId: 'BR', variant: '35 kg Bag',  weight: 35,  packagingId: 'PKG-BR-40K',  hsnCode: '2302', gstRate: 0, unit: 'Bag' },
 ];
 
 export const PACKAGING_MATERIALS: PackagingMaterial[] = [
@@ -40,7 +43,7 @@ export const PACKAGING_MATERIALS: PackagingMaterial[] = [
   { id: 'PKG-BS-40K',  name: '40 kg Bags (Shikharji Besan)',             usedFor: ['BS-40K']  },
   { id: 'PKG-BS-500G', name: '500 gm Packets (Shikharji Besan)',         usedFor: ['BS-500G'] },
   { id: 'PKG-DL-500G', name: '500 gm Packets (Shikharji Dalia)', usedFor: ['DL-500G'] },
-  { id: 'PKG-BR-40K',    name: '40 kg Bags (Shikharji Bran)',       usedFor: ['BR-40K']  },
+  { id: 'PKG-BR-40K',    name: '40 kg Bags (Shikharji Bran)',       usedFor: ['BR-40K', 'BR-35K']  },
   { id: 'PKG-OUTER-10X3', name: 'Outer Bag 10X3', usedFor: ['AT30-HB3', 'AT30-PO3'] },
   { id: 'PKG-OUTER-5X6',  name: 'Outer Bag 5X6',  usedFor: ['AT30-HB6', 'AT30-PO6'] },
 ];
@@ -49,7 +52,7 @@ export const RAW_MATERIALS: RawMaterialDef[] = [
   { id: 'RM-WF', name: 'Shikharji Atta', products: ['WF-26K', 'WF-25K', 'WF-25HUN', 'WF-5P', 'WF-10P', 'WF-5H', 'WF-10H', 'WF-50K', 'WF-30K', 'AT30-HB3', 'AT30-HB6', 'AT30-PO3', 'AT30-PO6'] },
   { id: 'RM-BS', name: 'Shikharji Besan',       products: ['BS-40K', 'BS-500G'] },
   { id: 'RM-DL', name: 'Shikharji Dalia', products: ['DL-500G'] },
-  { id: 'RM-BR', name: 'Shikharji Bran',   products: ['BR-40K'] },
+  { id: 'RM-BR', name: 'Shikharji Bran',   products: ['BR-40K', 'BR-35K'] },
 ];
 
 export const PRODUCT_CATEGORIES = ['Shikharji Atta', 'Shikharji Besan', 'Shikharji Dalia', 'Shikharji Bran'];
@@ -79,6 +82,7 @@ const BASE_DEFAULT_PRICES: Record<string, number> = {
   'BS-500G': 35,
   'DL-500G': 28,
   'BR-40K':  480,
+  'BR-35K':  420,
   'AT30-HB3': 1020,
   'AT30-HB6': 1050,
   'AT30-PO3':  960,
