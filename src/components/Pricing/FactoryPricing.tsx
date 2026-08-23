@@ -58,27 +58,34 @@ function computeCosts(params: any) {
   const wheatPrice = Number(p.wheatPrice || 0);
   const wheatWastagePct = normalizePercentInput(Number(p.wheatWastage || 0));
 
-  const branIncomePerKg = (branRecoveryPct / 100) * branSelling;
+  const branIncomePerKg = branRecoveryPct * branSelling;
   const effectiveWheatCost = wheatPrice - branIncomePerKg;
-  // Avoid division by zero when waste is 100% or more
-  const wastageCostPerKg = wheatWastagePct >= 0.99 ? 0 : wheatPrice * (wheatWastagePct / (1 - wheatWastagePct));
 
   const salaryCostPerKg = monthlyProductionKg > 0 ? (Number(p.monthlySalary || 0) / monthlyProductionKg) : 0;
   const electricityCostPerKg = monthlyProductionKg > 0 ? (Number(p.monthlyElectricity || 0) / monthlyProductionKg) : 0;
   const emiCostPerKg = monthlyProductionKg > 0 ? (Number(p.monthlyEmi || 0) / monthlyProductionKg) : 0;
   const repairCostPerKg = monthlyProductionKg > 0 ? (Number(p.monthlyRepair || 0) / monthlyProductionKg) : 0;
 
-  const baseManufacturingCost = (effectiveWheatCost || 0) + (wastageCostPerKg || 0) + (salaryCostPerKg || 0) + (electricityCostPerKg || 0) + (emiCostPerKg || 0) + (repairCostPerKg || 0);
+  // Mass-balance extraction rate: flour yield accounts for both waste and bran removed from the wheat.
+  // Guard against 0/negative when waste + bran recovery reaches or exceeds 100%.
+  const flourYield = Math.max(1 - wheatWastagePct - branRecoveryPct, 0.01);
+  const effectiveWheatCostPerKgFlour = effectiveWheatCost / flourYield;
+  const salaryCostPerKgFlour = salaryCostPerKg / flourYield;
+  const electricityCostPerKgFlour = electricityCostPerKg / flourYield;
+  const emiCostPerKgFlour = emiCostPerKg / flourYield;
+  const repairCostPerKgFlour = repairCostPerKg / flourYield;
+
+  const baseManufacturingCost = (effectiveWheatCostPerKgFlour || 0) + (salaryCostPerKgFlour || 0) + (electricityCostPerKgFlour || 0) + (emiCostPerKgFlour || 0) + (repairCostPerKgFlour || 0);
 
   return {
     monthlyProductionKg,
     branIncomePerKg: branIncomePerKg || 0,
-    effectiveWheatCost: effectiveWheatCost || 0,
-    wastageCostPerKg: wastageCostPerKg || 0,
-    salaryCostPerKg: salaryCostPerKg || 0,
-    electricityCostPerKg: electricityCostPerKg || 0,
-    emiCostPerKg: emiCostPerKg || 0,
-    repairCostPerKg: repairCostPerKg || 0,
+    effectiveWheatCost: effectiveWheatCostPerKgFlour || 0,
+    flourYield,
+    salaryCostPerKg: salaryCostPerKgFlour || 0,
+    electricityCostPerKg: electricityCostPerKgFlour || 0,
+    emiCostPerKg: emiCostPerKgFlour || 0,
+    repairCostPerKg: repairCostPerKgFlour || 0,
     baseManufacturingCost: baseManufacturingCost || 0,
   };
 }
@@ -192,7 +199,7 @@ export default function FactoryPricing() {
             <div>Monthly Production: {Math.round(costs.monthlyProductionKg)} kg</div>
             <div>Bran Income: {fmtINR(costs.branIncomePerKg)}</div>
             <div>Effective Wheat Cost: {fmtINR(costs.effectiveWheatCost)}</div>
-            <div>Wastage Cost: {fmtINR(costs.wastageCostPerKg)}</div>
+            <div>Flour Yield: {(costs.flourYield * 100).toFixed(2)}%</div>
             <div>Salary / kg: {fmtINR(costs.salaryCostPerKg)}</div>
             <div>Electricity / kg: {fmtINR(costs.electricityCostPerKg)}</div>
             <div>EMI / kg: {fmtINR(costs.emiCostPerKg)}</div>

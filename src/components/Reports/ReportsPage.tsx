@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import {
   BarChart3, PackageCheck, Box, FileDown, Weight, Users, BookOpen,
-  TrendingUp, Wallet, Receipt, AlertTriangle, IndianRupee, ChevronDown, ChevronRight, Lock, UserX,
+  TrendingUp, TrendingDown, Minus, Wallet, Receipt, AlertTriangle, IndianRupee, ChevronDown, ChevronRight, Lock, UserX,
   CalendarRange,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
@@ -294,6 +294,36 @@ const PDF_STYLES = `
   .period-label { font-weight: 700; font-size: 10px; }
   .period-sub { font-size: 8px; color: #64748b; }
   .footer { font-size: 8px; color: #94a3b8; text-align: right; margin-top: 20px; padding-top: 8px; border-top: 1px solid #e2e8f0; }
+
+  /* Month-over-month snapshot cards */
+  .snap-header { margin-bottom: 10px; }
+  .snap-title { font-size: 14px; font-weight: 700; color: #1e293b; }
+  .snap-subtitle { font-size: 9px; color: #94a3b8; margin-top: 2px; }
+  .snap-grid-2, .snap-grid-3 { display: flex; gap: 10px; margin-bottom: 14px; page-break-inside: avoid; }
+  .snap-grid-2 > .snap-card, .snap-grid-3 > .snap-card { flex: 1; }
+  .snap-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; page-break-inside: avoid; }
+  .snap-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+  .snap-card-label { font-size: 10px; font-weight: 700; color: #334155; }
+  .snap-card-sub { font-size: 8px; color: #94a3b8; }
+  .snap-card-value { font-size: 17px; font-weight: 700; }
+  .snap-card-vs { font-size: 8px; color: #94a3b8; margin-top: 3px; }
+  .dot { width: 7px; height: 7px; border-radius: 999px; display: inline-block; margin-right: 5px; }
+  .metric-line { margin-bottom: 8px; }
+  .metric-line:last-child { margin-bottom: 0; padding-top: 6px; border-top: 1px solid #f1f5f9; }
+  .metric-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+  .badge { display: inline-flex; align-items: center; gap: 2px; font-size: 8px; font-weight: 700; padding: 2px 6px; border-radius: 999px; white-space: nowrap; }
+  .badge-up { color: #059669; background: #ecfdf5; }
+  .badge-down { color: #e11d48; background: #fff1f2; }
+  .badge-flat { color: #94a3b8; background: #f8fafc; }
+
+  /* Bar charts */
+  .chart-title { font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 2px; }
+  .chart-subtitle { font-size: 8px; color: #94a3b8; margin-bottom: 10px; }
+  .chart-bars { display: flex; align-items: flex-end; gap: 8px; height: 110px; page-break-inside: avoid; }
+  .chart-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 28px; }
+  .chart-val { font-size: 7px; font-weight: 700; color: #64748b; margin-bottom: 3px; white-space: nowrap; }
+  .chart-bar { width: 18px; border-radius: 3px 3px 0 0; }
+  .chart-label { font-size: 8px; color: #64748b; margin-top: 4px; white-space: nowrap; }
 `;
 
 function wrapPdfHtml(body: string): string {
@@ -1896,6 +1926,120 @@ function MonthlyBarChart({
   );
 }
 
+function pdfDeltaBadge(curr: number, prev: number): string {
+  const pct = pctChange(curr, prev);
+  if (pct === null) return `<span class="badge badge-flat">New</span>`;
+  const isUp = pct > 0.05;
+  const isDown = pct < -0.05;
+  const cls = isUp ? 'badge-up' : isDown ? 'badge-down' : 'badge-flat';
+  const arrow = isUp ? '&#9650;' : isDown ? '&#9660;' : '&#8213;';
+  return `<span class="badge ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+}
+
+/** CSS bar chart matching the on-screen MonthlyBarChart, for use inside the print HTML. */
+function pdfBarChart(periods: { label: string }[], values: number[], colorHex: string, formatValue: (v: number) => string): string {
+  const max = Math.max(1, ...values);
+  const cols = periods.map((p, i) => {
+    const v = values[i] ?? 0;
+    const h = v > 0 ? Math.max(3, Math.round((v / max) * 80)) : 0;
+    const label = p.label.replace(' (Current)', '').split(' ')[0];
+    return `<div class="chart-col">
+      <div class="chart-val">${v > 0 ? formatValue(v) : ''}</div>
+      <div class="chart-bar" style="height:${h}px;background:${colorHex}"></div>
+      <div class="chart-label">${label}</div>
+    </div>`;
+  }).join('');
+  return `<div class="chart-bars">${cols}</div>`;
+}
+
+function buildSnapshotPdfHtml(rows: MonthComparisonRow[]): string {
+  if (rows.length === 0) return '';
+  const curr = rows[rows.length - 1];
+  const prev = rows.length >= 2 ? rows[rows.length - 2] : null;
+
+  const totalCards = `
+    <div class="snap-grid-2">
+      <div class="snap-card">
+        <div class="snap-card-top">
+          <div><div class="snap-card-label">Total Sold Amount</div><div class="snap-card-sub">Invoiced amount this month</div></div>
+          ${prev ? pdfDeltaBadge(curr.totalSales, prev.totalSales) : ''}
+        </div>
+        <div class="snap-card-value" style="color:#4f46e5">${fmtINR(curr.totalSales)}</div>
+        ${prev ? `<div class="snap-card-vs">vs ${fmtINR(prev.totalSales)} in ${prev.label}</div>` : ''}
+      </div>
+      <div class="snap-card">
+        <div class="snap-card-top">
+          <div><div class="snap-card-label">Total Collection</div><div class="snap-card-sub">Cash sales + receipts collected</div></div>
+          ${prev ? pdfDeltaBadge(curr.revenueCollection, prev.revenueCollection) : ''}
+        </div>
+        <div class="snap-card-value" style="color:#059669">${fmtINR(curr.revenueCollection)}</div>
+        ${prev ? `<div class="snap-card-vs">vs ${fmtINR(prev.revenueCollection)} in ${prev.label}</div>` : ''}
+      </div>
+    </div>`;
+
+  const products = [
+    { label: 'Atta',  color: '#4f46e5', weightCurr: curr.weightWF, weightPrev: prev?.weightWF ?? 0, revCurr: curr.revenueWF, revPrev: prev?.revenueWF ?? 0 },
+    { label: 'Besan', color: '#7c3aed', weightCurr: curr.weightBS, weightPrev: prev?.weightBS ?? 0, revCurr: curr.revenueBS, revPrev: prev?.revenueBS ?? 0 },
+    { label: 'Bran',  color: '#d97706', weightCurr: curr.weightBR, weightPrev: prev?.weightBR ?? 0, revCurr: curr.revenueBR, revPrev: prev?.revenueBR ?? 0 },
+  ];
+
+  const productCards = products.map(p => `
+    <div class="snap-card">
+      <div style="display:flex;align-items:center;margin-bottom:8px"><span class="dot" style="background:${p.color}"></span><span style="font-weight:700;font-size:10px;color:#334155">${p.label}</span></div>
+      <div class="metric-line">
+        <div class="metric-row"><span class="snap-card-sub">Qty Sold</span>${prev ? pdfDeltaBadge(p.weightCurr, p.weightPrev) : ''}</div>
+        <div style="font-size:13px;font-weight:700;color:#1e293b">${fmtKg(p.weightCurr)}</div>
+      </div>
+      <div class="metric-line">
+        <div class="metric-row"><span class="snap-card-sub">Sales Amount</span>${prev ? pdfDeltaBadge(p.revCurr, p.revPrev) : ''}</div>
+        <div style="font-size:13px;font-weight:700;color:${p.color}">${fmtINR(p.revCurr)}</div>
+      </div>
+    </div>`).join('');
+
+  return `
+    <div class="snap-header">
+      <div class="snap-title">${curr.label} vs ${prev ? prev.label : 'Previous Month'}</div>
+      <div class="snap-subtitle">Month-over-month snapshot</div>
+    </div>
+    ${totalCards}
+    <div class="snap-grid-3">${productCards}</div>`;
+}
+
+function buildComparisonChartsPdfHtml(rows: MonthComparisonRow[]): string {
+  return `
+    <div class="section-heading indigo" style="margin-top:18px">Sales &amp; Collection Trend</div>
+    <div class="snap-grid-2">
+      <div class="snap-card">
+        <div class="chart-title">Total Monthly Sales</div>
+        <div class="chart-subtitle">Invoiced amount, month-on-month</div>
+        ${pdfBarChart(rows, rows.map(r => r.totalSales), '#6366f1', v => fmtINR(v))}
+      </div>
+      <div class="snap-card">
+        <div class="chart-title">Total Revenue Collection</div>
+        <div class="chart-subtitle">Cash sales + payment receipts</div>
+        ${pdfBarChart(rows, rows.map(r => r.revenueCollection), '#10b981', v => fmtINR(v))}
+      </div>
+    </div>
+    <div class="section-heading indigo" style="margin-top:18px">Average Price by Product — Trend</div>
+    <div class="snap-grid-3">
+      <div class="snap-card">
+        <div class="chart-title">Atta — Avg. Price</div>
+        <div class="chart-subtitle">₹ per kg</div>
+        ${pdfBarChart(rows, rows.map(r => r.avgPriceWF), '#6366f1', fmtPricePerKg)}
+      </div>
+      <div class="snap-card">
+        <div class="chart-title">Bran — Avg. Price</div>
+        <div class="chart-subtitle">₹ per kg</div>
+        ${pdfBarChart(rows, rows.map(r => r.avgPriceBR), '#d97706', fmtPricePerKg)}
+      </div>
+      <div class="snap-card">
+        <div class="chart-title">Besan — Avg. Price</div>
+        <div class="chart-subtitle">₹ per kg</div>
+        ${pdfBarChart(rows, rows.map(r => r.avgPriceBS), '#7c3aed', fmtPricePerKg)}
+      </div>
+    </div>`;
+}
+
 function buildMonthComparisonPdfHtml(bizName: string, rows: MonthComparisonRow[]): string {
   const now = new Date();
   const ts = `${formatDate(now)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -1925,7 +2069,9 @@ function buildMonthComparisonPdfHtml(bizName: string, rows: MonthComparisonRow[]
       <div class="report-title">Monthly Comparison Report — since ${rows[0]?.label ?? ''}</div>
       <div class="report-meta">Generated: ${ts}</div>
     </div>
-    <div class="section-heading indigo">Sales &amp; Collection</div>
+    ${buildSnapshotPdfHtml(rows)}
+    ${buildComparisonChartsPdfHtml(rows)}
+    <div class="section-heading indigo" style="margin-top:18px">Sales &amp; Collection</div>
     <table>
       <thead><tr>
         <th>Month</th><th class="right">Invoices</th><th class="right">Total Sales</th>
@@ -1947,6 +2093,137 @@ function buildMonthComparisonPdfHtml(bizName: string, rows: MonthComparisonRow[]
   return wrapPdfHtml(body);
 }
 
+// ─── Month-over-Month Snapshot ────────────────────────────────────────────────
+// A focused "this month vs last month" view: total sold amount, total
+// collection, and per-product (Atta/Besan/Bran) quantity + revenue, each with
+// a % change badge against the immediately preceding month.
+
+const SNAPSHOT_ACCENTS: Record<string, { text: string; iconBg: string; border: string; dot: string }> = {
+  indigo:  { text: 'text-indigo-600',  iconBg: 'bg-indigo-100',  border: 'border-indigo-100',  dot: 'bg-indigo-500' },
+  emerald: { text: 'text-emerald-600', iconBg: 'bg-emerald-100', border: 'border-emerald-100', dot: 'bg-emerald-500' },
+  violet:  { text: 'text-violet-600',  iconBg: 'bg-violet-100',  border: 'border-violet-100',  dot: 'bg-violet-500' },
+  amber:   { text: 'text-amber-600',   iconBg: 'bg-amber-100',   border: 'border-amber-100',   dot: 'bg-amber-500' },
+};
+
+function pctChange(curr: number, prev: number): number | null {
+  if (prev === 0) return curr === 0 ? 0 : null; // null = no baseline to compare against
+  return ((curr - prev) / prev) * 100;
+}
+
+function DeltaBadge({ curr, prev }: { curr: number; prev: number }) {
+  const pct = pctChange(curr, prev);
+  if (pct === null) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded-full">
+        New
+      </span>
+    );
+  }
+  const isUp = pct > 0.05;
+  const isDown = pct < -0.05;
+  const colorClass = isUp ? 'text-emerald-600 bg-emerald-50' : isDown ? 'text-rose-600 bg-rose-50' : 'text-slate-400 bg-slate-50';
+  const Icon = isUp ? TrendingUp : isDown ? TrendingDown : Minus;
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${colorClass}`}>
+      <Icon size={11} />
+      {Math.abs(pct).toFixed(1)}%
+    </span>
+  );
+}
+
+function MonthOverMonthSnapshot({ rows }: { rows: MonthComparisonRow[] }) {
+  if (rows.length === 0) return null;
+  const curr = rows[rows.length - 1];
+  const prev = rows.length >= 2 ? rows[rows.length - 2] : null;
+
+  const totals = [
+    {
+      key: 'sales', label: 'Total Sold Amount', sub: 'Invoiced amount this month',
+      icon: IndianRupee, accent: 'indigo', currVal: curr.totalSales, prevVal: prev?.totalSales ?? 0,
+    },
+    {
+      key: 'collection', label: 'Total Collection', sub: 'Cash sales + receipts collected',
+      icon: Wallet, accent: 'emerald', currVal: curr.revenueCollection, prevVal: prev?.revenueCollection ?? 0,
+    },
+  ] as const;
+
+  const products = [
+    { key: 'wf', label: 'Atta', accent: 'indigo', weightCurr: curr.weightWF, weightPrev: prev?.weightWF ?? 0, revCurr: curr.revenueWF, revPrev: prev?.revenueWF ?? 0 },
+    { key: 'bs', label: 'Besan', accent: 'violet', weightCurr: curr.weightBS, weightPrev: prev?.weightBS ?? 0, revCurr: curr.revenueBS, revPrev: prev?.revenueBS ?? 0 },
+    { key: 'br', label: 'Bran', accent: 'amber', weightCurr: curr.weightBR, weightPrev: prev?.weightBR ?? 0, revCurr: curr.revenueBR, revPrev: prev?.revenueBR ?? 0 },
+  ] as const;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-base font-bold text-slate-800">{curr.label} vs {prev ? prev.label : 'Previous Month'}</h3>
+        <p className="text-xs text-slate-400">Month-over-month snapshot</p>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        {totals.map(c => {
+          const A = SNAPSHOT_ACCENTS[c.accent];
+          const Icon = c.icon;
+          return (
+            <div key={c.key} className={`bg-white rounded-2xl border ${A.border} shadow-sm p-5`}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-9 h-9 rounded-xl ${A.iconBg} flex items-center justify-center shrink-0`}>
+                    <Icon size={17} className={A.text} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-slate-700">{c.label}</div>
+                    <div className="text-[11px] text-slate-400">{c.sub}</div>
+                  </div>
+                </div>
+                {prev && <DeltaBadge curr={c.currVal} prev={c.prevVal} />}
+              </div>
+              <div className={`text-2xl font-bold ${A.text}`}>{fmtINR(c.currVal)}</div>
+              {prev && <div className="text-xs text-slate-400 mt-1">vs {fmtINR(c.prevVal)} in {prev.label}</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid sm:grid-cols-3 gap-4">
+        {products.map(p => {
+          const A = SNAPSHOT_ACCENTS[p.accent];
+          return (
+            <div key={p.key} className={`bg-white rounded-2xl border ${A.border} shadow-sm p-5`}>
+              <div className="flex items-center gap-2 mb-4">
+                <span className={`w-2.5 h-2.5 rounded-full ${A.dot}`} />
+                <span className="font-semibold text-slate-700">{p.label}</span>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[11px] text-slate-400">Qty Sold</span>
+                    {prev && <DeltaBadge curr={p.weightCurr} prev={p.weightPrev} />}
+                  </div>
+                  <div className="text-lg font-bold text-slate-800">{fmtKg(p.weightCurr)}</div>
+                </div>
+                <div className="pt-2.5 border-t border-slate-50">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[11px] text-slate-400">Sales Amount</span>
+                    {prev && <DeltaBadge curr={p.revCurr} prev={p.revPrev} />}
+                  </div>
+                  <div className={`text-lg font-bold ${A.text}`}>{fmtINR(p.revCurr)}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {!prev && (
+        <div className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2.5">
+          Only one month of data so far — % change will appear once a second month is available.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MonthlyComparisonReport() {
   const { invoices, paymentReceipts } = useStore();
 
@@ -1958,6 +2235,8 @@ function MonthlyComparisonReport() {
 
   return (
     <div className="space-y-6">
+      <MonthOverMonthSnapshot rows={rows} />
+
       <div className="text-xs text-slate-400 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
         Showing {rows.length} month{rows.length !== 1 ? 's' : ''} since {rows[0]?.label} — the current financial year (Apr–Mar), from the mill's first month of operation.
       </div>
