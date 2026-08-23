@@ -1,5 +1,6 @@
 import { Invoice } from '../types';
 import { BusinessProfile } from '../types';
+import qrcode from 'qrcode-generator';
 
 const W = 38;
 const LINE  = '-'.repeat(W);
@@ -167,6 +168,22 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** Inline SVG "Scan & Pay" UPI QR code, or '' if no UPI ID is configured */
+function buildUpiQrSvg(invoice: Invoice, bp: BusinessProfile): string {
+  if (!bp.upiId) return '';
+  const upiUrl = 'upi://pay?' + new URLSearchParams({
+    pa: bp.upiId,
+    pn: bp.name,
+    am: invoice.grandTotal.toFixed(2),
+    cu: 'INR',
+    tn: `Invoice ${invoice.invoiceNo}`,
+  }).toString();
+  const qr = qrcode(0, 'M');
+  qr.addData(upiUrl);
+  qr.make();
+  return qr.createSvgTag({ scalable: true });
+}
+
 function bizNameHtml(name: string): string {
   const [first, ...rest] = name.trim().split(/\s+/);
   if (!first) return '';
@@ -249,6 +266,8 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
     bp.bankName ? `Bank:&nbsp;<b>${esc(bp.bankName)}</b>${bp.accountNo ? '&nbsp;A/C:&nbsp;' + esc(bp.accountNo) : ''}${bp.ifscCode ? '&nbsp;IFSC:&nbsp;' + esc(bp.ifscCode) : ''}` : '',
   ].filter(Boolean).join('&emsp;');
 
+  const upiQrSvg = buildUpiQrSvg(invoice, bp);
+
   const cancelledBanner = invoice.cancelled
     ? `<div class="cancelled">CANCELLED</div>`
     : '';
@@ -306,9 +325,12 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
   </table>
   <!-- Totals -->
   <div class="totals">
-    <div>
-      <div class="amt-box"><b>Amount:</b> ${esc(invoice.amountInWords)}</div>
-      ${bankParts ? `<div class="bank-box">${bankParts}</div>` : ''}
+    <div class="totals-left">
+      <div>
+        <div class="amt-box"><b>Amount:</b> ${esc(invoice.amountInWords)}</div>
+        ${bankParts ? `<div class="bank-box">${bankParts}</div>` : ''}
+      </div>
+      ${upiQrSvg ? `<div class="qr-box">${upiQrSvg}<div class="qr-caption">Scan &amp; Pay</div></div>` : ''}
     </div>
     <div>
       <table class="stbl">
@@ -461,6 +483,10 @@ export function buildA4HalfHtml(invoice: Invoice, bp: BusinessProfile, logoUrl?:
   .amt-box { background: #f0f4ff; border: 1px solid #9aa8f0; border-radius: 3px; padding: 3px 6px; font-size: 9pt; color: #3730a3; font-style: italic; margin-bottom: 3px; line-height: 1.3; }
   .amt-box b { font-style: normal; color: #000; }
   .bank-box { font-size: 7.5pt; color: #000; line-height: 1.4; }
+  .totals-left { display: flex; align-items: flex-start; gap: 8px; }
+  .qr-box { flex-shrink: 0; text-align: center; }
+  .qr-box svg { width: 46px; height: 46px; display: block; }
+  .qr-caption { font-size: 5.5pt; color: #444; margin-top: 1px; }
   .stbl { width: 100%; border-collapse: collapse; font-size: 7pt; white-space: nowrap; }
   .stbl td { padding: 1px 4px; }
   .stbl td.r { text-align: right; }
@@ -539,13 +565,18 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     ? `<tr style="color:#c2410c"><td>Loading / Unloading</td><td class="right">+ ${fmtRupees(invoice.loadingCharges)}</td></tr>`
     : '';
 
+  const upiQrSvg = buildUpiQrSvg(invoice, bp);
+
   const bankSection = (bp.bankName || bp.upiId) ? `
     <div class="bank-section">
-      <div class="bank-title">Bank / Payment Details</div>
-      ${bp.upiId ? `<div>UPI: <strong>${esc(bp.upiId)}</strong></div>` : ''}
-      ${bp.bankName ? `<div>Bank: <strong>${esc(bp.bankName)}</strong></div>` : ''}
-      ${bp.accountNo ? `<div>A/C No: <strong>${esc(bp.accountNo)}</strong></div>` : ''}
-      ${bp.ifscCode ? `<div>IFSC: <strong>${esc(bp.ifscCode)}</strong></div>` : ''}
+      <div class="bank-details">
+        <div class="bank-title">Bank / Payment Details</div>
+        ${bp.upiId ? `<div>UPI: <strong>${esc(bp.upiId)}</strong></div>` : ''}
+        ${bp.bankName ? `<div>Bank: <strong>${esc(bp.bankName)}</strong></div>` : ''}
+        ${bp.accountNo ? `<div>A/C No: <strong>${esc(bp.accountNo)}</strong></div>` : ''}
+        ${bp.ifscCode ? `<div>IFSC: <strong>${esc(bp.ifscCode)}</strong></div>` : ''}
+      </div>
+      ${upiQrSvg ? `<div class="qr-box">${upiQrSvg}<div class="qr-caption">Scan &amp; Pay</div></div>` : ''}
     </div>` : '';
 
   const copyBanner = copyLabel
@@ -571,7 +602,7 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
 <style>
   @page {
     size: A4 portrait;
-    margin: 12mm 14mm;
+    margin: 3mm 14mm 12mm 14mm;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -612,7 +643,6 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     justify-content: space-between;
     align-items: flex-start;
     padding-bottom: 8px;
-    border-bottom: 2.5px solid #1a3a6b;
     margin-bottom: 10px;
   }
   .biz-name {
@@ -806,7 +836,12 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     font-size: 9pt;
     line-height: 1.8;
     color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
   }
+  .bank-details { flex: 1; }
   .bank-title {
     font-size: 7.5pt;
     font-weight: 700;
@@ -815,6 +850,9 @@ export function buildA4Html(invoice: Invoice, bp: BusinessProfile, copyLabel?: s
     letter-spacing: 0.8px;
     margin-bottom: 4px;
   }
+  .qr-box { flex-shrink: 0; text-align: center; }
+  .qr-box svg { width: 60px; height: 60px; display: block; }
+  .qr-caption { font-size: 6.5pt; color: #444; margin-top: 2px; }
 
   /* ── Thank-you note ── */
   .thanks {
