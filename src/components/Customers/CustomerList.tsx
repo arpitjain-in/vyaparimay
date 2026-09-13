@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Plus, Edit2, UserX, BookOpen, Wallet, Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, TrendingUp, IndianRupee } from 'lucide-react';
+import { Search, Plus, Edit2, UserX, BookOpen, Receipt, Wallet, Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, TrendingUp, IndianRupee } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import Layout from '../Layout/Layout';
 import AddPaymentModal from '../common/AddPaymentModal';
@@ -226,6 +226,12 @@ export default function CustomerList() {
                           className="text-indigo-400 hover:text-indigo-600 transition-colors" title="Ledger"
                         >
                           <BookOpen size={15} />
+                        </button>
+                        <button
+                          onClick={() => navigate('customer-ledger-v2', { customerId: c.id })}
+                          className="text-purple-400 hover:text-purple-600 transition-colors" title="Statement (New, Beta)"
+                        >
+                          <Receipt size={15} />
                         </button>
                         <button
                           onClick={() => setPendingPaymentCustomerId(c.id)}

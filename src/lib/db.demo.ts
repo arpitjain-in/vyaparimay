@@ -238,6 +238,11 @@ export async function loadInvoices(_orgId: string): Promise<Invoice[]> {
   return lsGet<Invoice[]>('invoices', []);
 }
 
+/** Demo-mode mirror of the real db's loadInvoicesForCustomer — see there. */
+export async function loadInvoicesForCustomer(_orgId: string, customerId: string): Promise<Invoice[]> {
+  return lsGet<Invoice[]>('invoices', []).filter(inv => inv.customerId === customerId);
+}
+
 /** Client-side stand-in for the real db's server-side paginated query. */
 export async function loadInvoicesPage(
   _orgId: string,
@@ -363,6 +368,11 @@ export async function loadPaymentReceipts(
   const receipts = lsGet<PaymentReceipt[]>('payment_receipts', []);
   const seq = lsGet<number>('receipt_seq', 0);
   return { receipts, seq };
+}
+
+/** Demo-mode mirror of the real db's loadPaymentReceiptsForCustomer — see there. */
+export async function loadPaymentReceiptsForCustomer(_orgId: string, customerId: string): Promise<PaymentReceipt[]> {
+  return lsGet<PaymentReceipt[]>('payment_receipts', []).filter(r => r.customerId === customerId);
 }
 
 export async function savePaymentReceipt(

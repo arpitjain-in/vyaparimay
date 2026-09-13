@@ -373,14 +373,76 @@ function rowToInvoice(row: Record<string, unknown>): Invoice {
   };
 }
 
+/**
+ * ALL invoices for the org, newest first — paginated internally (see
+ * fetchAllRows below) so the result is complete regardless of Supabase's
+ * "Max Rows" setting, no matter how large the org's total invoice count
+ * grows. This is what the store loads at boot into `invoices`, which
+ * Dashboard/Reports/etc. all read from — an unbounded single request here
+ * is exactly what silently dropped invoices older than a cutoff date in
+ * production before (see fn history). `invoice_no` is a secondary sort key
+ * so page boundaries stay deterministic when many invoices share a date.
+ */
 export async function loadInvoices(orgId: string): Promise<Invoice[]> {
-  const { data, error } = await supabase
-    .from('invoices')
-    .select('*, invoice_items(*)')
-    .eq('org_id', orgId)
-    .order('invoice_date', { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(rowToInvoice);
+  const rows = await fetchAllRows((from, to) =>
+    supabase
+      .from('invoices')
+      .select('*, invoice_items(*)')
+      .eq('org_id', orgId)
+      .order('invoice_date', { ascending: false })
+      .order('invoice_no', { ascending: false })
+      .range(from, to),
+  );
+  return rows.map(rowToInvoice);
+}
+
+/**
+ * Runs a query in fixed-size pages until a short page proves there's no more
+ * data, so the caller gets the COMPLETE result set no matter what PostgREST's
+ * "Max Rows" setting is (default 1000 — silently truncates any single
+ * unbounded request, which is exactly what caused old invoices to vanish
+ * from the deployed app). PAGE_SIZE is kept well under any sane Max Rows
+ * value, so "fewer rows than asked for" reliably means "that was the last
+ * page" — this makes ledger figures (opening balance especially) correct
+ * forever, independent of that dashboard setting.
+ */
+async function fetchAllRows(
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>,
+  pageSize = 500,
+): Promise<Record<string, unknown>[]> {
+  const all: Record<string, unknown>[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await buildQuery(offset, offset + pageSize - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < pageSize) return all;
+    offset += pageSize;
+  }
+}
+
+/**
+ * ALL invoices for a single customer, newest first — scoped by
+ * (org_id, customer_id) instead of pulling the whole org's history, and
+ * paginated internally (see fetchAllRows) so it's never subject to Max Rows
+ * truncation either, however large one customer's history gets. Line items
+ * aren't needed for a ledger row, so they're skipped (rowToInvoice defaults
+ * `items` to `[]` when `invoice_items` isn't in the selected row).
+ * Powers the bank-statement-style CustomerLedgerV2 view.
+ */
+export async function loadInvoicesForCustomer(orgId: string, customerId: string): Promise<Invoice[]> {
+  const rows = await fetchAllRows((from, to) =>
+    supabase
+      .from('invoices')
+      .select('*')
+      .eq('org_id', orgId)
+      .eq('customer_id', customerId)
+      .order('invoice_date', { ascending: false })
+      .order('invoice_time', { ascending: false })
+      .range(from, to),
+  );
+  return rows.map(rowToInvoice);
 }
 
 /**
@@ -714,25 +776,57 @@ function rowToReceipt(row: Record<string, unknown>): PaymentReceipt {
   };
 }
 
+/**
+ * ALL payment receipts for the org, newest first — paginated internally
+ * (see fetchAllRows) so it's complete regardless of Max Rows. This is what
+ * the store loads at boot into `paymentReceipts`, which Dashboard/Reports/
+ * the classic ledger all read from. `id` is a secondary sort key so page
+ * boundaries stay deterministic when several receipts share a date.
+ */
 export async function loadPaymentReceipts(
   orgId: string,
 ): Promise<{ receipts: PaymentReceipt[]; seq: number }> {
-  const { data, error } = await supabase
-    .from('payment_receipts')
-    .select('*')
-    .eq('org_id', orgId)
-    .order('date', { ascending: false });
-  if (error) throw error;
+  const rows = await fetchAllRows((from, to) =>
+    supabase
+      .from('payment_receipts')
+      .select('*')
+      .eq('org_id', orgId)
+      .order('date', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, to),
+  );
 
-  const receipts = (data ?? []).map(rowToReceipt);
+  const receipts = rows.map(rowToReceipt);
   const seq =
-    data && data.length > 0
-      ? data.reduce(
+    rows.length > 0
+      ? rows.reduce(
           (max, r) => Math.max(max, parseInt((r.id as string).replace('REC-', ''), 10) || 0),
           0,
         )
       : 0;
   return { receipts, seq };
+}
+
+/**
+ * ALL payment receipts for a single customer, newest first — scoped by
+ * (org_id, customer_id) and paginated internally (see fetchAllRows) so it's
+ * complete and correct regardless of Max Rows, unlike the org-wide
+ * `paymentReceipts` array in the store (loaded via loadPaymentReceipts
+ * above, which IS still subject to Max Rows truncation once the org's total
+ * payment count grows past it). Powers CustomerLedgerV2's opening balance.
+ */
+export async function loadPaymentReceiptsForCustomer(orgId: string, customerId: string): Promise<PaymentReceipt[]> {
+  const rows = await fetchAllRows((from, to) =>
+    supabase
+      .from('payment_receipts')
+      .select('*')
+      .eq('org_id', orgId)
+      .eq('customer_id', customerId)
+      .order('date', { ascending: false })
+      .order('time', { ascending: false })
+      .range(from, to),
+  );
+  return rows.map(rowToReceipt);
 }
 
 export async function savePaymentReceipt(

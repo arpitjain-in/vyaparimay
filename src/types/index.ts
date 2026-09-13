@@ -283,6 +283,7 @@ export type AppPage =
   | 'customer-list'
   | 'customer-form'
   | 'customer-ledger'
+  | 'customer-ledger-v2'
   | 'new-order'
   | 'new-proforma'
   | 'invoice-history'
