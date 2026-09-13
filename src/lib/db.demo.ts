@@ -243,6 +243,45 @@ export async function loadInvoicesForCustomer(_orgId: string, customerId: string
   return lsGet<Invoice[]>('invoices', []).filter(inv => inv.customerId === customerId);
 }
 
+/** Demo-mode mirror of the real db's loadInvoicesSince — see there. */
+export async function loadInvoicesSince(_orgId: string, sinceDateDdMmYyyy: string): Promise<Invoice[]> {
+  const since = parseDDMMYYYY(sinceDateDdMmYyyy);
+  return lsGet<Invoice[]>('invoices', [])
+    .filter(inv => parseDDMMYYYY(inv.invoiceDate) >= since)
+    .sort((a, b) => parseDDMMYYYY(b.invoiceDate) - parseDDMMYYYY(a.invoiceDate));
+}
+
+/** Demo-mode mirror of the real db's loadRecentInvoices — see there. */
+export async function loadRecentInvoices(_orgId: string, limit: number): Promise<Invoice[]> {
+  return lsGet<Invoice[]>('invoices', [])
+    .filter(inv => !inv.cancelled)
+    .sort((a, b) => parseDDMMYYYY(b.invoiceDate) - parseDDMMYYYY(a.invoiceDate))
+    .slice(0, limit);
+}
+
+/** Demo-mode mirror of the real db's loadInvoicesForDate — see there. */
+export async function loadInvoicesForDate(_orgId: string, dateDdMmYyyy: string): Promise<Invoice[]> {
+  return lsGet<Invoice[]>('invoices', []).filter(inv => inv.invoiceDate === dateDdMmYyyy);
+}
+
+/** Demo-mode mirror of the real db's getCustomerOutstanding — see there. */
+export async function getCustomerOutstanding(_orgId: string): Promise<Record<string, number>> {
+  const customers = lsGet<Customer[]>('customers', []);
+  const invoices = lsGet<Invoice[]>('invoices', []);
+  const receipts = lsGet<PaymentReceipt[]>('payment_receipts', []);
+  const result: Record<string, number> = {};
+  for (const c of customers) {
+    const invoiced = invoices
+      .filter(inv => inv.customerId === c.id && !inv.cancelled)
+      .reduce((s, inv) => s + inv.grandTotal, 0);
+    const paid = receipts
+      .filter(r => r.customerId === c.id)
+      .reduce((s, r) => s + r.amount, 0);
+    result[c.id] = c.openingBalance + invoiced - paid;
+  }
+  return result;
+}
+
 /** Client-side stand-in for the real db's server-side paginated query. */
 export async function loadInvoicesPage(
   _orgId: string,

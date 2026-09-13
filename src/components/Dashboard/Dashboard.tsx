@@ -1,12 +1,17 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ShoppingCart, TrendingUp, PackageCheck, FlaskConical,
-  ArrowRight, Users, IndianRupee,
+  ArrowRight, Users, IndianRupee, Loader2,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS } from '../../data/products';
 import { fmtINR, formatDate } from '../../utils/format';
 import Layout from '../Layout/Layout';
+import type { Invoice } from '../../types';
+import * as realDb from '../../lib/db';
+import * as demoDb from '../../lib/db.demo';
+
+const db = import.meta.env.VITE_DEMO_MODE === 'true' ? demoDb : realDb;
 
 function KpiCard({
   label, value, sub, icon, accent, onClick,
@@ -108,11 +113,10 @@ function SalesBarChart({ data }: { data: { date: string; label: string; revenue:
 export default function Dashboard() {
   // Actions don't trigger re-renders — keep destructured together.
   const { navigate, startNewOrder, getReadyStockStatus } = useStore();
-  const invoices        = useStore(s => s.invoices);
-  const businessProfile = useStore(s => s.businessProfile);
-  const readyStock      = useStore(s => s.readyStock);
-  const customers       = useStore(s => s.customers);
-  const paymentReceipts = useStore(s => s.paymentReceipts);
+  const orgId            = useStore(s => s.orgId);
+  const businessProfile  = useStore(s => s.businessProfile);
+  const readyStock       = useStore(s => s.readyStock);
+  const customers        = useStore(s => s.customers);
 
   // Computed once per mount, refreshed when the component remounts (e.g. next day).
   const TODAY = useMemo(() => formatDate(new Date()), []);
@@ -120,11 +124,54 @@ export default function Dashboard() {
     () => new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' }),
     [],
   );
+  const thirtyDaysAgo = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 29);
+    return formatDate(d);
+  }, []);
+
+  // Scoped fetches — Dashboard never needs the org's full invoice history,
+  // only a recent rolling window (today/week/30-day figures are all
+  // subsets of one 30-day fetch), today's line items for the SKU
+  // breakdown, the last 5 invoices, and a server-side per-customer
+  // outstanding aggregate for Top Debtors (see fn_customer_outstanding —
+  // computing that in the browser meant scanning every invoice × every
+  // payment receipt ever created, on every single Dashboard load).
+  const [recent30d, setRecent30d] = useState<Invoice[]>([]);
+  const [todayWithItems, setTodayWithItems] = useState<Invoice[]>([]);
+  const [recentInvoicesList, setRecentInvoicesList] = useState<Invoice[]>([]);
+  const [outstandingByCustomer, setOutstandingByCustomer] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    setLoading(true);
+    Promise.allSettled([
+      db.loadInvoicesSince(orgId, thirtyDaysAgo),
+      db.loadInvoicesForDate(orgId, TODAY),
+      db.loadRecentInvoices(orgId, 5),
+      db.getCustomerOutstanding(orgId),
+    ]).then(([recent, today, recentList, outstanding]) => {
+      if (cancelled) return;
+      if (recent.status === 'fulfilled') setRecent30d(recent.value);
+      else console.error('Failed to load last-30-days invoices', recent.reason);
+      if (today.status === 'fulfilled') setTodayWithItems(today.value);
+      else console.error('Failed to load today\'s invoices', today.reason);
+      if (recentList.status === 'fulfilled') setRecentInvoicesList(recentList.value);
+      else console.error('Failed to load recent invoices', recentList.reason);
+      if (outstanding.status === 'fulfilled') setOutstandingByCustomer(outstanding.value);
+      else console.error('Failed to load outstanding-by-customer (has the fn_customer_outstanding migration been applied?)', outstanding.reason);
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [orgId, TODAY, thirtyDaysAgo]);
 
   // ── Today's figures ──────────────────────────────────────────────
   const todayInvoices = useMemo(
-    () => invoices.filter(i => !i.cancelled && i.invoiceDate === TODAY),
-    [invoices, TODAY],
+    () => recent30d.filter(i => !i.cancelled && i.invoiceDate === TODAY),
+    [recent30d, TODAY],
   );
   const todayRevenue = useMemo(
     () => todayInvoices.reduce((s, i) => s + i.grandTotal, 0),
@@ -146,10 +193,10 @@ export default function Dashboard() {
       d.setDate(d.getDate() - i);
       return formatDate(d);
     });
-    return invoices
+    return recent30d
       .filter(i => !i.cancelled && week.includes(i.invoiceDate))
       .reduce((s, i) => s + i.grandTotal, 0);
-  }, [invoices]);
+  }, [recent30d]);
 
   // ── Last 30 days sales chart data ─────────────────────────────────
   const last30DaysSales = useMemo(() => {
@@ -158,37 +205,29 @@ export default function Dashboard() {
       d.setDate(d.getDate() - (29 - i));
       return { date: formatDate(d), label: d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }), revenue: 0 };
     });
-    for (const inv of invoices) {
+    for (const inv of recent30d) {
       if (inv.cancelled) continue;
       const day = days.find(d => d.date === inv.invoiceDate);
       if (day) day.revenue += inv.grandTotal;
     }
     return days;
-  }, [invoices]);
+  }, [recent30d]);
 
   // ── Top debtors ───────────────────────────────────────────────────
   const topDebtors = useMemo(() => {
     return customers
       .filter(c => c.active)
-      .map(c => {
-        const totalInvoiced = invoices
-          .filter(i => !i.cancelled && i.customerId === c.id)
-          .reduce((s, i) => s + i.grandTotal, 0);
-        const totalPaid = paymentReceipts
-          .filter(r => r.customerId === c.id)
-          .reduce((s, r) => s + r.amount, 0);
-        const outstanding = c.openingBalance + totalInvoiced - totalPaid;
-        return { customer: c, outstanding };
-      })
+      .map(c => ({ customer: c, outstanding: outstandingByCustomer[c.id] ?? 0 }))
       .filter(d => d.outstanding > 0)
       .sort((a, b) => b.outstanding - a.outstanding)
       .slice(0, 25);
-  }, [customers, invoices, paymentReceipts]);
+  }, [customers, outstandingByCustomer]);
 
   // ── Today's sales by SKU ──────────────────────────────────────────
   const skuSalesList = useMemo(() => {
     const todaySkuSales: Record<string, { name: string; qty: number; amount: number }> = {};
-    for (const inv of todayInvoices) {
+    for (const inv of todayWithItems) {
+      if (inv.cancelled) continue;
       for (const item of inv.items) {
         if (!todaySkuSales[item.skuId]) {
           const sku = PRODUCTS.find(p => p.id === item.skuId);
@@ -199,16 +238,10 @@ export default function Dashboard() {
       }
     }
     return Object.values(todaySkuSales).sort((a, b) => b.amount - a.amount);
-  }, [todayInvoices]);
+  }, [todayWithItems]);
 
   // ── Recent invoices (last 5) ──────────────────────────────────────
-  const recentInvoices = useMemo(
-    () => [...invoices]
-      .filter(i => !i.cancelled)
-      .sort((a, b) => b.invoiceNo.localeCompare(a.invoiceNo))
-      .slice(0, 5),
-    [invoices],
-  );
+  const recentInvoices = recentInvoicesList;
 
   return (
     <Layout
@@ -223,6 +256,12 @@ export default function Dashboard() {
         </button>
       }
     >
+      {loading && (
+        <div className="flex items-center gap-2 text-slate-400 text-sm mb-4">
+          <Loader2 size={16} className="animate-spin" /> Loading dashboard…
+        </div>
+      )}
+
       {/* ── KPI row ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         <KpiCard

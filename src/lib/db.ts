@@ -446,6 +446,75 @@ export async function loadInvoicesForCustomer(orgId: string, customerId: string)
 }
 
 /**
+ * Invoices from a given date onward, org-wide, newest first — no line items
+ * (Dashboard's Today/7-day/30-day figures only need totals per invoice, not
+ * items). Bounded by the date filter itself, so no pagination loop is
+ * needed: at current volumes a 30-day window is a couple hundred rows at
+ * most, nowhere near Max Rows. Powers Dashboard's rolling KPIs and chart.
+ */
+export async function loadInvoicesSince(orgId: string, sinceDateDdMmYyyy: string): Promise<Invoice[]> {
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('*')
+    .eq('org_id', orgId)
+    .gte('invoice_date', toDbDate(sinceDateDdMmYyyy))
+    .order('invoice_date', { ascending: false })
+    .order('invoice_no', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(rowToInvoice);
+}
+
+/** The most recent N invoices org-wide, newest first — no line items. Its
+ * own tiny query (rather than derived from loadInvoicesSince's window) so
+ * "Recent Invoices" is always exactly the last N regardless of how quiet
+ * the most recent stretch has been. Powers Dashboard's Recent Invoices list.
+ */
+export async function loadRecentInvoices(orgId: string, limit: number): Promise<Invoice[]> {
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('*')
+    .eq('org_id', orgId)
+    .eq('cancelled', false)
+    .order('invoice_date', { ascending: false })
+    .order('invoice_no', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []).map(rowToInvoice);
+}
+
+/**
+ * Full invoices (with line items) for exactly one date — Dashboard's
+ * Today's-Sales-by-SKU breakdown is the only widget that needs items, and
+ * only for today, so this is the one query that pays the invoice_items join.
+ */
+export async function loadInvoicesForDate(orgId: string, dateDdMmYyyy: string): Promise<Invoice[]> {
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('*, invoice_items(*)')
+    .eq('org_id', orgId)
+    .eq('invoice_date', toDbDate(dateDdMmYyyy));
+  if (error) throw error;
+  return (data ?? []).map(rowToInvoice);
+}
+
+/**
+ * Server-side per-customer outstanding balance (opening_balance + invoiced
+ * − paid), via the fn_customer_outstanding SQL aggregate — one indexed
+ * GROUP BY pass in Postgres instead of Dashboard's Top Debtors card
+ * scanning every invoice × every payment receipt in the browser. See
+ * supabase/migrations/20260913000000_customer_outstanding_aggregate.sql.
+ */
+export async function getCustomerOutstanding(orgId: string): Promise<Record<string, number>> {
+  const { data, error } = await supabase.rpc('fn_customer_outstanding', { p_org_id: orgId });
+  if (error) throw error;
+  const result: Record<string, number> = {};
+  for (const row of (data ?? []) as { customer_id: string; outstanding: number }[]) {
+    result[row.customer_id] = Number(row.outstanding);
+  }
+  return result;
+}
+
+/**
  * Server-side paginated invoice history: pushes search, the payment-mode
  * and cancelled filters, and LIMIT/OFFSET to Postgres instead of pulling
  * every invoice down to filter client-side. Mirrors loadCustomersPaginated.
