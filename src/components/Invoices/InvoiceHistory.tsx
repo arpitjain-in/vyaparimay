@@ -14,7 +14,8 @@ const db = import.meta.env.VITE_DEMO_MODE === 'true' ? demoDb : realDb;
 const PAGE_SIZE = 25;
 
 export default function InvoiceHistory() {
-  const { orgId, invoices, navigate, cancelInvoice, updateInvoicePaymentMode } = useStore();
+  const { orgId, navigate, cancelInvoice, updateInvoicePaymentMode } = useStore();
+  const [totalRevenue, setTotalRevenue] = useState<number | null>(null);
   const [docTab, setDocTab] = useState<'invoice' | 'proforma'>('invoice');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -64,11 +65,13 @@ export default function InvoiceHistory() {
   // Re-fetch page 1 whenever the tab, search, or filters change.
   useEffect(() => { loadPage(1); }, [loadPage]);
 
-  const pendingInvoice = pendingCancelId ? invoices.find(i => i.id === pendingCancelId) : null;
-  const pendingPaymentModeInvoice = pendingPaymentModeId ? invoices.find(i => i.id === pendingPaymentModeId) : null;
+  // Cancel/edit-payment-mode always act on a row that's currently on screen,
+  // so looking it up in the current page (`rows`) is enough — no need for
+  // the org's whole invoice history to be loaded just for this.
+  const pendingInvoice = pendingCancelId ? rows.find(i => i.id === pendingCancelId) : null;
+  const pendingPaymentModeInvoice = pendingPaymentModeId ? rows.find(i => i.id === pendingPaymentModeId) : null;
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  const totalRevenue = invoices.filter(i => !i.cancelled).reduce((s, i) => s + i.grandTotal, 0);
 
   const handleDocTabChange = (tab: 'invoice' | 'proforma') => {
     setDocTab(tab);
@@ -94,7 +97,8 @@ export default function InvoiceHistory() {
     });
   };
 
-  const selectedInvoices = invoices.filter(inv => selectedIds.has(inv.id));
+  // Truck-load selection also only ever happens against the current page.
+  const selectedInvoices = rows.filter(inv => selectedIds.has(inv.id));
 
   return (
     <>
@@ -135,7 +139,9 @@ export default function InvoiceHistory() {
               <span>Total Revenue:</span>
               {revenueVisible ? (
                 <>
-                  <span className="font-bold text-gray-800">{fmtINR(totalRevenue)}</span>
+                  <span className="font-bold text-gray-800">
+                    {totalRevenue == null ? <Loader2 size={14} className="animate-spin inline" /> : fmtINR(totalRevenue)}
+                  </span>
                   <button
                     onClick={() => setRevenueVisible(false)}
                     className="text-slate-400 hover:text-slate-600 transition-colors"
@@ -392,7 +398,7 @@ export default function InvoiceHistory() {
         grandTotal={pendingInvoice.grandTotal}
         paymentMode={pendingInvoice.paymentMode}
         onConfirm={() => {
-          cancelInvoice(pendingInvoice.id);
+          cancelInvoice(pendingInvoice);
           setPendingCancelId(null);
           // Keep the currently-loaded page in sync without an extra round-trip.
           setRows(rs => showCancelled
@@ -413,6 +419,10 @@ export default function InvoiceHistory() {
         onConfirm={() => {
           setRevenueVisible(true);
           setShowRevenuePasswordModal(false);
+          const activeOrgId = orgId ?? db.FIXED_ORG_ID;
+          db.getInvoiceTotalRevenue(activeOrgId)
+            .then(setTotalRevenue)
+            .catch(err => console.error('Failed to load total revenue', err));
         }}
         onCancel={() => setShowRevenuePasswordModal(false)}
       />

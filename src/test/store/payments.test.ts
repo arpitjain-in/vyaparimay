@@ -82,7 +82,7 @@ function resetStore() {
   });
 }
 
-/** Build the same ledger logic that CustomerLedger.tsx uses */
+/** Build the same running-balance ledger logic the customer ledger view uses */
 function buildLedger(customerId: string) {
   const { customers, invoices, paymentReceipts } = useStore.getState();
   const customer = customers.find(c => c.id === customerId)!;
@@ -444,7 +444,7 @@ describe('Customer Ledger — cancelled invoices', () => {
     upsertCartItem('WF-26K', 2, 780);
     const inv = generateInvoice('2026-05-01')!;
 
-    cancelInvoice(inv.id);
+    cancelInvoice(inv);
 
     const { ledger, totalDebit, outstanding } = buildLedger(custId);
     expect(ledger).toHaveLength(0);
@@ -463,7 +463,7 @@ describe('Customer Ledger — cancelled invoices', () => {
     startNewOrder(); setOrderCustomer(custId); setOrderGst(true);
     upsertCartItem('WF-26K', 1, 780);
     const cancelled = generateInvoice('2026-05-01')!;
-    cancelInvoice(cancelled.id);
+    cancelInvoice(cancelled);
 
     startNewOrder(); setOrderCustomer(custId); setOrderGst(true);
     upsertCartItem('WF-26K', 2, 780);

@@ -300,7 +300,7 @@ describe('E2E Flow 5: edge cases and data integrity', () => {
     const inv = generateInvoice('2026-05-09')!;
     const stockBeforeSale = useStore.getState().readyStock['WF-26K'] + 5;
 
-    cancelInvoice(inv.id);
+    cancelInvoice(inv);
 
     // Ready stock is restored on cancel back to its pre-sale level
     expect(useStore.getState().readyStock['WF-26K']).toBe(stockBeforeSale);

@@ -63,7 +63,11 @@ interface AppState {
   currentProforma: CurrentOrder | null;
   proformaStep: number;
 
-  // Invoices
+  // Invoices — NOT eagerly loaded with the org's full history at boot any
+  // more (see initializeApp). Populated incrementally as invoices are
+  // created/cancelled this session; every screen that needs more than that
+  // fetches its own scoped data instead (see Dashboard, InvoiceHistory,
+  // InvoiceView, Reports, CustomerLedgerV2).
   invoices: Invoice[];
   invoiceCounters: Record<string, number>; // FY-MM -> seq
   testInvoiceCounters: Record<string, number>; // FY-MM -> seq, isolated series for the "Test Customer"
@@ -73,7 +77,7 @@ interface AppState {
   proformaInvoices: Invoice[];
   proformaCounters: Record<string, number>; // FY-MM -> seq
 
-  // Payment Receipts
+  // Payment Receipts — same "not eagerly loaded" note as `invoices` above.
   paymentReceipts: PaymentReceipt[];
   receiptSeq: number;
 
@@ -148,7 +152,11 @@ interface AppState {
 
   // Invoice
   generateInvoice(saleDate?: string): Invoice | null;
-  cancelInvoice(id: string): void;
+  // Takes the full invoice (not just an id) — `invoices` isn't eagerly
+  // loaded with full org history any more, so the caller (which always
+  // already has the invoice object on screen) passes it directly instead
+  // of this looking it up in the store.
+  cancelInvoice(invoice: Invoice): void;
   updateInvoicePaymentMode(id: string, mode: 'Cash' | 'Credit'): void;
 
   // Proforma invoice — a non-binding preliminary quote. Its own numbering
@@ -352,9 +360,9 @@ export const useStore = create<AppState>()(
           const [
             businessProfile,
             { customers, seq: customerSeq },
-            invoices,
+            invoiceNumbers,
             proformaInvoices,
-            { receipts: paymentReceipts, seq: receiptSeq },
+            receiptIds,
             packagingEntries,
             productionLogs,
             stockData,
@@ -368,9 +376,15 @@ export const useStore = create<AppState>()(
           ] = await Promise.all([
             db.loadBusinessProfile(orgId),
             db.loadCustomers(orgId),
-            db.loadInvoices(orgId),
+            // Only the invoice/receipt numbers, not full rows — `invoices` and
+            // `paymentReceipts` are no longer eagerly loaded with the org's
+            // entire history (every screen that needs invoice/payment data now
+            // fetches its own bounded window; see Dashboard, the ledger,
+            // InvoiceHistory, InvoiceView, Reports). All that boot genuinely
+            // needs from this data is the next sequence number per series.
+            db.loadInvoiceNumbers(orgId),
             db.loadProformaInvoices(orgId),
-            db.loadPaymentReceipts(orgId),
+            db.loadPaymentReceiptIds(orgId),
             db.loadPackagingEntries(orgId),
             db.loadProductionLogs(orgId),
             db.loadStockData(orgId),
@@ -383,11 +397,11 @@ export const useStore = create<AppState>()(
             db.loadSalaryRecords(orgId),
           ]);
 
-          // Derive invoice counters from loaded invoices
+          // Derive invoice counters from invoice numbers alone
           const invoiceCounters: Record<string, number> = {};
           const testInvoiceCounters: Record<string, number> = {};
-          for (const inv of invoices) {
-            const match = inv.invoiceNo.match(/^(INV|TEST)\/(\d{4})\/(\d{2})\/(\d+)/);
+          for (const invoiceNo of invoiceNumbers) {
+            const match = invoiceNo.match(/^(INV|TEST)\/(\d{4})\/(\d{2})\/(\d+)/);
             if (match) {
               const key = `${match[2]}-${match[3]}`;
               const seq = parseInt(match[4], 10);
@@ -407,6 +421,12 @@ export const useStore = create<AppState>()(
             }
           }
 
+          // Derive the payment-receipt sequence counter from ids alone
+          const receiptSeq = receiptIds.reduce(
+            (max, id) => Math.max(max, parseInt(id.replace('REC-', ''), 10) || 0),
+            0,
+          );
+
           const s = get();
 
           set({
@@ -416,12 +436,16 @@ export const useStore = create<AppState>()(
             businessProfile,
             customers,
             customerSeq,
-            invoices,
+            // Not the org's full invoice/payment history — see the comment on
+            // loadInvoiceNumbers above. Populated incrementally this session
+            // as invoices are created/cancelled and payments recorded; every
+            // screen that needs more fetches its own scoped data instead.
+            invoices: [],
             invoiceCounters,
             testInvoiceCounters,
             proformaInvoices,
             proformaCounters,
-            paymentReceipts,
+            paymentReceipts: [],
             receiptSeq,
             packagingEntries,
             productionLogs,
@@ -1048,10 +1072,9 @@ export const useStore = create<AppState>()(
         return invoice;
       },
 
-      cancelInvoice(id) {
+      cancelInvoice(invoice) {
         const s = get();
-        const invoice = s.invoices.find(inv => inv.id === id);
-        if (!invoice) return;
+        const id = invoice.id;
 
         const now = new Date();
         const dateStr = formatDate(now);
@@ -1140,7 +1163,6 @@ export const useStore = create<AppState>()(
         const { orgId } = get();
         if (orgId) db.updateInvoicePaymentModeInDb(orgId, id, mode).catch(console.error);
       },
-
 
       // ─── Payment Receipts ────────────────────────────────────────────
 

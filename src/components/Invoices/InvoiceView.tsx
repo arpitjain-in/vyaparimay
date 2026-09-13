@@ -1,20 +1,43 @@
-import React, { useMemo, useRef } from 'react';
-import { ArrowLeft, Printer, Copy } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Printer, Copy, Loader2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR } from '../../utils/format';
 import { buildThermalText, buildCustomerCopyText, buildA4Html, buildA4HalfHtml } from '../../utils/invoice';
 import Layout from '../Layout/Layout';
 import logoUrl from '../../assets/company-logo-v1.png';
+import type { Invoice } from '../../types';
+import * as realDb from '../../lib/db';
+import * as demoDb from '../../lib/db.demo';
+
+const db = import.meta.env.VITE_DEMO_MODE === 'true' ? demoDb : realDb;
 
 export default function InvoiceView() {
-  const { selectedInvoiceId, invoices, proformaInvoices, businessProfile, navigate, showDialog } = useStore();
+  const { selectedInvoiceId, orgId, proformaInvoices, businessProfile, navigate, showDialog } = useStore();
   const preRef = useRef<HTMLPreElement>(null);
 
-  const invoice = useMemo(
-    () => invoices.find(inv => inv.id === selectedInvoiceId)
-      ?? proformaInvoices.find(inv => inv.id === selectedInvoiceId),
-    [invoices, proformaInvoices, selectedInvoiceId],
+  const proformaInvoice = useMemo(
+    () => proformaInvoices.find(inv => inv.id === selectedInvoiceId),
+    [proformaInvoices, selectedInvoiceId],
   );
+
+  // Regular (non-proforma) invoices aren't kept fully loaded in the store any
+  // more — fetch this one by id instead of relying on the org's whole
+  // history already being in memory.
+  const [fetchedInvoice, setFetchedInvoice] = useState<Invoice | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setFetchedInvoice(null);
+    if (!orgId || !selectedInvoiceId || proformaInvoice) return;
+    let cancelled = false;
+    setLoading(true);
+    db.getInvoiceById(orgId, selectedInvoiceId)
+      .then(inv => { if (!cancelled) setFetchedInvoice(inv); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [orgId, selectedInvoiceId, proformaInvoice]);
+
+  const invoice = proformaInvoice ?? fetchedInvoice ?? undefined;
 
   const thermalText = useMemo(
     () => invoice && businessProfile ? buildThermalText(invoice, businessProfile) : '',
@@ -24,6 +47,16 @@ export default function InvoiceView() {
     () => invoice && businessProfile ? buildCustomerCopyText(invoice, businessProfile) : '',
     [invoice, businessProfile],
   );
+
+  if (loading) {
+    return (
+      <Layout title="Invoice">
+        <div className="flex items-center justify-center gap-2 py-12 text-gray-400">
+          <Loader2 size={18} className="animate-spin" /> Loading invoice…
+        </div>
+      </Layout>
+    );
+  }
 
   if (!invoice || !businessProfile) {
     return (

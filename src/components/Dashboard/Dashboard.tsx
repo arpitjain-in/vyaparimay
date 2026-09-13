@@ -452,7 +452,7 @@ export default function Dashboard() {
                 <tr
                   key={c.id}
                   className="hover:bg-slate-50 cursor-pointer transition-colors"
-                  onClick={() => navigate('customer-ledger', { customerId: c.id })}
+                  onClick={() => navigate('customer-ledger-v2', { customerId: c.id })}
                 >
                   <td className="px-5 py-2.5 text-slate-400 text-xs font-mono">{i + 1}</td>
                   <td className="px-3 py-2.5 font-medium text-slate-700">{c.name}</td>

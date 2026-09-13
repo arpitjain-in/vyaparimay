@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft, Phone, MapPin, Building2, PlusCircle, Loader2, AlertCircle,
-  Pencil, Printer, Sparkles,
+  Pencil, Printer,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR, formatDate, parseDDMMYYYY } from '../../utils/format';
@@ -310,20 +310,12 @@ export default function CustomerLedgerV2() {
     <Layout
       title="Account Statement"
       actions={
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('customer-ledger', { customerId: customer.id })}
-            className="text-gray-400 hover:text-gray-600 text-xs underline"
-          >
-            Switch to classic ledger
-          </button>
-          <button
-            onClick={() => navigate('customer-list')}
-            className="text-gray-500 hover:text-gray-700 flex items-center gap-1 text-sm"
-          >
-            <ArrowLeft size={16} /> Back
-          </button>
-        </div>
+        <button
+          onClick={() => navigate('customer-list')}
+          className="text-gray-500 hover:text-gray-700 flex items-center gap-1 text-sm"
+        >
+          <ArrowLeft size={16} /> Back
+        </button>
       }
     >
       {showAddPayment && (
@@ -351,10 +343,6 @@ export default function CustomerLedgerV2() {
           onCancel={() => setPendingEditReceiptId(null)}
         />
       )}
-
-      <div className="flex items-center gap-2 mb-4 text-xs font-medium text-purple-600 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 w-fit">
-        <Sparkles size={13} /> New statement view — beta. The old ledger is still available.
-      </div>
 
       {/* Customer Profile Card */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-5">

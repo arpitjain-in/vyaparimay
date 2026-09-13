@@ -16,7 +16,6 @@ import Dashboard from './components/Dashboard/Dashboard';
 // Lazy-loaded — only fetched when the user navigates to that page
 const CustomerList     = lazy(() => import('./components/Customers/CustomerList'));
 const CustomerForm     = lazy(() => import('./components/Customers/CustomerForm'));
-const CustomerLedger   = lazy(() => import('./components/Customers/CustomerLedger'));
 const CustomerLedgerV2 = lazy(() => import('./components/Customers/CustomerLedgerV2'));
 const NewOrder         = lazy(() => import('./components/Orders/NewOrder'));
 const InvoiceHistory   = lazy(() => import('./components/Invoices/InvoiceHistory'));
@@ -102,7 +101,7 @@ export default function App() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-slate-100">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4" />
-          <p className="text-gray-600 text-sm">Loading your data…</p>
+          <p className="text-gray-600 text-7xl">Loading your data…</p>
         </div>
       </div>
     );
@@ -146,7 +145,6 @@ export default function App() {
       case 'dashboard':        return <Dashboard />;
       case 'customer-list':    return <CustomerList />;
       case 'customer-form':    return <CustomerForm />;
-      case 'customer-ledger':  return <CustomerLedger />;
       case 'customer-ledger-v2': return <CustomerLedgerV2 />;
       case 'new-order':        return <NewOrder />;
       case 'new-proforma':     return <NewOrder mode="proforma" />;

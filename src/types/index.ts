@@ -282,7 +282,6 @@ export type AppPage =
   | 'dashboard'
   | 'customer-list'
   | 'customer-form'
-  | 'customer-ledger'
   | 'customer-ledger-v2'
   | 'new-order'
   | 'new-proforma'

@@ -1,8 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   BarChart3, PackageCheck, Box, FileDown, Weight, Users, BookOpen,
   TrendingUp, TrendingDown, Minus, Wallet, Receipt, AlertTriangle, IndianRupee, ChevronDown, ChevronRight, Lock, UserX,
-  CalendarRange,
+  CalendarRange, Loader2,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { PRODUCTS, PRODUCT_CATEGORIES, PACKAGING_MATERIALS } from '../../data/products';
@@ -10,7 +10,21 @@ import Layout from '../Layout/Layout';
 import DeletePasswordModal from '../Invoices/DeletePasswordModal';
 import { fmtINR, formatDate } from '../../utils/format';
 import type { Invoice, PackagingEntry, PaymentReceipt, Expense, SalaryRecord, Customer, PaymentMode } from '../../types';
-import { useState } from 'react';
+import * as realDb from '../../lib/db';
+import * as demoDb from '../../lib/db.demo';
+
+const db = import.meta.env.VITE_DEMO_MODE === 'true' ? demoDb : realDb;
+
+/** A small centered spinner, used by every Reports tab while its scoped
+ * fetch for the selected window/period is in flight. */
+function ReportLoading() {
+  return (
+    <div className="flex items-center justify-center py-16 text-slate-400 gap-2">
+      <Loader2 size={20} className="animate-spin" />
+      <span className="text-sm">Loading…</span>
+    </div>
+  );
+}
 
 // SKU → product-line map (WF/BS/BR/DL), used to attribute revenue and weight
 // to Wheat Flour / Bran / Besan for the monthly comparison report below.
@@ -510,8 +524,35 @@ function openPdfWindow(html: string): void {
 // ─── Sales Summary Table ──────────────────────────────────────────────────────
 
 function SalesSummaryTable() {
-  const { invoices, paymentReceipts, customers } = useStore();
+  const { customers, orgId } = useStore();
   const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
+
+  // Overview only ever needs a recent window — prev-2-months through today,
+  // the widest of getFixedPeriods()'s periods — not the org's entire history.
+  const rangeFrom = useMemo(() => {
+    const today = new Date();
+    return dateStr(new Date(today.getFullYear(), today.getMonth() - 2, 1));
+  }, []);
+  const rangeTo = useMemo(() => dateStr(new Date()), []);
+
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [paymentReceipts, setPaymentReceipts] = useState<PaymentReceipt[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      db.loadInvoicesInRange(orgId, rangeFrom, rangeTo),
+      db.loadPaymentReceiptsInRange(orgId, rangeFrom, rangeTo),
+    ]).then(([inv, receipts]) => {
+      if (cancelled) return;
+      setInvoices(inv);
+      setPaymentReceipts(receipts);
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [orgId, rangeFrom, rangeTo]);
 
   // Filter out the individual month rows that have zero sales (keep week/today rows always)
   const periods = useMemo(
@@ -561,6 +602,8 @@ function SalesSummaryTable() {
     }
     return map;
   }, [invoices, monthlyPeriods]);
+
+  if (loading) return <ReportLoading />;
 
   return (
     <div className="space-y-6">
@@ -860,6 +903,17 @@ function getMonthOptions(): { value: string; label: string }[] {
   return options;
 }
 
+/** First/last day of a "YYYY-MM" month value, as DD/MM/YYYY — for scoping a
+ * fetch to exactly one selected month instead of the org's entire history. */
+function monthBounds(selectedMonth: string): { from: string; to: string } {
+  const [yearS, monthS] = selectedMonth.split('-');
+  const year = Number(yearS);
+  const month = Number(monthS); // 1-12
+  const from = dateStr(new Date(year, month - 1, 1));
+  const to = dateStr(new Date(year, month, 0)); // day 0 of next month = last day of this month
+  return { from, to };
+}
+
 interface CustomerMonthRow {
   customerId: string;
   customerName: string;
@@ -981,9 +1035,29 @@ function MonthlyCustomerReport({
   selectedMonth: string;
   onMonthChange: (month: string) => void;
 }) {
-  const { customers, invoices, paymentReceipts } = useStore();
+  const { customers, orgId } = useStore();
 
   const monthOptions = useMemo(getMonthOptions, []);
+  const { from, to } = useMemo(() => monthBounds(selectedMonth), [selectedMonth]);
+
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [paymentReceipts, setPaymentReceipts] = useState<PaymentReceipt[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      db.loadInvoicesInRange(orgId, from, to),
+      db.loadPaymentReceiptsInRange(orgId, from, to),
+    ]).then(([inv, receipts]) => {
+      if (cancelled) return;
+      setInvoices(inv);
+      setPaymentReceipts(receipts);
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [orgId, from, to]);
 
   const rows = useMemo(
     () => buildCustomerMonthData(selectedMonth, invoices, paymentReceipts, customers),
@@ -999,19 +1073,27 @@ function MonthlyCustomerReport({
     total:  rows.reduce((s, r) => s + r.weightTotal, 0),
   }), [rows]);
 
+  const monthSelector = (
+    <div className="flex items-center gap-3">
+      <label className="text-sm font-medium text-slate-600">Month:</label>
+      <select
+        value={selectedMonth}
+        onChange={e => onMonthChange(e.target.value)}
+        className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+      >
+        {monthOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+
+  if (loading) {
+    return <div className="space-y-4">{monthSelector}<ReportLoading /></div>;
+  }
+
   if (rows.length === 0) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <label className="text-sm font-medium text-slate-600">Month:</label>
-          <select
-            value={selectedMonth}
-            onChange={e => onMonthChange(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          >
-            {monthOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
+        {monthSelector}
         <div className="text-center py-16 text-slate-400">
           <Users size={40} className="mx-auto mb-3 opacity-30" />
           <p className="text-sm">No customer activity for this month</p>
@@ -1022,16 +1104,7 @@ function MonthlyCustomerReport({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <label className="text-sm font-medium text-slate-600">Month:</label>
-        <select
-          value={selectedMonth}
-          onChange={e => onMonthChange(e.target.value)}
-          className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-        >
-          {monthOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      </div>
+      {monthSelector}
 
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -1164,23 +1237,29 @@ function AccountantReport({
   selectedMonth: string;
   onMonthChange: (month: string) => void;
 }) {
-  const { invoices } = useStore();
+  const { orgId } = useStore();
   const monthOptions = useMemo(getMonthOptions, []);
+  const { from, to } = useMemo(() => monthBounds(selectedMonth), [selectedMonth]);
 
-  const [yearS, monthS] = selectedMonth.split('-');
-  const year = Number(yearS);
-  const month = Number(monthS);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    setLoading(true);
+    db.loadInvoicesInRange(orgId, from, to)
+      .then(inv => { if (!cancelled) setInvoices(inv); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [orgId, from, to]);
 
   const filtered = useMemo(
     () =>
       invoices
-        .filter(inv => {
-          if (inv.cancelled) return false;
-          const [, mm, yyyy] = inv.invoiceDate.split('/').map(Number);
-          return yyyy === year && mm === month;
-        })
+        .filter(inv => !inv.cancelled)
         .sort((a, b) => toOrd(a.invoiceDate) - toOrd(b.invoiceDate)),
-    [invoices, year, month],
+    [invoices],
   );
 
   const totals = useMemo(() => ({
@@ -1202,7 +1281,7 @@ function AccountantReport({
         </select>
       </div>
 
-      {filtered.length === 0 ? (
+      {loading ? <ReportLoading /> : filtered.length === 0 ? (
         <div className="text-center py-16 text-slate-400">
           <BookOpen size={40} className="mx-auto mb-3 opacity-30" />
           <p className="text-sm">No invoices for this month</p>
@@ -1282,6 +1361,7 @@ interface QuarterOption {
   rangeLabel: string;  // 'Apr – Jun 2026'
   startOrd: number;
   endOrd: number;
+  startDateStr: string;
   endDateStr: string;
   months: PeriodDef[];
 }
@@ -1329,6 +1409,7 @@ function getQuarterOptions(count = 8): QuarterOption[] {
       rangeLabel: `${qStart.toLocaleString('en-IN', { month: 'short' })} – ${qEnd.toLocaleString('en-IN', { month: 'short' })} ${qEnd.getFullYear()}`,
       startOrd: toOrd(dateStr(qStart)),
       endOrd: Math.min(toOrd(dateStr(qEnd)), todayOrd),
+      startDateStr: dateStr(qStart),
       endDateStr: dateStr(endDate),
       months,
     });
@@ -1371,6 +1452,12 @@ function buildQuarterReportData(
   expenses: Expense[],
   salaryRecords: SalaryRecord[],
   customers: Customer[],
+  // Per-customer balance as of the quarter's end date — a server-side
+  // aggregate (fn_customer_outstanding_asof) rather than scanning every
+  // invoice and payment receipt ever created, since "as of" needs
+  // cumulative history from before the quarter too, not just activity
+  // within it.
+  outstandingAsOfEndByCustomer: Record<string, number>,
 ): QuarterReportData {
   const filteredInvoices = invoices.filter(
     inv => !inv.cancelled && toOrd(inv.invoiceDate) >= opt.startOrd && toOrd(inv.invoiceDate) <= opt.endOrd,
@@ -1407,23 +1494,14 @@ function buildQuarterReportData(
   const netCashSurplus = collections - expensesTotal - salaryPayout;
   const netBusinessResult = revenue - expensesTotal - salaryAccrued;
 
-  // Running customer balance (opening balance + invoices − receipts) as of quarter end
-  const balanceByCustomer: Record<string, number> = {};
-  for (const c of customers) balanceByCustomer[c.id] = c.openingBalance;
-  for (const inv of invoices) {
-    if (inv.cancelled || toOrd(inv.invoiceDate) > opt.endOrd) continue;
-    balanceByCustomer[inv.customerId] = (balanceByCustomer[inv.customerId] ?? 0) + inv.grandTotal;
-  }
-  for (const r of receipts) {
-    if (toOrd(r.date) > opt.endOrd) continue;
-    balanceByCustomer[r.customerId] = (balanceByCustomer[r.customerId] ?? 0) - r.amount;
-  }
-  const outstandingAsOfEnd = Object.values(balanceByCustomer).reduce((s, b) => s + b, 0);
+  // Running customer balance (opening balance + invoices − receipts) as of
+  // quarter end — from the server-side as-of aggregate (see param doc above).
+  const outstandingAsOfEnd = Object.values(outstandingAsOfEndByCustomer).reduce((s, b) => s + b, 0);
 
   const custNameById: Record<string, string> = {};
   for (const c of customers) custNameById[c.id] = c.name;
 
-  const topOutstanding: OutstandingRow[] = Object.entries(balanceByCustomer)
+  const topOutstanding: OutstandingRow[] = Object.entries(outstandingAsOfEndByCustomer)
     .filter(([, bal]) => bal > 0)
     .map(([customerId, balance]) => ({ customerId, customerName: custNameById[customerId] ?? customerId, balance }))
     .sort((a, b) => b.balance - a.balance)
@@ -1637,14 +1715,56 @@ function QuarterlyFinancialReport({
   selectedQuarter: string;
   onQuarterChange: (value: string) => void;
 }) {
-  const { customers, invoices, paymentReceipts, expenses, salaryRecords } = useStore();
+  const { customers, expenses, salaryRecords, orgId } = useStore();
   const quarterOptions = useMemo(() => getQuarterOptions(), []);
   const opt = quarterOptions.find(q => q.value === selectedQuarter) ?? quarterOptions[0];
 
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [paymentReceipts, setPaymentReceipts] = useState<PaymentReceipt[]>([]);
+  const [outstandingAsOfEnd, setOutstandingAsOfEnd] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      db.loadInvoicesInRange(orgId, opt.startDateStr, opt.endDateStr),
+      db.loadPaymentReceiptsInRange(orgId, opt.startDateStr, opt.endDateStr),
+      db.getCustomerOutstandingAsOf(orgId, opt.endDateStr),
+    ]).then(([inv, receipts, outstanding]) => {
+      if (cancelled) return;
+      setInvoices(inv);
+      setPaymentReceipts(receipts);
+      setOutstandingAsOfEnd(outstanding);
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [orgId, opt.startDateStr, opt.endDateStr]);
+
   const data = useMemo(
-    () => buildQuarterReportData(opt, invoices, paymentReceipts, expenses, salaryRecords, customers),
-    [opt, invoices, paymentReceipts, expenses, salaryRecords, customers],
+    () => buildQuarterReportData(opt, invoices, paymentReceipts, expenses, salaryRecords, customers, outstandingAsOfEnd),
+    [opt, invoices, paymentReceipts, expenses, salaryRecords, customers, outstandingAsOfEnd],
   );
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-slate-600">Quarter:</label>
+          <select
+            value={opt.value}
+            onChange={e => onQuarterChange(e.target.value)}
+            className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          >
+            {quarterOptions.map(o => (
+              <option key={o.value} value={o.value}>{o.label} &middot; {o.rangeLabel}</option>
+            ))}
+          </select>
+        </div>
+        <ReportLoading />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -2225,13 +2345,39 @@ function MonthOverMonthSnapshot({ rows }: { rows: MonthComparisonRow[] }) {
 }
 
 function MonthlyComparisonReport() {
-  const { invoices, paymentReceipts } = useStore();
+  const { orgId } = useStore();
 
   const periods = useMemo(getFiscalMonthlyPeriods, []);
+  // Bounded to the current fiscal year to date — the widest range any of
+  // getFiscalMonthlyPeriods()' months can fall in — not the org's entire history.
+  const rangeFrom = useMemo(() => dateStr(fiscalYearStartMonth(new Date())), []);
+  const rangeTo = useMemo(() => dateStr(new Date()), []);
+
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [paymentReceipts, setPaymentReceipts] = useState<PaymentReceipt[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      db.loadInvoicesInRange(orgId, rangeFrom, rangeTo),
+      db.loadPaymentReceiptsInRange(orgId, rangeFrom, rangeTo),
+    ]).then(([inv, receipts]) => {
+      if (cancelled) return;
+      setInvoices(inv);
+      setPaymentReceipts(receipts);
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [orgId, rangeFrom, rangeTo]);
+
   const rows = useMemo(
     () => buildMonthComparisonData(periods, invoices, paymentReceipts),
     [periods, invoices, paymentReceipts],
   );
+
+  if (loading) return <ReportLoading />;
 
   return (
     <div className="space-y-6">
@@ -2392,8 +2538,11 @@ interface InactiveCustomerRow {
 
 function buildInactivityData(
   customers: Customer[],
-  invoices: Invoice[],
-  paymentReceipts: PaymentReceipt[],
+  // Server-side aggregates (fn_customer_last_activity, fn_customer_outstanding)
+  // instead of scanning every invoice and every payment receipt ever created
+  // just to find two MAX() dates and a running balance per customer.
+  lastActivityByCustomer: Record<string, { lastInvoiceDate: string | null; lastPaymentDate: string | null }>,
+  outstandingByCustomer: Record<string, number>,
   txnType: InactivityTxnType,
   unit: InactivityUnit,
   value: number,
@@ -2401,40 +2550,12 @@ function buildInactivityData(
   const today = new Date();
   const cutoffOrd = toOrd(dateStr(subtractPeriod(today, value, unit)));
 
-  const lastDebitByCustomer: Record<string, string> = {};
-  for (const inv of invoices) {
-    if (inv.cancelled) continue;
-    const existing = lastDebitByCustomer[inv.customerId];
-    if (!existing || toOrd(inv.invoiceDate) > toOrd(existing)) {
-      lastDebitByCustomer[inv.customerId] = inv.invoiceDate;
-    }
-  }
-
-  const lastCreditByCustomer: Record<string, string> = {};
-  for (const r of paymentReceipts) {
-    const existing = lastCreditByCustomer[r.customerId];
-    if (!existing || toOrd(r.date) > toOrd(existing)) {
-      lastCreditByCustomer[r.customerId] = r.date;
-    }
-  }
-
-  // Current outstanding balance per customer (all-time, not limited to the inactivity window)
-  const balanceByCustomer: Record<string, number> = {};
-  for (const c of customers) balanceByCustomer[c.id] = c.openingBalance;
-  for (const inv of invoices) {
-    if (inv.cancelled) continue;
-    balanceByCustomer[inv.customerId] = (balanceByCustomer[inv.customerId] ?? 0) + inv.grandTotal;
-  }
-  for (const r of paymentReceipts) {
-    balanceByCustomer[r.customerId] = (balanceByCustomer[r.customerId] ?? 0) - r.amount;
-  }
-
   const rows: InactiveCustomerRow[] = [];
 
   for (const cust of customers) {
     if (!cust.active) continue;
-    const lastDebitDate = lastDebitByCustomer[cust.id] ?? null;
-    const lastCreditDate = lastCreditByCustomer[cust.id] ?? null;
+    const lastDebitDate = lastActivityByCustomer[cust.id]?.lastInvoiceDate ?? null;
+    const lastCreditDate = lastActivityByCustomer[cust.id]?.lastPaymentDate ?? null;
 
     let relevantDate: string | null;
     if (txnType === 'debit') relevantDate = lastDebitDate;
@@ -2447,7 +2568,7 @@ function buildInactivityData(
     if (!isInactive) continue;
 
     // Only customers with a pending (non-zero) outstanding balance are relevant here.
-    const outstandingBalance = balanceByCustomer[cust.id] ?? 0;
+    const outstandingBalance = outstandingByCustomer[cust.id] ?? 0;
     if (outstandingBalance === 0) continue;
 
     const daysSinceRelevant = relevantDate
@@ -2526,15 +2647,41 @@ function CustomerInactivityReport({
   valueText: string;
   onValueTextChange: (v: string) => void;
 }) {
-  const { customers, invoices, paymentReceipts } = useStore();
+  const { customers, orgId } = useStore();
 
   const value = Number(valueText);
   const isValid = valueText.trim() !== '' && value > 0;
 
+  // Server-side aggregates — last invoice/payment date and current
+  // outstanding balance per customer — instead of scanning every invoice
+  // and every payment receipt ever created for two MAX() dates and a
+  // running balance. Fetched once; every txnType/unit/value combination
+  // below is derived from the same two aggregates.
+  const [lastActivity, setLastActivity] = useState<Record<string, { lastInvoiceDate: string | null; lastPaymentDate: string | null }>>({});
+  const [outstanding, setOutstanding] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      db.getCustomerLastActivity(orgId),
+      db.getCustomerOutstanding(orgId),
+    ]).then(([activity, outstandingByCustomer]) => {
+      if (cancelled) return;
+      setLastActivity(activity);
+      setOutstanding(outstandingByCustomer);
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [orgId]);
+
   const rows = useMemo(
-    () => (isValid ? buildInactivityData(customers, invoices, paymentReceipts, txnType, unit, value) : []),
-    [customers, invoices, paymentReceipts, txnType, unit, value, isValid],
+    () => (isValid ? buildInactivityData(customers, lastActivity, outstanding, txnType, unit, value) : []),
+    [customers, lastActivity, outstanding, txnType, unit, value, isValid],
   );
+
+  if (loading) return <ReportLoading />;
 
   return (
     <div className="space-y-4">
@@ -2655,56 +2802,94 @@ export default function ReportsPage() {
   const [inactivityUnit, setInactivityUnit] = useState<InactivityUnit>('weeks');
   const [inactivityValueText, setInactivityValueText] = useState('2');
 
-  const { businessProfile, invoices, readyStock, packagingStock, packagingEntries, paymentReceipts, customers, expenses, salaryRecords } = useStore();
+  const { businessProfile, readyStock, packagingStock, packagingEntries, customers, expenses, salaryRecords, orgId } = useStore();
   const bizName = businessProfile?.name ?? 'Millbook';
+  const [pdfLoading, setPdfLoading] = useState(false);
 
-  const handleDownloadPdf = () => {
-    let html: string;
-    if (activeTab === 'overview') {
-      html = buildOverviewPdfHtml(bizName, invoices, paymentReceipts, readyStock);
-    } else if (activeTab === 'packaging') {
-      html = buildPackagingPdfHtml(bizName, packagingStock, packagingEntries);
-    } else if (activeTab === 'accountant') {
-      const monthOptions = getMonthOptions();
-      const monthLabel = monthOptions.find(o => o.value === accountantSelectedMonth)?.label ?? accountantSelectedMonth;
-      const [yearS, monthS] = accountantSelectedMonth.split('-');
-      const year = Number(yearS); const month = Number(monthS);
-      const acctInvoices = invoices.filter(inv => {
-        if (inv.cancelled) return false;
-        const [, mm, yyyy] = inv.invoiceDate.split('/').map(Number);
-        return yyyy === year && mm === month;
-      });
-      html = buildAccountantReportPdfHtml(bizName, monthLabel, acctInvoices);
-    } else if (activeTab === 'quarterly') {
-      const quarterOptions = getQuarterOptions();
-      const opt = quarterOptions.find(o => o.value === selectedQuarter) ?? quarterOptions[0];
-      const data = buildQuarterReportData(opt, invoices, paymentReceipts, expenses, salaryRecords, customers);
-      html = buildQuarterlyReportPdfHtml(bizName, opt, data);
-    } else if (activeTab === 'inactivity') {
-      const value = Number(inactivityValueText);
-      const rows = value > 0
-        ? buildInactivityData(customers, invoices, paymentReceipts, inactivityTxnType, inactivityUnit, value)
-        : [];
-      html = buildInactivityReportPdfHtml(bizName, rows, inactivityTxnType, inactivityUnit, value);
-    } else if (activeTab === 'comparison') {
-      const comparisonPeriods = getFiscalMonthlyPeriods();
-      const comparisonRows = buildMonthComparisonData(comparisonPeriods, invoices, paymentReceipts);
-      html = buildMonthComparisonPdfHtml(bizName, comparisonRows);
-    } else {
-      const monthOptions = getMonthOptions();
-      const monthLabel = monthOptions.find(o => o.value === monthlySelectedMonth)?.label ?? monthlySelectedMonth;
-      const rows = buildCustomerMonthData(monthlySelectedMonth, invoices, paymentReceipts, customers);
-      html = buildMonthlyCustomerReportPdfHtml(bizName, monthLabel, rows);
+  // Each branch fetches exactly the same bounded window its on-screen tab
+  // uses (see the matching component above) — a deliberate re-fetch at
+  // click time rather than lifting state, since Download PDF is an
+  // infrequent, explicit action and this keeps each tab's data ownership
+  // in one place.
+  const handleDownloadPdf = async () => {
+    if (!orgId) return;
+    setPdfLoading(true);
+    try {
+      let html: string;
+      if (activeTab === 'overview') {
+        const today = new Date();
+        const from = dateStr(new Date(today.getFullYear(), today.getMonth() - 2, 1));
+        const to = dateStr(today);
+        const [invoices, receipts] = await Promise.all([
+          db.loadInvoicesInRange(orgId, from, to),
+          db.loadPaymentReceiptsInRange(orgId, from, to),
+        ]);
+        html = buildOverviewPdfHtml(bizName, invoices, receipts, readyStock);
+      } else if (activeTab === 'packaging') {
+        html = buildPackagingPdfHtml(bizName, packagingStock, packagingEntries);
+      } else if (activeTab === 'accountant') {
+        const monthOptions = getMonthOptions();
+        const monthLabel = monthOptions.find(o => o.value === accountantSelectedMonth)?.label ?? accountantSelectedMonth;
+        const { from, to } = monthBounds(accountantSelectedMonth);
+        const acctInvoices = (await db.loadInvoicesInRange(orgId, from, to)).filter(inv => !inv.cancelled);
+        html = buildAccountantReportPdfHtml(bizName, monthLabel, acctInvoices);
+      } else if (activeTab === 'quarterly') {
+        const quarterOptions = getQuarterOptions();
+        const opt = quarterOptions.find(o => o.value === selectedQuarter) ?? quarterOptions[0];
+        const [invoices, receipts, outstandingAsOfEnd] = await Promise.all([
+          db.loadInvoicesInRange(orgId, opt.startDateStr, opt.endDateStr),
+          db.loadPaymentReceiptsInRange(orgId, opt.startDateStr, opt.endDateStr),
+          db.getCustomerOutstandingAsOf(orgId, opt.endDateStr),
+        ]);
+        const data = buildQuarterReportData(opt, invoices, receipts, expenses, salaryRecords, customers, outstandingAsOfEnd);
+        html = buildQuarterlyReportPdfHtml(bizName, opt, data);
+      } else if (activeTab === 'inactivity') {
+        const value = Number(inactivityValueText);
+        let rows: InactiveCustomerRow[] = [];
+        if (value > 0) {
+          const [lastActivity, outstanding] = await Promise.all([
+            db.getCustomerLastActivity(orgId),
+            db.getCustomerOutstanding(orgId),
+          ]);
+          rows = buildInactivityData(customers, lastActivity, outstanding, inactivityTxnType, inactivityUnit, value);
+        }
+        html = buildInactivityReportPdfHtml(bizName, rows, inactivityTxnType, inactivityUnit, value);
+      } else if (activeTab === 'comparison') {
+        const comparisonPeriods = getFiscalMonthlyPeriods();
+        const from = dateStr(fiscalYearStartMonth(new Date()));
+        const to = dateStr(new Date());
+        const [invoices, receipts] = await Promise.all([
+          db.loadInvoicesInRange(orgId, from, to),
+          db.loadPaymentReceiptsInRange(orgId, from, to),
+        ]);
+        const comparisonRows = buildMonthComparisonData(comparisonPeriods, invoices, receipts);
+        html = buildMonthComparisonPdfHtml(bizName, comparisonRows);
+      } else {
+        const monthOptions = getMonthOptions();
+        const monthLabel = monthOptions.find(o => o.value === monthlySelectedMonth)?.label ?? monthlySelectedMonth;
+        const { from, to } = monthBounds(monthlySelectedMonth);
+        const [invoices, receipts] = await Promise.all([
+          db.loadInvoicesInRange(orgId, from, to),
+          db.loadPaymentReceiptsInRange(orgId, from, to),
+        ]);
+        const rows = buildCustomerMonthData(monthlySelectedMonth, invoices, receipts, customers);
+        html = buildMonthlyCustomerReportPdfHtml(bizName, monthLabel, rows);
+      }
+      openPdfWindow(html);
+    } catch (err) {
+      console.error('Failed to build report PDF', err);
+    } finally {
+      setPdfLoading(false);
     }
-    openPdfWindow(html);
   };
 
   const pdfButton = (
     <button
       onClick={handleDownloadPdf}
-      className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl shadow-sm transition-colors"
+      disabled={pdfLoading}
+      className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl shadow-sm transition-colors disabled:opacity-60"
     >
-      <FileDown size={15} />
+      {pdfLoading ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />}
       Download PDF
     </button>
   );

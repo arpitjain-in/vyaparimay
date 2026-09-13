@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   LayoutDashboard, Users, ShoppingCart, FileText,
   PackageCheck, Box, IndianRupee, Settings,
@@ -8,6 +8,10 @@ import { useStore } from '../../store/useStore';
 import { AppPage } from '../../types';
 import { formatDate } from '../../utils/format';
 import { signOut } from '../../lib/db';
+import * as realDb from '../../lib/db';
+import * as demoDb from '../../lib/db.demo';
+
+const db = import.meta.env.VITE_DEMO_MODE === 'true' ? demoDb : realDb;
 
 interface NavItem {
   label: string;
@@ -26,7 +30,7 @@ export default function Sidebar() {
   const businessProfile  = useStore(s => s.businessProfile);
   const currentOrder     = useStore(s => s.currentOrder);
   const currentProforma  = useStore(s => s.currentProforma);
-  const invoices         = useStore(s => s.invoices);
+  const orgId            = useStore(s => s.orgId);
 
   const handleNav = (page: AppPage) => {
     if (page === 'new-order') {
@@ -38,10 +42,18 @@ export default function Sidebar() {
     }
   };
 
-  const todaySales = useMemo(
-    () => invoices.filter(i => !i.cancelled && i.invoiceDate === TODAY).length,
-    [invoices],
-  );
+  // A cheap count-only query — refetched on navigation so the badge stays
+  // current after creating/cancelling an invoice — instead of deriving it
+  // from the org's entire invoice history sitting in the store.
+  const [todaySales, setTodaySales] = useState(0);
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    db.countInvoicesForDate(orgId, TODAY).then(count => {
+      if (!cancelled) setTodaySales(count);
+    });
+    return () => { cancelled = true; };
+  }, [orgId, currentPage]);
 
   const SECTIONS: NavSection[] = useMemo(() => [
     {

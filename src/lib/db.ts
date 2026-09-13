@@ -515,6 +515,127 @@ export async function getCustomerOutstanding(orgId: string): Promise<Record<stri
 }
 
 /**
+ * Same as getCustomerOutstanding, but as of an arbitrary cutoff date instead
+ * of "now" — via fn_customer_outstanding_asof. Powers the Quarterly report's
+ * "Outstanding Receivables as of <quarter end>" figure, which needs a
+ * cumulative balance from before the quarter too, not just activity within it.
+ */
+export async function getCustomerOutstandingAsOf(orgId: string, asOfDateDdMmYyyy: string): Promise<Record<string, number>> {
+  const { data, error } = await supabase.rpc('fn_customer_outstanding_asof', {
+    p_org_id: orgId,
+    p_asof: toDbDate(asOfDateDdMmYyyy),
+  });
+  if (error) throw error;
+  const result: Record<string, number> = {};
+  for (const row of (data ?? []) as { customer_id: string; outstanding: number }[]) {
+    result[row.customer_id] = Number(row.outstanding);
+  }
+  return result;
+}
+
+/**
+ * Per-customer last invoice date and last payment date, via
+ * fn_customer_last_activity — one indexed pass instead of scanning every
+ * invoice and every payment receipt ever created just to find two MAX()
+ * dates per customer. Powers the Customer Inactivity report.
+ */
+export async function getCustomerLastActivity(
+  orgId: string,
+): Promise<Record<string, { lastInvoiceDate: string | null; lastPaymentDate: string | null }>> {
+  const { data, error } = await supabase.rpc('fn_customer_last_activity', { p_org_id: orgId });
+  if (error) throw error;
+  const result: Record<string, { lastInvoiceDate: string | null; lastPaymentDate: string | null }> = {};
+  for (const row of (data ?? []) as { customer_id: string; last_invoice_date: string | null; last_payment_date: string | null }[]) {
+    result[row.customer_id] = {
+      lastInvoiceDate: row.last_invoice_date ? fromDbDate(row.last_invoice_date) : null,
+      lastPaymentDate: row.last_payment_date ? fromDbDate(row.last_payment_date) : null,
+    };
+  }
+  return result;
+}
+
+/**
+ * Invoices within a date range (inclusive), org-wide, WITH line items —
+ * every Reports tab operates on a bounded window (a month, a quarter, the
+ * current fiscal year) so this is the one query that serves all of them,
+ * instead of each tab filtering the org's entire history in the browser.
+ * No pagination loop needed: every caller's window is at most ~1 fiscal
+ * year, nowhere near Max Rows at current volumes.
+ */
+export async function loadInvoicesInRange(orgId: string, fromDateDdMmYyyy: string, toDateDdMmYyyy: string): Promise<Invoice[]> {
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('*, invoice_items(*)')
+    .eq('org_id', orgId)
+    .gte('invoice_date', toDbDate(fromDateDdMmYyyy))
+    .lte('invoice_date', toDbDate(toDateDdMmYyyy))
+    .order('invoice_date', { ascending: false })
+    .order('invoice_no', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(rowToInvoice);
+}
+
+/** Just the invoice numbers for the org — enough to derive the FY/month
+ * sequence counters at boot without pulling full rows (or their line
+ * items). Paginated internally since it's still an org-wide, unbounded-by-
+ * date query. */
+export async function loadInvoiceNumbers(orgId: string): Promise<string[]> {
+  const rows = await fetchAllRows((from, to) =>
+    supabase
+      .from('invoices')
+      .select('invoice_no')
+      .eq('org_id', orgId)
+      .range(from, to),
+  );
+  return rows.map(r => r.invoice_no as string);
+}
+
+/** A single invoice by id, with line items — for InvoiceView, instead of
+ * relying on the whole org's history already being loaded into the store. */
+export async function getInvoiceById(orgId: string, id: string): Promise<Invoice | null> {
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('*, invoice_items(*)')
+    .eq('org_id', orgId)
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToInvoice(data) : null;
+}
+
+/** Count of non-cancelled invoices on a given date — for the Sidebar's
+ * today's-sales badge, without loading any invoice rows at all. */
+export async function countInvoicesForDate(orgId: string, dateDdMmYyyy: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('invoices')
+    .select('id', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+    .eq('invoice_date', toDbDate(dateDdMmYyyy))
+    .eq('cancelled', false);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/**
+ * All-time revenue total (sum of grand_total, non-cancelled) — for
+ * InvoiceHistory's password-gated header figure. PostgREST aggregate
+ * functions are disabled on this project, so this fetches just the
+ * grand_total column (paginated via fetchAllRows, safe regardless of Max
+ * Rows) and sums client-side — a skinny single-column fetch, not full rows.
+ */
+export async function getInvoiceTotalRevenue(orgId: string): Promise<number> {
+  const rows = await fetchAllRows((from, to) =>
+    supabase
+      .from('invoices')
+      .select('grand_total')
+      .eq('org_id', orgId)
+      .eq('cancelled', false)
+      .range(from, to),
+  );
+  return rows.reduce((s, r) => s + Number(r.grand_total), 0);
+}
+
+/**
  * Server-side paginated invoice history: pushes search, the payment-mode
  * and cancelled filters, and LIMIT/OFFSET to Postgres instead of pulling
  * every invoice down to filter client-side. Mirrors loadCustomersPaginated.
@@ -896,6 +1017,37 @@ export async function loadPaymentReceiptsForCustomer(orgId: string, customerId: 
       .range(from, to),
   );
   return rows.map(rowToReceipt);
+}
+
+/**
+ * Payment receipts within a date range (inclusive), org-wide — the
+ * Reports-tab counterpart to loadInvoicesInRange. No pagination loop
+ * needed: every caller's window is at most ~1 fiscal year.
+ */
+export async function loadPaymentReceiptsInRange(orgId: string, fromDateDdMmYyyy: string, toDateDdMmYyyy: string): Promise<PaymentReceipt[]> {
+  const { data, error } = await supabase
+    .from('payment_receipts')
+    .select('*')
+    .eq('org_id', orgId)
+    .gte('date', toDbDate(fromDateDdMmYyyy))
+    .lte('date', toDbDate(toDateDdMmYyyy))
+    .order('date', { ascending: false })
+    .order('time', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(rowToReceipt);
+}
+
+/** Just the receipt ids for the org — enough to derive the REC-#### sequence
+ * counter at boot without pulling full rows. Paginated internally. */
+export async function loadPaymentReceiptIds(orgId: string): Promise<string[]> {
+  const rows = await fetchAllRows((from, to) =>
+    supabase
+      .from('payment_receipts')
+      .select('id')
+      .eq('org_id', orgId)
+      .range(from, to),
+  );
+  return rows.map(r => r.id as string);
 }
 
 export async function savePaymentReceipt(

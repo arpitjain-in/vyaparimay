@@ -298,14 +298,14 @@ describe('generateInvoice — Twin25 split', () => {
     placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 3, rate: 750 }]);
     const inv = useStore.getState().generateInvoice('2026-05-09')!;
     expect(useStore.getState().readyStock['WF-25K']).toBe(7);
-    useStore.getState().cancelInvoice(inv.id);
+    useStore.getState().cancelInvoice(inv);
     expect(useStore.getState().readyStock['WF-25K']).toBe(10);
   });
 
   it('cancelling a Twin25 invoice does not touch packaging stock', () => {
     placeOrder('CUST-001', [{ skuId: 'WF-25K', qty: 3, rate: 750 }]);
     const inv = useStore.getState().generateInvoice('2026-05-09')!;
-    useStore.getState().cancelInvoice(inv.id);
+    useStore.getState().cancelInvoice(inv);
     expect(useStore.getState().packagingStock['PKG-WF-26K']).toBe(100);
   });
 
@@ -412,7 +412,7 @@ describe('cancelInvoice', () => {
   it('marks the invoice as cancelled', () => {
     placeOrder('CUST-001', [{ skuId: 'WF-26K', qty: 1, rate: 780 }]);
     const inv = useStore.getState().generateInvoice('2026-05-09')!;
-    useStore.getState().cancelInvoice(inv.id);
+    useStore.getState().cancelInvoice(inv);
     const stored = useStore.getState().invoices.find(i => i.id === inv.id)!;
     expect(stored.cancelled).toBe(true);
   });
@@ -422,7 +422,7 @@ describe('cancelInvoice', () => {
     const inv1 = useStore.getState().generateInvoice('2026-05-09')!;
     placeOrder('CUST-001', [{ skuId: 'WF-5P', qty: 2, rate: 165 }]);
     const inv2 = useStore.getState().generateInvoice('2026-05-09')!;
-    useStore.getState().cancelInvoice(inv1.id);
+    useStore.getState().cancelInvoice(inv1);
     expect(useStore.getState().invoices.find(i => i.id === inv2.id)!.cancelled).toBe(false);
   });
 });

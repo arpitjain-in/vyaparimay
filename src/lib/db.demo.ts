@@ -264,22 +264,85 @@ export async function loadInvoicesForDate(_orgId: string, dateDdMmYyyy: string):
   return lsGet<Invoice[]>('invoices', []).filter(inv => inv.invoiceDate === dateDdMmYyyy);
 }
 
-/** Demo-mode mirror of the real db's getCustomerOutstanding — see there. */
-export async function getCustomerOutstanding(_orgId: string): Promise<Record<string, number>> {
+function customerOutstandingAsOf(asOfOrd: number | null): Record<string, number> {
   const customers = lsGet<Customer[]>('customers', []);
   const invoices = lsGet<Invoice[]>('invoices', []);
   const receipts = lsGet<PaymentReceipt[]>('payment_receipts', []);
   const result: Record<string, number> = {};
   for (const c of customers) {
     const invoiced = invoices
-      .filter(inv => inv.customerId === c.id && !inv.cancelled)
+      .filter(inv => inv.customerId === c.id && !inv.cancelled && (asOfOrd === null || parseDDMMYYYY(inv.invoiceDate) <= asOfOrd))
       .reduce((s, inv) => s + inv.grandTotal, 0);
     const paid = receipts
-      .filter(r => r.customerId === c.id)
+      .filter(r => r.customerId === c.id && (asOfOrd === null || parseDDMMYYYY(r.date) <= asOfOrd))
       .reduce((s, r) => s + r.amount, 0);
     result[c.id] = c.openingBalance + invoiced - paid;
   }
   return result;
+}
+
+/** Demo-mode mirror of the real db's getCustomerOutstanding — see there. */
+export async function getCustomerOutstanding(_orgId: string): Promise<Record<string, number>> {
+  return customerOutstandingAsOf(null);
+}
+
+/** Demo-mode mirror of the real db's getCustomerOutstandingAsOf — see there. */
+export async function getCustomerOutstandingAsOf(_orgId: string, asOfDateDdMmYyyy: string): Promise<Record<string, number>> {
+  return customerOutstandingAsOf(parseDDMMYYYY(asOfDateDdMmYyyy));
+}
+
+/** Demo-mode mirror of the real db's getCustomerLastActivity — see there. */
+export async function getCustomerLastActivity(
+  _orgId: string,
+): Promise<Record<string, { lastInvoiceDate: string | null; lastPaymentDate: string | null }>> {
+  const customers = lsGet<Customer[]>('customers', []);
+  const invoices = lsGet<Invoice[]>('invoices', []);
+  const receipts = lsGet<PaymentReceipt[]>('payment_receipts', []);
+  const result: Record<string, { lastInvoiceDate: string | null; lastPaymentDate: string | null }> = {};
+  for (const c of customers) {
+    const custInvoices = invoices.filter(inv => inv.customerId === c.id && !inv.cancelled);
+    const custReceipts = receipts.filter(r => r.customerId === c.id);
+    const lastInvoiceDate = custInvoices.length > 0
+      ? custInvoices.reduce((latest, inv) => parseDDMMYYYY(inv.invoiceDate) > parseDDMMYYYY(latest) ? inv.invoiceDate : latest, custInvoices[0].invoiceDate)
+      : null;
+    const lastPaymentDate = custReceipts.length > 0
+      ? custReceipts.reduce((latest, r) => parseDDMMYYYY(r.date) > parseDDMMYYYY(latest) ? r.date : latest, custReceipts[0].date)
+      : null;
+    result[c.id] = { lastInvoiceDate, lastPaymentDate };
+  }
+  return result;
+}
+
+/** Demo-mode mirror of the real db's loadInvoicesInRange — see there. */
+export async function loadInvoicesInRange(_orgId: string, fromDateDdMmYyyy: string, toDateDdMmYyyy: string): Promise<Invoice[]> {
+  const from = parseDDMMYYYY(fromDateDdMmYyyy);
+  const to = parseDDMMYYYY(toDateDdMmYyyy);
+  return lsGet<Invoice[]>('invoices', [])
+    .filter(inv => { const ord = parseDDMMYYYY(inv.invoiceDate); return ord >= from && ord <= to; })
+    .sort((a, b) => parseDDMMYYYY(b.invoiceDate) - parseDDMMYYYY(a.invoiceDate));
+}
+
+/** Demo-mode mirror of the real db's loadInvoiceNumbers — see there. */
+export async function loadInvoiceNumbers(_orgId: string): Promise<string[]> {
+  return lsGet<Invoice[]>('invoices', []).map(inv => inv.invoiceNo);
+}
+
+/** Demo-mode mirror of the real db's getInvoiceById — see there. */
+export async function getInvoiceById(_orgId: string, id: string): Promise<Invoice | null> {
+  return lsGet<Invoice[]>('invoices', []).find(inv => inv.id === id) ?? null;
+}
+
+/** Demo-mode mirror of the real db's countInvoicesForDate — see there. */
+export async function countInvoicesForDate(_orgId: string, dateDdMmYyyy: string): Promise<number> {
+  return lsGet<Invoice[]>('invoices', [])
+    .filter(inv => inv.invoiceDate === dateDdMmYyyy && !inv.cancelled).length;
+}
+
+/** Demo-mode mirror of the real db's getInvoiceTotalRevenue — see there. */
+export async function getInvoiceTotalRevenue(_orgId: string): Promise<number> {
+  return lsGet<Invoice[]>('invoices', [])
+    .filter(inv => !inv.cancelled)
+    .reduce((s, inv) => s + inv.grandTotal, 0);
 }
 
 /** Client-side stand-in for the real db's server-side paginated query. */
@@ -412,6 +475,20 @@ export async function loadPaymentReceipts(
 /** Demo-mode mirror of the real db's loadPaymentReceiptsForCustomer — see there. */
 export async function loadPaymentReceiptsForCustomer(_orgId: string, customerId: string): Promise<PaymentReceipt[]> {
   return lsGet<PaymentReceipt[]>('payment_receipts', []).filter(r => r.customerId === customerId);
+}
+
+/** Demo-mode mirror of the real db's loadPaymentReceiptsInRange — see there. */
+export async function loadPaymentReceiptsInRange(_orgId: string, fromDateDdMmYyyy: string, toDateDdMmYyyy: string): Promise<PaymentReceipt[]> {
+  const from = parseDDMMYYYY(fromDateDdMmYyyy);
+  const to = parseDDMMYYYY(toDateDdMmYyyy);
+  return lsGet<PaymentReceipt[]>('payment_receipts', [])
+    .filter(r => { const ord = parseDDMMYYYY(r.date); return ord >= from && ord <= to; })
+    .sort((a, b) => parseDDMMYYYY(b.date) - parseDDMMYYYY(a.date));
+}
+
+/** Demo-mode mirror of the real db's loadPaymentReceiptIds — see there. */
+export async function loadPaymentReceiptIds(_orgId: string): Promise<string[]> {
+  return lsGet<PaymentReceipt[]>('payment_receipts', []).map(r => r.id);
 }
 
 export async function savePaymentReceipt(
