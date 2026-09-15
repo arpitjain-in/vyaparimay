@@ -164,8 +164,11 @@ interface AppState {
   generateProformaInvoice(saleDate?: string): Invoice | null;
 
   // Payments
-  addPaymentReceipt(data: Omit<PaymentReceipt, 'id' | 'time'>): void;
-  updatePaymentReceipt(id: string, data: Pick<PaymentReceipt, 'date' | 'amount' | 'mode' | 'referenceNo' | 'notes'>): void;
+  // Both resolve only after the DB write settles (success or handled failure),
+  // so callers that reload from the DB right after (e.g. AddPaymentModal)
+  // don't race the insert/update and read back stale data.
+  addPaymentReceipt(data: Omit<PaymentReceipt, 'id' | 'time'>): Promise<void>;
+  updatePaymentReceipt(id: string, data: Pick<PaymentReceipt, 'date' | 'amount' | 'mode' | 'referenceNo' | 'notes'>): Promise<void>;
 
   // Stock
   addPackagingEntry(entry: Omit<PackagingEntry, 'id' | 'time'>): void;
@@ -1171,7 +1174,8 @@ export const useStore = create<AppState>()(
           paymentReceipts: s.paymentReceipts.map(r => r.id === id ? { ...r, ...data } : r),
         }));
         const { orgId } = get();
-        if (orgId) db.updatePaymentReceiptInDb(orgId, id, data).catch(console.error);
+        if (orgId) return db.updatePaymentReceiptInDb(orgId, id, data).catch(console.error);
+        return Promise.resolve();
       },
 
       addPaymentReceipt(data) {
@@ -1186,7 +1190,7 @@ export const useStore = create<AppState>()(
         }));
         const { orgId } = get();
         if (orgId) {
-          db.savePaymentReceipt(orgId, rec).catch((err) => {
+          return db.savePaymentReceipt(orgId, rec).catch((err) => {
             set({ paymentReceipts: prevReceipts, receiptSeq: prevSeq, dialog: {
               title: 'Payment Not Saved',
               variant: 'warning',
@@ -1198,6 +1202,7 @@ export const useStore = create<AppState>()(
             } });
           });
         }
+        return Promise.resolve();
       },
 
       // ─── Stock ───────────────────────────────────────────────────────

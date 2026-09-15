@@ -31,15 +31,25 @@ export default function AddPaymentModal({ customerId, customerName, onClose, rec
   const [refNo, setRefNo] = useState(receipt?.referenceNo ?? '');
   const [notes, setNotes] = useState(receipt?.notes ?? '');
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { setError('Enter a valid amount'); return; }
     if (!isValidDDMMYYYY(date)) { setError('Enter date in DD/MM/YYYY format'); return; }
-    if (isEdit) {
-      updatePaymentReceipt(receipt.id, { date, amount: amt, mode, referenceNo: refNo || undefined, notes: notes || undefined });
-    } else {
-      addPaymentReceipt({ customerId, date, amount: amt, mode, referenceNo: refNo || undefined, notes: notes || undefined });
+    setSaving(true);
+    try {
+      // Wait for the DB write to settle before closing: callers reload their
+      // payment list straight from the DB on close, and closing early would
+      // race that reload against the insert/update still in flight — the new
+      // payment wouldn't show up until the page was refreshed.
+      if (isEdit) {
+        await updatePaymentReceipt(receipt.id, { date, amount: amt, mode, referenceNo: refNo || undefined, notes: notes || undefined });
+      } else {
+        await addPaymentReceipt({ customerId, date, amount: amt, mode, referenceNo: refNo || undefined, notes: notes || undefined });
+      }
+    } finally {
+      setSaving(false);
     }
     onClose();
   };
@@ -116,15 +126,17 @@ export default function AddPaymentModal({ customerId, customerName, onClose, rec
         <div className="px-6 pb-6 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 border border-gray-300 text-gray-600 py-2.5 rounded-lg text-sm hover:bg-gray-50"
+            disabled={saving}
+            className="flex-1 border border-gray-300 text-gray-600 py-2.5 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg text-sm font-semibold"
+            disabled={saving}
+            className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
           >
-            {isEdit ? 'Save Changes' : 'Save Payment'}
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Payment'}
           </button>
         </div>
       </div>
