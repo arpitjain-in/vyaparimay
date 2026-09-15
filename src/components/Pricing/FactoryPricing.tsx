@@ -103,8 +103,8 @@ export default function FactoryPricing() {
     branSellingPrice: Number(factoryParams.branSellingPrice ?? 23),
     dailyProductionMt: Number(factoryParams.dailyProductionMt ?? 15),
     workingDays: Number(factoryParams.workingDays ?? 28),
-    monthlySalary: Number(factoryParams.monthlySalary ?? 250000),
-    monthlyElectricity: Number(factoryParams.monthlyElectricity ?? 250000),
+    monthlySalary: Number(factoryParams.monthlySalary ?? 275000),
+    monthlyElectricity: Number(factoryParams.monthlyElectricity ?? 300000),
     monthlyEmi: Number(factoryParams.monthlyEmi ?? 200000),
     monthlyRepair: Number(factoryParams.monthlyRepair ?? 35000),
     safetyMargin: Number(factoryParams.safetyMargin ?? 0.15),
@@ -121,8 +121,8 @@ export default function FactoryPricing() {
     'WF-30K_pkg_cost': 0.43,   // 30 kg Bag
     'WF-26K_pkg_cost': 0.65,   // 26 kg Bag
     'WF-25K_pkg_cost': 0.65,   // 25 kg Bag (same as 26 kg)
-    'WF-10H_pkg_cost': 1.35,   // 10 kg Handle Bag
-    'WF-10P_pkg_cost': 2.10,   // PREM-10 kg Pouch
+    'WF-10H_pkg_cost': 1.50,   // 10 kg Handle Bag
+    'WF-10P_pkg_cost': 1.75,   // PREM-10 kg Pouch
     'WF-5P_pkg_cost': 2.25,    // PREM-5 kg Pouch
     'WF-5H_pkg_cost': 2.00,    // 5 kg Handle Bag
   };
