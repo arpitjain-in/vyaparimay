@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft, Phone, MapPin, Building2, PlusCircle, Loader2, AlertCircle,
-  Pencil, Printer,
+  Pencil, Printer, Receipt, X,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { fmtINR, formatDate, parseDDMMYYYY } from '../../utils/format';
 import Layout from '../Layout/Layout';
 import AddPaymentModal from '../common/AddPaymentModal';
 import DeletePasswordModal from '../Invoices/DeletePasswordModal';
+import PaymentReceiptModal from './PaymentReceiptModal';
 import type { Customer, Invoice, PaymentReceipt } from '../../types';
 import * as realDb from '../../lib/db';
 import * as demoDb from '../../lib/db.demo';
@@ -80,6 +81,9 @@ export default function CustomerLedgerV2() {
   const [pendingAddPayment, setPendingAddPayment] = useState(false);
   const [pendingEditReceiptId, setPendingEditReceiptId] = useState<string | null>(null);
   const [editingReceiptId, setEditingReceiptId] = useState<string | null>(null);
+  const [receiptSelectMode, setReceiptSelectMode] = useState(false);
+  const [selectedReceiptIds, setSelectedReceiptIds] = useState<Set<string>>(new Set());
+  const [showGeneratedReceipt, setShowGeneratedReceipt] = useState(false);
 
   const pendingEditReceipt = pendingEditReceiptId ? customerPayments.find(r => r.id === pendingEditReceiptId) ?? null : null;
   const editingReceipt = editingReceiptId ? customerPayments.find(r => r.id === editingReceiptId) ?? null : null;
@@ -198,6 +202,40 @@ export default function CustomerLedgerV2() {
   const periodDebit  = useMemo(() => windowRows.reduce((s, r) => s + r.debit, 0), [windowRows]);
   const periodCredit = useMemo(() => windowRows.reduce((s, r) => s + r.credit, 0), [windowRows]);
   const currentOutstanding = timeline.length > 0 ? timeline[timeline.length - 1].balance : 0;
+
+  // ── Multi-select payments → combined receipt ────────────────────────────
+  // Selected payments are ordered chronologically and tagged with their
+  // running ledger balance so the receipt can show an opening balance (from
+  // just before the earliest selected payment) and a closing balance (from
+  // just after the latest one) — the real account state, not a derived guess.
+  const selectedPaymentsForReceipt = useMemo(() => {
+    const selected = customerPayments.filter(p => selectedReceiptIds.has(p.id));
+    selected.sort((a, b) => parseDDMMYYYY(a.date, a.time) - parseDDMMYYYY(b.date, b.time));
+    return selected.map(p => {
+      const row = timeline.find(r => r.kind === 'payment' && r.receiptId === p.id);
+      return { ...p, balanceAfter: row ? row.balance : 0 };
+    });
+  }, [customerPayments, selectedReceiptIds, timeline]);
+
+  const receiptOpeningBalance = useMemo(() => {
+    if (selectedPaymentsForReceipt.length === 0) return 0;
+    const firstId = selectedPaymentsForReceipt[0].id;
+    const idx = timeline.findIndex(r => r.kind === 'payment' && r.receiptId === firstId);
+    return idx > 0 ? timeline[idx - 1].balance : 0;
+  }, [timeline, selectedPaymentsForReceipt]);
+
+  const toggleReceiptSelect = (id: string) => {
+    setSelectedReceiptIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const exitReceiptSelectMode = () => {
+    setReceiptSelectMode(false);
+    setSelectedReceiptIds(new Set());
+  };
 
   if (loading || invoicesLoading || paymentsLoading) {
     return (
@@ -343,6 +381,15 @@ export default function CustomerLedgerV2() {
           onCancel={() => setPendingEditReceiptId(null)}
         />
       )}
+      {showGeneratedReceipt && selectedPaymentsForReceipt.length > 0 && (
+        <PaymentReceiptModal
+          customer={customer}
+          businessProfile={businessProfile}
+          payments={selectedPaymentsForReceipt}
+          openingBalance={receiptOpeningBalance}
+          onClose={() => { setShowGeneratedReceipt(false); exitReceiptSelectMode(); }}
+        />
+      )}
 
       {/* Customer Profile Card */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-5">
@@ -457,6 +504,21 @@ export default function CustomerLedgerV2() {
             >
               <Printer size={15} /> Print
             </button>
+            {receiptSelectMode ? (
+              <button
+                onClick={exitReceiptSelectMode}
+                className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium"
+              >
+                <X size={15} /> Cancel Selection
+              </button>
+            ) : (
+              <button
+                onClick={() => setReceiptSelectMode(true)}
+                className="flex items-center gap-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-4 py-2 rounded-lg text-sm font-medium"
+              >
+                <Receipt size={15} /> Generate Receipt
+              </button>
+            )}
             <button
               onClick={() => setPendingAddPayment(true)}
               className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
@@ -466,12 +528,30 @@ export default function CustomerLedgerV2() {
           </div>
         </div>
 
+        {receiptSelectMode && (
+          <div className="px-5 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between flex-wrap gap-2">
+            <span className="text-sm text-indigo-800">
+              {selectedReceiptIds.size === 0
+                ? 'Select one or more payment entries below to combine into a receipt.'
+                : `${selectedReceiptIds.size} payment${selectedReceiptIds.size > 1 ? 's' : ''} selected · ${fmtINR(selectedPaymentsForReceipt.reduce((s, p) => s + p.amount, 0))}`}
+            </span>
+            <button
+              onClick={() => setShowGeneratedReceipt(true)}
+              disabled={selectedReceiptIds.size === 0}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              <Receipt size={15} /> Generate Receipt
+            </button>
+          </div>
+        )}
+
         {windowRowsDescending.length === 0 ? (
           <div className="text-center py-12 text-gray-400 text-sm">No transactions in this period.</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
+                {receiptSelectMode && <th className="px-4 py-3 w-10"></th>}
                 {['Date', 'Description', 'Debit (Dr)', 'Credit (Cr)', 'Balance'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
                 ))}
@@ -480,6 +560,18 @@ export default function CustomerLedgerV2() {
             <tbody className="divide-y divide-gray-100">
               {windowRowsDescending.map((row, i) => (
                 <tr key={i} className={`hover:bg-gray-50 ${row.kind === 'payment' ? 'bg-green-50/40' : ''}`}>
+                  {receiptSelectMode && (
+                    <td className="px-4 py-3">
+                      {row.kind === 'payment' && (
+                        <input
+                          type="checkbox"
+                          checked={selectedReceiptIds.has(row.receiptId)}
+                          onChange={() => toggleReceiptSelect(row.receiptId)}
+                          className="w-5 h-5 accent-indigo-600 cursor-pointer"
+                        />
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{row.date}</td>
                   <td className="px-4 py-3">
                     {row.kind === 'opening' && <span className="text-amber-700 font-medium">Opening Balance</span>}
@@ -525,7 +617,7 @@ export default function CustomerLedgerV2() {
               ))}
               {/* Opening balance for the window shown as the oldest (bottom) row */}
               <tr className="bg-amber-50/50">
-                <td className="px-4 py-3 text-gray-400 text-xs" colSpan={4}>Opening Balance (before this period)</td>
+                <td className="px-4 py-3 text-gray-400 text-xs" colSpan={receiptSelectMode ? 5 : 4}>Opening Balance (before this period)</td>
                 <td className={`px-4 py-3 font-bold text-xs ${balColor(openingBalanceForWindow)}`}>
                   {fmtINR(Math.abs(openingBalanceForWindow))}
                   <span className="text-xs font-normal text-gray-400 ml-1">{balSuffix(openingBalanceForWindow)}</span>
